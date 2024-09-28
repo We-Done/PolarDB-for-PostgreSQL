@@ -1,7 +1,7 @@
 <!-- doc/src/sgml/xoper.sgml -->
 
  <sect1 id="xoper">
-  <title>User-defined Operators</title>
+  <title>User-Defined Operators</title>
 
   <indexterm zone="xoper">
    <primary>operator</primary>
@@ -20,8 +20,8 @@
   </para>
 
   <para>
-   <productname>PostgreSQL</productname> supports left unary, right
-   unary, and binary operators.  Operators can be
+   <productname>PostgreSQL</productname> supports prefix
+   and infix operators.  Operators can be
    overloaded;<indexterm><primary>overloading</primary><secondary>operators</secondary></indexterm>
    that is, the same operator name can be used for different operators
    that have different numbers and types of operands.  When a query is
@@ -64,9 +64,15 @@ SELECT (a + b) AS c FROM test_complex;
   </para>
 
   <para>
+<<<<<<< HEAD
    We've shown how to create a binary operator here.  To create unary
    operators, just omit one of <literal>leftarg</literal> (for left unary) or
    <literal>rightarg</literal> (for right unary).  The <literal>function</literal>
+=======
+   We've shown how to create a binary operator here.  To create a prefix
+   operator, just omit the <literal>leftarg</literal>.
+   The <literal>function</literal>
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
    clause and the argument clauses are the only required items in
    <command>CREATE OPERATOR</command>.  The <literal>commutator</literal>
    clause shown in the example is an optional hint to the query
@@ -77,6 +83,11 @@ SELECT (a + b) AS c FROM test_complex;
 
   <sect1 id="xoper-optimization">
    <title>Operator Optimization Information</title>
+
+  <indexterm zone="xoper-optimization">
+   <primary>optimization information</primary>
+   <secondary>for operators</secondary>
+  </indexterm>
 
    <para>
     A <productname>PostgreSQL</productname> operator definition can include
@@ -97,7 +108,14 @@ SELECT (a + b) AS c FROM test_complex;
     the ones that release &version; understands.
    </para>
 
-   <sect2>
+   <para>
+    It is also possible to attach a planner support function to the function
+    that underlies an operator, providing another way of telling the system
+    about the behavior of the operator.
+    See <xref linkend="xfunc-optimization"/> for more information.
+   </para>
+
+   <sect2 id="xoper-commutator">
     <title><literal>COMMUTATOR</literal></title>
 
     <para>
@@ -134,47 +152,9 @@ SELECT (a + b) AS c FROM test_complex;
      <literal>=</literal> operator must specify that it is valid, by marking the
      operator with commutator information.
     </para>
-
-    <para>
-     When you are defining a self-commutative operator, you just do it.
-     When you are defining a pair of commutative operators, things are
-     a little trickier: how can the first one to be defined refer to the
-     other one, which you haven't defined yet?  There are two solutions
-     to this problem:
-
-     <itemizedlist>
-      <listitem>
-       <para>
-        One way is to omit the <literal>COMMUTATOR</literal> clause in the first operator that
-        you define, and then provide one in the second operator's definition.
-        Since <productname>PostgreSQL</productname> knows that commutative
-        operators come in pairs, when it sees the second definition it will
-        automatically go back and fill in the missing <literal>COMMUTATOR</literal> clause in
-        the first definition.
-       </para>
-      </listitem>
-
-      <listitem>
-       <para>
-        The other, more straightforward way is just to include <literal>COMMUTATOR</literal> clauses
-        in both definitions.  When <productname>PostgreSQL</productname> processes
-        the first definition and realizes that <literal>COMMUTATOR</literal> refers to a nonexistent
-        operator, the system will make a dummy entry for that operator in the
-        system catalog.  This dummy entry will have valid data only
-        for the operator name, left and right operand types, and result type,
-        since that's all that <productname>PostgreSQL</productname> can deduce
-        at this point.  The first operator's catalog entry will link to this
-        dummy entry.  Later, when you define the second operator, the system
-        updates the dummy entry with the additional information from the second
-        definition.  If you try to use the dummy operator before it's been filled
-        in, you'll just get an error message.
-       </para>
-      </listitem>
-     </itemizedlist>
-    </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="xoper-negator">
     <title><literal>NEGATOR</literal></title>
 
     <para>
@@ -190,7 +170,7 @@ SELECT (a + b) AS c FROM test_complex;
    <para>
     Unlike commutators, a pair of unary operators could validly be marked
     as each other's negators; that would mean (A x) equals NOT (B x)
-    for all x, or the equivalent for right unary operators.
+    for all x.
    </para>
 
    <para>
@@ -205,15 +185,9 @@ SELECT (a + b) AS c FROM test_complex;
     <literal>x &lt;&gt; y</literal>.  This comes up more often than you might think, because
     <literal>NOT</literal> operations can be inserted as a consequence of other rearrangements.
    </para>
-
-   <para>
-    Pairs of negator operators can be defined using the same methods
-    explained above for commutator pairs.
-   </para>
-
   </sect2>
 
-  <sect2>
+  <sect2 id="xoper-restrict">
    <title><literal>RESTRICT</literal></title>
 
    <para>
@@ -271,6 +245,18 @@ column OP constant
    </para>
 
    <para>
+    Another useful built-in selectivity estimation function
+    is <function>matchingsel</function>, which will work for almost any
+    binary operator, if standard MCV and/or histogram statistics are
+    collected for the input data type(s).  Its default estimate is set to
+    twice the default estimate used in <function>eqsel</function>, making
+    it most suitable for comparison operators that are somewhat less
+    strict than equality.  (Or you could call the
+    underlying <function>generic_restriction_selectivity</function>
+    function, providing a different default estimate.)
+   </para>
+
+   <para>
     There are additional selectivity estimation functions designed for geometric
     operators in <filename>src/backend/utils/adt/geo_selfuncs.c</filename>: <function>areasel</function>, <function>positionsel</function>,
     and <function>contsel</function>.  At this writing these are just stubs, but you might want
@@ -278,7 +264,7 @@ column OP constant
    </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="xoper-join">
     <title><literal>JOIN</literal></title>
 
     <para>
@@ -307,6 +293,7 @@ table1.column1 OP table2.column2
       <member><function>scalarlejoinsel</function> for <literal>&lt;=</literal></member>
       <member><function>scalargtjoinsel</function> for <literal>&gt;</literal></member>
       <member><function>scalargejoinsel</function> for <literal>&gt;=</literal></member>
+      <member><function>matchingjoinsel</function> for generic matching operators</member>
       <member><function>areajoinsel</function> for 2D area-based comparisons</member>
       <member><function>positionjoinsel</function> for 2D position-based comparisons</member>
       <member><function>contjoinsel</function> for 2D containment-based comparisons</member>
@@ -314,7 +301,7 @@ table1.column1 OP table2.column2
     </para>
    </sect2>
 
-   <sect2>
+   <sect2 id="xoper-hashes">
     <title><literal>HASHES</literal></title>
 
     <para>
@@ -402,7 +389,7 @@ table1.column1 OP table2.column2
 
    </sect2>
 
-   <sect2>
+   <sect2 id="xoper-merges">
     <title><literal>MERGES</literal></title>
 
     <para>

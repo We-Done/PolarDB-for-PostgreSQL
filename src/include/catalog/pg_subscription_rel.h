@@ -4,7 +4,7 @@
  *	  definition of the system catalog containing the state for each
  *	  replicated table in each subscription (pg_subscription_rel)
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_subscription_rel.h
@@ -18,10 +18,9 @@
 #ifndef PG_SUBSCRIPTION_REL_H
 #define PG_SUBSCRIPTION_REL_H
 
+#include "access/xlogdefs.h"
 #include "catalog/genbki.h"
 #include "catalog/pg_subscription_rel_d.h"
-
-#include "access/xlogdefs.h"
 #include "nodes/pg_list.h"
 
 /* ----------------
@@ -29,10 +28,10 @@
  *		typedef struct FormData_pg_subscription_rel
  * ----------------
  */
-CATALOG(pg_subscription_rel,6102,SubscriptionRelRelationId) BKI_WITHOUT_OIDS
+CATALOG(pg_subscription_rel,6102,SubscriptionRelRelationId)
 {
-	Oid			srsubid;		/* Oid of subscription */
-	Oid			srrelid;		/* Oid of relation */
+	Oid			srsubid BKI_LOOKUP(pg_subscription);	/* Oid of subscription */
+	Oid			srrelid BKI_LOOKUP(pg_class);	/* Oid of relation */
 	char		srsubstate;		/* state of the relation in subscription */
 
 	/*
@@ -41,13 +40,24 @@ CATALOG(pg_subscription_rel,6102,SubscriptionRelRelationId) BKI_WITHOUT_OIDS
 	 */
 #ifdef CATALOG_VARLEN			/* variable-length fields start here */
 
+<<<<<<< HEAD
 	XLogRecPtr	srsublsn;		/* remote LSN of the state change used for
 								 * synchronization coordination, or NULL if
 								 * not valid */
+=======
+	XLogRecPtr	srsublsn BKI_FORCE_NULL;	/* remote LSN of the state change
+											 * used for synchronization
+											 * coordination, or NULL if not
+											 * valid */
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #endif
 } FormData_pg_subscription_rel;
 
 typedef FormData_pg_subscription_rel *Form_pg_subscription_rel;
+
+DECLARE_UNIQUE_INDEX_PKEY(pg_subscription_rel_srrelid_srsubid_index, 6117, SubscriptionRelSrrelidSrsubidIndexId, pg_subscription_rel, btree(srrelid oid_ops, srsubid oid_ops));
+
+MAKE_SYSCACHE(SUBSCRIPTIONRELMAP, pg_subscription_rel_srrelid_srsubid_index, 64);
 
 #ifdef EXPOSE_TO_CLIENT_CODE
 
@@ -58,6 +68,8 @@ typedef FormData_pg_subscription_rel *Form_pg_subscription_rel;
 #define SUBREL_STATE_INIT		'i' /* initializing (sublsn NULL) */
 #define SUBREL_STATE_DATASYNC	'd' /* data is being synchronized (sublsn
 									 * NULL) */
+#define SUBREL_STATE_FINISHEDCOPY 'f'	/* tablesync copy phase is completed
+										 * (sublsn NULL) */
 #define SUBREL_STATE_SYNCDONE	's' /* synchronization finished in front of
 									 * apply (sublsn set) */
 #define SUBREL_STATE_READY		'r' /* ready (sublsn set) */
@@ -76,15 +88,14 @@ typedef struct SubscriptionRelState
 	char		state;
 } SubscriptionRelState;
 
-extern Oid AddSubscriptionRelState(Oid subid, Oid relid, char state,
-						XLogRecPtr sublsn);
-extern Oid UpdateSubscriptionRelState(Oid subid, Oid relid, char state,
-						   XLogRecPtr sublsn);
-extern char GetSubscriptionRelState(Oid subid, Oid relid,
-						XLogRecPtr *sublsn, bool missing_ok);
+extern void AddSubscriptionRelState(Oid subid, Oid relid, char state,
+									XLogRecPtr sublsn, bool retain_lock);
+extern void UpdateSubscriptionRelState(Oid subid, Oid relid, char state,
+									   XLogRecPtr sublsn);
+extern char GetSubscriptionRelState(Oid subid, Oid relid, XLogRecPtr *sublsn);
 extern void RemoveSubscriptionRel(Oid subid, Oid relid);
 
-extern List *GetSubscriptionRelations(Oid subid);
-extern List *GetSubscriptionNotReadyRelations(Oid subid);
+extern bool HasSubscriptionRelations(Oid subid);
+extern List *GetSubscriptionRelations(Oid subid, bool not_ready);
 
 #endif							/* PG_SUBSCRIPTION_REL_H */

@@ -3,17 +3,36 @@
 PGFILEDESC = "pg_upgrade - an in-place binary upgrade utility"
 PGAPPICON = win32
 
+# required for 003_upgrade_logical_replication_slots.pl
+EXTRA_INSTALL=contrib/test_decoding
+
 subdir = src/bin/pg_upgrade
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = check.o controldata.o dump.o exec.o file.o function.o info.o \
-       option.o parallel.o pg_upgrade.o relfilenode.o server.o \
-       tablespace.o util.o version.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	check.o \
+	controldata.o \
+	dump.o \
+	exec.o \
+	file.o \
+	function.o \
+	info.o \
+	option.o \
+	parallel.o \
+	pg_upgrade.o \
+	relfilenumber.o \
+	server.o \
+	tablespace.o \
+	task.o \
+	util.o \
+	version.o
 
-override CPPFLAGS := -DDLSUFFIX=\"$(DLSUFFIX)\" -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
+override CPPFLAGS := -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
 LDFLAGS_INTERNAL += -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport)
 
+<<<<<<< HEAD
 ifdef NO_TEMP_INSTALL
 	tbindir=$(abs_top_builddir)/tmp_install/$(bindir)
 	tlibdir=$(abs_top_builddir)/tmp_install/$(libdir)
@@ -23,6 +42,11 @@ else
 	tlibdir=$(libdir)
 	DOINST = --install
 endif
+=======
+# required for 002_pg_upgrade.pl
+REGRESS_SHLIB=$(abs_top_builddir)/src/test/regress/regress$(DLSUFFIX)
+export REGRESS_SHLIB
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 all: pg_upgrade
 
@@ -38,15 +62,20 @@ installdirs:
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/pg_upgrade$(X)'
 
-clean distclean maintainer-clean:
+clean distclean:
 	rm -f pg_upgrade$(X) $(OBJS)
-	rm -rf analyze_new_cluster.sh delete_old_cluster.sh log/ tmp_check/ \
-	       loadable_libraries.txt reindex_hash.sql \
-	       pg_upgrade_dump_globals.sql \
-	       pg_upgrade_dump_*.custom pg_upgrade_*.log
+	rm -rf delete_old_cluster.sh log/ tmp_check/ \
+	       reindex_hash.sql
 
+<<<<<<< HEAD
 check: test.sh all
 	MAKE=$(MAKE) bindir="$(tbindir)" libdir="$(tlibdir)" EXTRA_REGRESS_OPTS="$(EXTRA_REGRESS_OPTS)" $(SHELL) $< $(DOINST)
+=======
+export with_icu
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-# installcheck is not supported because there's no meaningful way to test
-# pg_upgrade against a single already-running server
+check:
+	$(prove_check)
+
+installcheck:
+	$(prove_installcheck)

@@ -6,17 +6,18 @@
 #include <ctype.h>
 #include <math.h>
 
-#include "extern.h"
+#include "common/string.h"
 #include "dt.h"
 #include "pgtypes_timestamp.h"
+#include "pgtypeslib_extern.h"
 
-int			day_tab[2][13] = {
+const int	day_tab[2][13] = {
 	{31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0},
 {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, 0}};
 
 typedef long AbsoluteTime;
 
-static datetkn datetktbl[] = {
+static const datetkn datetktbl[] = {
 /*	text, token, lexval */
 	{EARLY, RESERV, DTK_EARLY}, /* "-infinity" reserved for "early time" */
 	{"acsst", DTZ, 37800},		/* Cent. Australia */
@@ -111,7 +112,6 @@ static datetkn datetktbl[] = {
 #endif
 	{"cot", TZ, -18000},		/* Columbia Time */
 	{"cst", TZ, -21600},		/* Central Standard Time */
-	{DCURRENT, RESERV, DTK_CURRENT},	/* "current" is always now */
 #if 0
 	cvst
 #endif
@@ -172,7 +172,7 @@ static datetkn datetktbl[] = {
 	ghst
 #endif
 	{"gilt", TZ, 43200},		/* Gilbert Islands Time */
-	{"gmt", TZ, 0},				/* Greenwish Mean Time */
+	{"gmt", TZ, 0},				/* Greenwich Mean Time */
 	{"gst", TZ, 36000},			/* Guam Std Time, USSR Zone 9 */
 	{"gyt", TZ, -14400},		/* Guyana Time */
 	{"h", UNITS, DTK_HOUR},		/* "hour" */
@@ -201,7 +201,6 @@ static datetkn datetktbl[] = {
 	idt							/* Israeli, Iran, Indian Daylight Time */
 #endif
 	{LATE, RESERV, DTK_LATE},	/* "infinity" reserved for "late time" */
-	{INVALID, RESERV, DTK_INVALID}, /* "invalid" reserved for bad time */
 	{"iot", TZ, 18000},			/* Indian Chagos Time */
 	{"irkst", DTZ, 32400},		/* Irkutsk Summer Time */
 	{"irkt", TZ, 28800},		/* Irkutsk Time */
@@ -372,7 +371,6 @@ static datetkn datetktbl[] = {
 #endif
 	{"ulast", DTZ, 32400},		/* Ulan Bator Summer Time */
 	{"ulat", TZ, 28800},		/* Ulan Bator Time */
-	{"undefined", RESERV, DTK_INVALID}, /* pre-v6.1 invalid time */
 	{"ut", TZ, 0},
 	{"utc", TZ, 0},
 	{"uyst", DTZ, -7200},		/* Uruguay Summer Time */
@@ -420,7 +418,7 @@ static datetkn datetktbl[] = {
 	{ZULU, TZ, 0},				/* UTC */
 };
 
-static datetkn deltatktbl[] = {
+static const datetkn deltatktbl[] = {
 	/* text, token, lexval */
 	{"@", IGNORE_DTF, 0},		/* postgres relative prefix */
 	{DAGO, AGO, 0},				/* "ago" indicates negative time offset */
@@ -440,7 +438,6 @@ static datetkn deltatktbl[] = {
 	{"hours", UNITS, DTK_HOUR}, /* "hours" relative */
 	{"hr", UNITS, DTK_HOUR},	/* "hour" relative */
 	{"hrs", UNITS, DTK_HOUR},	/* "hours" relative */
-	{INVALID, RESERV, DTK_INVALID}, /* reserved for invalid time */
 	{"m", UNITS, DTK_MINUTE},	/* "minute" relative */
 	{"microsecon", UNITS, DTK_MICROSEC},	/* "microsecond" relative */
 	{"mil", UNITS, DTK_MILLENNIUM}, /* "millennium" relative */
@@ -471,7 +468,6 @@ static datetkn deltatktbl[] = {
 	{DTIMEZONE, UNITS, DTK_TZ}, /* "timezone" time offset */
 	{"timezone_h", UNITS, DTK_TZ_HOUR}, /* timezone hour units */
 	{"timezone_m", UNITS, DTK_TZ_MINUTE},	/* timezone minutes units */
-	{"undefined", RESERV, DTK_INVALID}, /* pre-v6.1 invalid time */
 	{"us", UNITS, DTK_MICROSEC},	/* "microsecond" relative */
 	{"usec", UNITS, DTK_MICROSEC},	/* "microsecond" relative */
 	{DMICROSEC, UNITS, DTK_MICROSEC},	/* "microsecond" relative */
@@ -490,9 +486,9 @@ static datetkn deltatktbl[] = {
 static const unsigned int szdatetktbl = lengthof(datetktbl);
 static const unsigned int szdeltatktbl = lengthof(deltatktbl);
 
-static datetkn *datecache[MAXDATEFIELDS] = {NULL};
+static const datetkn *datecache[MAXDATEFIELDS] = {NULL};
 
-static datetkn *deltacache[MAXDATEFIELDS] = {NULL};
+static const datetkn *deltacache[MAXDATEFIELDS] = {NULL};
 
 char	   *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", NULL};
 
@@ -502,12 +498,12 @@ char	   *pgtypes_date_weekdays_short[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fr
 
 char	   *pgtypes_date_months[] = {"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December", NULL};
 
-static datetkn *
-datebsearch(char *key, datetkn *base, unsigned int nel)
+static const datetkn *
+datebsearch(const char *key, const datetkn *base, unsigned int nel)
 {
 	if (nel > 0)
 	{
-		datetkn    *last = base + nel - 1,
+		const datetkn *last = base + nel - 1,
 				   *position;
 		int			result;
 
@@ -540,7 +536,7 @@ int
 DecodeUnits(int field, char *lowtoken, int *val)
 {
 	int			type;
-	datetkn    *tp;
+	const datetkn *tp;
 
 	/* use strncmp so that we match truncated tokens */
 	if (deltacache[field] != NULL &&
@@ -628,8 +624,6 @@ j2date(int jd, int *year, int *month, int *day)
 	quad = julian * 2141 / 65536;
 	*day = julian - 7834 * quad / 256;
 	*month = (quad + 10) % 12 + 1;
-
-	return;
 }								/* j2date() */
 
 /* DecodeSpecial()
@@ -641,7 +635,7 @@ static int
 DecodeSpecial(int field, char *lowtoken, int *val)
 {
 	int			type;
-	datetkn    *tp;
+	const datetkn *tp;
 
 	/* use strncmp so that we match truncated tokens */
 	if (datecache[field] != NULL &&
@@ -832,7 +826,12 @@ EncodeDateTime(struct tm *tm, fsec_t fsec, bool print_tz, int tz, const char *tz
 
 			/*
 			 * Note: the uses of %.*s in this function would be risky if the
+<<<<<<< HEAD
 			 * timezone names ever contain non-ASCII characters.  However, all
+=======
+			 * timezone names ever contain non-ASCII characters, since we are
+			 * not being careful to do encoding-aware clipping.  However, all
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 			 * TZ abbreviations in the IANA database are plain ASCII.
 			 */
 
@@ -954,9 +953,10 @@ int
 GetEpochTime(struct tm *tm)
 {
 	struct tm  *t0;
+	struct tm	tmbuf;
 	time_t		epoch = 0;
 
-	t0 = gmtime(&epoch);
+	t0 = gmtime_r(&epoch, &tmbuf);
 
 	if (t0)
 	{
@@ -978,12 +978,13 @@ abstime2tm(AbsoluteTime _time, int *tzp, struct tm *tm, char **tzn)
 {
 	time_t		time = (time_t) _time;
 	struct tm  *tx;
+	struct tm	tmbuf;
 
 	errno = 0;
 	if (tzp != NULL)
-		tx = localtime((time_t *) &time);
+		tx = localtime_r(&time, &tmbuf);
 	else
-		tx = gmtime((time_t *) &time);
+		tx = gmtime_r(&time, &tmbuf);
 
 	if (!tx)
 	{
@@ -999,7 +1000,7 @@ abstime2tm(AbsoluteTime _time, int *tzp, struct tm *tm, char **tzn)
 	tm->tm_sec = tx->tm_sec;
 	tm->tm_isdst = tx->tm_isdst;
 
-#if defined(HAVE_TM_ZONE)
+#if defined(HAVE_STRUCT_TM_TM_ZONE)
 	tm->tm_gmtoff = tx->tm_gmtoff;
 	tm->tm_zone = tx->tm_zone;
 
@@ -1020,7 +1021,7 @@ abstime2tm(AbsoluteTime _time, int *tzp, struct tm *tm, char **tzn)
 			 * Copy no more than MAXTZLEN bytes of timezone to tzn, in case it
 			 * contains an error message, which doesn't fit in the buffer
 			 */
-			StrNCpy(*tzn, tm->tm_zone, MAXTZLEN + 1);
+			strlcpy(*tzn, tm->tm_zone, MAXTZLEN + 1);
 			if (strlen(tm->tm_zone) > MAXTZLEN)
 				tm->tm_isdst = -1;
 		}
@@ -1038,14 +1039,15 @@ abstime2tm(AbsoluteTime _time, int *tzp, struct tm *tm, char **tzn)
 			 * Copy no more than MAXTZLEN bytes of timezone to tzn, in case it
 			 * contains an error message, which doesn't fit in the buffer
 			 */
-			StrNCpy(*tzn, TZNAME_GLOBAL[tm->tm_isdst], MAXTZLEN + 1);
+			strlcpy(*tzn, TZNAME_GLOBAL[tm->tm_isdst], MAXTZLEN + 1);
 			if (strlen(TZNAME_GLOBAL[tm->tm_isdst]) > MAXTZLEN)
 				tm->tm_isdst = -1;
 		}
 	}
 	else
 		tm->tm_isdst = -1;
-#else							/* not (HAVE_TM_ZONE || HAVE_INT_TIMEZONE) */
+#else							/* not (HAVE_STRUCT_TM_TM_ZONE ||
+								 * HAVE_INT_TIMEZONE) */
 	if (tzp != NULL)
 	{
 		/* default to UTC */
@@ -1115,7 +1117,7 @@ DecodeNumberField(int len, char *str, int fmask,
 		for (i = 0; i < 6; i++)
 			fstr[i] = *cp != '\0' ? *cp++ : '0';
 		fstr[i] = '\0';
-		*fsec = strtol(fstr, NULL, 10);
+		*fsec = strtoint(fstr, NULL, 10);
 		*cp = '\0';
 		len = strlen(str);
 	}
@@ -1206,7 +1208,7 @@ DecodeNumber(int flen, char *str, int fmask,
 
 	*tmask = 0;
 
-	val = strtol(str, &cp, 10);
+	val = strtoint(str, &cp, 10);
 	if (cp == str)
 		return -1;
 
@@ -1442,11 +1444,11 @@ DecodeTime(char *str, int *tmask, struct tm *tm, fsec_t *fsec)
 
 	*tmask = DTK_TIME_M;
 
-	tm->tm_hour = strtol(str, &cp, 10);
+	tm->tm_hour = strtoint(str, &cp, 10);
 	if (*cp != ':')
 		return -1;
 	str = cp + 1;
-	tm->tm_min = strtol(str, &cp, 10);
+	tm->tm_min = strtoint(str, &cp, 10);
 	if (*cp == '\0')
 	{
 		tm->tm_sec = 0;
@@ -1457,7 +1459,7 @@ DecodeTime(char *str, int *tmask, struct tm *tm, fsec_t *fsec)
 	else
 	{
 		str = cp + 1;
-		tm->tm_sec = strtol(str, &cp, 10);
+		tm->tm_sec = strtoint(str, &cp, 10);
 		if (*cp == '\0')
 			*fsec = 0;
 		else if (*cp == '.')
@@ -1478,7 +1480,7 @@ DecodeTime(char *str, int *tmask, struct tm *tm, fsec_t *fsec)
 			for (i = 0; i < 6; i++)
 				fstr[i] = *cp != '\0' ? *cp++ : '0';
 			fstr[i] = '\0';
-			*fsec = strtol(fstr, &cp, 10);
+			*fsec = strtoint(fstr, &cp, 10);
 			if (*cp != '\0')
 				return -1;
 		}
@@ -1510,20 +1512,20 @@ DecodeTimezone(char *str, int *tzp)
 	int			len;
 
 	/* assume leading character is "+" or "-" */
-	hr = strtol(str + 1, &cp, 10);
+	hr = strtoint(str + 1, &cp, 10);
 
 	/* explicit delimiter? */
 	if (*cp == ':')
-		min = strtol(cp + 1, &cp, 10);
+		min = strtoint(cp + 1, &cp, 10);
 	/* otherwise, might have run things together... */
 	else if (*cp == '\0' && (len = strlen(str)) > 3)
 	{
-		min = strtol(str + len - 2, &cp, 10);
+		min = strtoint(str + len - 2, &cp, 10);
 		if (min < 0 || min >= 60)
 			return -1;
 
 		*(str + len - 2) = '\0';
-		hr = strtol(str + 1, &cp, 10);
+		hr = strtoint(str + 1, &cp, 10);
 		if (hr < 0 || hr > 13)
 			return -1;
 	}
@@ -1744,7 +1746,6 @@ ParseDateTime(char *timestr, char *lowstr,
 		{
 			(*endstr)++;
 			continue;
-
 		}
 		/* otherwise, something is not right... */
 		else
@@ -1825,16 +1826,16 @@ DecodeDateTime(char **field, int *ftype, int nf,
 				if (ptype == DTK_JULIAN)
 				{
 					char	   *cp;
-					int			val;
+					int			jday;
 
 					if (tzp == NULL)
 						return -1;
 
-					val = strtol(field[i], &cp, 10);
+					jday = strtoint(field[i], &cp, 10);
 					if (*cp != '-')
 						return -1;
 
-					j2date(val, &tm->tm_year, &tm->tm_mon, &tm->tm_mday);
+					j2date(jday, &tm->tm_year, &tm->tm_mon, &tm->tm_mday);
 					/* Get the time zone from the end of the string */
 					if (DecodeTimezone(cp, tzp) != 0)
 						return -1;
@@ -1963,9 +1964,9 @@ DecodeDateTime(char **field, int *ftype, int nf,
 				if (ptype != 0)
 				{
 					char	   *cp;
-					int			val;
+					int			value;
 
-					val = strtol(field[i], &cp, 10);
+					value = strtoint(field[i], &cp, 10);
 
 					/*
 					 * only a few kinds are allowed to have an embedded
@@ -1988,7 +1989,7 @@ DecodeDateTime(char **field, int *ftype, int nf,
 					switch (ptype)
 					{
 						case DTK_YEAR:
-							tm->tm_year = val;
+							tm->tm_year = value;
 							tmask = DTK_M(YEAR);
 							break;
 
@@ -2001,33 +2002,33 @@ DecodeDateTime(char **field, int *ftype, int nf,
 							if ((fmask & DTK_M(MONTH)) != 0 &&
 								(fmask & DTK_M(HOUR)) != 0)
 							{
-								tm->tm_min = val;
+								tm->tm_min = value;
 								tmask = DTK_M(MINUTE);
 							}
 							else
 							{
-								tm->tm_mon = val;
+								tm->tm_mon = value;
 								tmask = DTK_M(MONTH);
 							}
 							break;
 
 						case DTK_DAY:
-							tm->tm_mday = val;
+							tm->tm_mday = value;
 							tmask = DTK_M(DAY);
 							break;
 
 						case DTK_HOUR:
-							tm->tm_hour = val;
+							tm->tm_hour = value;
 							tmask = DTK_M(HOUR);
 							break;
 
 						case DTK_MINUTE:
-							tm->tm_min = val;
+							tm->tm_min = value;
 							tmask = DTK_M(MINUTE);
 							break;
 
 						case DTK_SECOND:
-							tm->tm_sec = val;
+							tm->tm_sec = value;
 							tmask = DTK_M(SECOND);
 							if (*cp == '.')
 							{
@@ -2051,7 +2052,7 @@ DecodeDateTime(char **field, int *ftype, int nf,
 							 * previous field was a label for "julian date"?
 							 ***/
 							tmask = DTK_DATE_M;
-							j2date(val, &tm->tm_year, &tm->tm_mon, &tm->tm_mday);
+							j2date(value, &tm->tm_year, &tm->tm_mon, &tm->tm_mday);
 							/* fractional Julian Day? */
 							if (*cp == '.')
 							{
@@ -2664,6 +2665,8 @@ PGTYPEStimestamp_defmt_scan(char **str, char *fmt, timestamp * d,
 				 */
 				pfmt++;
 				tmp = pgtypes_alloc(strlen("%m/%d/%y") + strlen(pstr) + 1);
+				if (!tmp)
+					return 1;
 				strcpy(tmp, "%m/%d/%y");
 				strcat(tmp, pfmt);
 				err = PGTYPEStimestamp_defmt_scan(&pstr, tmp, d, year, month, day, hour, minute, second, tz);
@@ -2789,6 +2792,8 @@ PGTYPEStimestamp_defmt_scan(char **str, char *fmt, timestamp * d,
 			case 'r':
 				pfmt++;
 				tmp = pgtypes_alloc(strlen("%I:%M:%S %p") + strlen(pstr) + 1);
+				if (!tmp)
+					return 1;
 				strcpy(tmp, "%I:%M:%S %p");
 				strcat(tmp, pfmt);
 				err = PGTYPEStimestamp_defmt_scan(&pstr, tmp, d, year, month, day, hour, minute, second, tz);
@@ -2797,6 +2802,8 @@ PGTYPEStimestamp_defmt_scan(char **str, char *fmt, timestamp * d,
 			case 'R':
 				pfmt++;
 				tmp = pgtypes_alloc(strlen("%H:%M") + strlen(pstr) + 1);
+				if (!tmp)
+					return 1;
 				strcpy(tmp, "%H:%M");
 				strcat(tmp, pfmt);
 				err = PGTYPEStimestamp_defmt_scan(&pstr, tmp, d, year, month, day, hour, minute, second, tz);
@@ -2809,9 +2816,10 @@ PGTYPEStimestamp_defmt_scan(char **str, char *fmt, timestamp * d,
 				/* number of seconds in scan_val.luint_val */
 				{
 					struct tm  *tms;
+					struct tm	tmbuf;
 					time_t		et = (time_t) scan_val.luint_val;
 
-					tms = gmtime(&et);
+					tms = gmtime_r(&et, &tmbuf);
 
 					if (tms)
 					{
@@ -2842,6 +2850,8 @@ PGTYPEStimestamp_defmt_scan(char **str, char *fmt, timestamp * d,
 			case 'T':
 				pfmt++;
 				tmp = pgtypes_alloc(strlen("%H:%M:%S") + strlen(pstr) + 1);
+				if (!tmp)
+					return 1;
 				strcpy(tmp, "%H:%M:%S");
 				strcat(tmp, pfmt);
 				err = PGTYPEStimestamp_defmt_scan(&pstr, tmp, d, year, month, day, hour, minute, second, tz);

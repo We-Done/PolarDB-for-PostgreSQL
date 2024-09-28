@@ -3,7 +3,7 @@
  *
  * syncrep_gram.y				- Parser for synchronous_standby_names
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -14,7 +14,10 @@
  */
 #include "postgres.h"
 
+#include "nodes/pg_list.h"
 #include "replication/syncrep.h"
+
+#include "syncrep_gram.h"
 
 /* Result of parsing is returned in one of these two variables */
 SyncRepConfigData *syncrep_parse_result;
@@ -23,13 +26,14 @@ char	   *syncrep_parse_error_msg;
 static SyncRepConfigData *create_syncrep_config(const char *num_sync,
 					List *members, uint8 syncrep_method);
 
+/* silence -Wmissing-variable-declarations */
+extern int syncrep_yychar;
+extern int syncrep_yynerrs;
+
 /*
  * Bison doesn't allocate anything that needs to live across parser calls,
  * so we can easily have it use palloc instead of malloc.  This prevents
- * memory leaks if we error out during parsing.  Note this only works with
- * bison >= 2.0.  However, in bison 1.875 the default is to use alloca()
- * if possible, so there's not really much problem anyhow, at least if
- * you're building with gcc.
+ * memory leaks if we error out during parsing.
  */
 #define YYMALLOC palloc
 #define YYFREE   pfree
@@ -112,5 +116,3 @@ create_syncrep_config(const char *num_sync, List *members, uint8 syncrep_method)
 
 	return config;
 }
-
-#include "syncrep_scanner.c"

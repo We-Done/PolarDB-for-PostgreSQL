@@ -10,9 +10,12 @@ endif
 # (see http://sources.redhat.com/cygwin/faq/faq.html#SEC110)
 LIBS:=$(filter-out -lm -lc, $(LIBS))
 
+<<<<<<< HEAD
 AROPT = crs
 DLSUFFIX = .dll
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 override CPPFLAGS += -DWIN32_STACK_RLIMIT=$(WIN32_STACK_RLIMIT)
 
 ifneq (,$(findstring backend,$(subdir)))

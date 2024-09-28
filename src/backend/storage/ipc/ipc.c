@@ -8,7 +8,7 @@
  * exit-time cleanup for either a postmaster or a backend.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -154,6 +154,10 @@ polar_check_hook_util(const char *hook_name, struct ONEXIT hook_list[], int hook
 void
 proc_exit(int code)
 {
+	/* not safe if forked by system(), etc. */
+	if (MyProcPid != (int) getpid())
+		elog(PANIC, "proc_exit() called in child process");
+
 	/* Clean up everything that must be cleaned up */
 	proc_exit_prepare(code);
 
@@ -190,7 +194,7 @@ proc_exit(int code)
 		 */
 		char		gprofDirName[32];
 
-		if (IsAutoVacuumWorkerProcess())
+		if (AmAutoVacuumWorkerProcess())
 			snprintf(gprofDirName, 32, "gprof/avworker");
 		else
 			snprintf(gprofDirName, 32, "gprof/%d", (int) getpid());
@@ -430,9 +434,9 @@ on_shmem_exit(pg_on_exit_callback function, Datum arg)
  *		cancel_before_shmem_exit
  *
  *		this function removes a previously-registered before_shmem_exit
- *		callback.  For simplicity, only the latest entry can be
- *		removed.  (We could work harder but there is no need for
- *		current uses.)
+ *		callback.  We only look at the latest entry for removal, as we
+ * 		expect callers to add and remove temporary before_shmem_exit
+ * 		callbacks in strict LIFO order.
  * ----------------------------------------------------------------
  */
 void
@@ -443,6 +447,9 @@ cancel_before_shmem_exit(pg_on_exit_callback function, Datum arg)
 		== function &&
 		before_shmem_exit_list[before_shmem_exit_index - 1].arg == arg)
 		--before_shmem_exit_index;
+	else
+		elog(ERROR, "before_shmem_exit callback (%p,0x%llx) is not the latest entry",
+			 function, (long long) arg);
 }
 
 /* ----------------------------------------------------------------
@@ -463,6 +470,7 @@ on_exit_reset(void)
 	reset_on_dsm_detach();
 }
 
+<<<<<<< HEAD
 /* 
  * POLAR: Check whether it's able to register a before_shmem_exit callback
  * return true when before_shmem_list is not overflowed
@@ -474,3 +482,21 @@ polar_check_before_shmem_exit(pg_on_exit_callback function, Datum arg, bool prin
 	return polar_check_hook_util("before_shmem_exit", before_shmem_exit_list, before_shmem_exit_index, 
 								 function, arg, print_backtrace);
 }
+=======
+/* ----------------------------------------------------------------
+ *		check_on_shmem_exit_lists_are_empty
+ *
+ *		Debugging check that no shmem cleanup handlers have been registered
+ *		prematurely in the current process.
+ * ----------------------------------------------------------------
+ */
+void
+check_on_shmem_exit_lists_are_empty(void)
+{
+	if (before_shmem_exit_index)
+		elog(FATAL, "before_shmem_exit has been called prematurely");
+	if (on_shmem_exit_index)
+		elog(FATAL, "on_shmem_exit has been called prematurely");
+	/* Checking DSM detach state seems unnecessary given the above */
+}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

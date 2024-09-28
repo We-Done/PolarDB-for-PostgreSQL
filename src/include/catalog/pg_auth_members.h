@@ -5,7 +5,7 @@
  *	  (pg_auth_members).
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_auth_members.h
@@ -27,12 +27,15 @@
  *		typedef struct FormData_pg_auth_members
  * ----------------
  */
-CATALOG(pg_auth_members,1261,AuthMemRelationId) BKI_SHARED_RELATION BKI_WITHOUT_OIDS BKI_ROWTYPE_OID(2843,AuthMemRelation_Rowtype_Id) BKI_SCHEMA_MACRO
+CATALOG(pg_auth_members,1261,AuthMemRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(2843,AuthMemRelation_Rowtype_Id) BKI_SCHEMA_MACRO
 {
-	Oid			roleid;			/* ID of a role */
-	Oid			member;			/* ID of a member of that role */
-	Oid			grantor;		/* who granted the membership */
+	Oid			oid;			/* oid */
+	Oid			roleid BKI_LOOKUP(pg_authid);	/* ID of a role */
+	Oid			member BKI_LOOKUP(pg_authid);	/* ID of a member of that role */
+	Oid			grantor BKI_LOOKUP(pg_authid);	/* who granted the membership */
 	bool		admin_option;	/* granted with admin option? */
+	bool		inherit_option; /* exercise privileges without SET ROLE? */
+	bool		set_option;		/* use SET ROLE to the target role? */
 } FormData_pg_auth_members;
 
 /* ----------------
@@ -41,5 +44,13 @@ CATALOG(pg_auth_members,1261,AuthMemRelationId) BKI_SHARED_RELATION BKI_WITHOUT_
  * ----------------
  */
 typedef FormData_pg_auth_members *Form_pg_auth_members;
+
+DECLARE_UNIQUE_INDEX_PKEY(pg_auth_members_oid_index, 6303, AuthMemOidIndexId, pg_auth_members, btree(oid oid_ops));
+DECLARE_UNIQUE_INDEX(pg_auth_members_role_member_index, 2694, AuthMemRoleMemIndexId, pg_auth_members, btree(roleid oid_ops, member oid_ops, grantor oid_ops));
+DECLARE_UNIQUE_INDEX(pg_auth_members_member_role_index, 2695, AuthMemMemRoleIndexId, pg_auth_members, btree(member oid_ops, roleid oid_ops, grantor oid_ops));
+DECLARE_INDEX(pg_auth_members_grantor_index, 6302, AuthMemGrantorIndexId, pg_auth_members, btree(grantor oid_ops));
+
+MAKE_SYSCACHE(AUTHMEMROLEMEM, pg_auth_members_role_member_index, 8);
+MAKE_SYSCACHE(AUTHMEMMEMROLE, pg_auth_members_member_role_index, 8);
 
 #endif							/* PG_AUTH_MEMBERS_H */

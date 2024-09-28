@@ -3,15 +3,8 @@
  * copyfuncs.c
  *	  Copy functions for Postgres tree nodes.
  *
- * NOTE: we currently support copying all node types found in parse and
- * plan trees.  We do not support copying executor state trees; there
- * is no need for that, and no point in maintaining all the code that
- * would be needed.  We also do not support copying Path trees, mainly
- * because the circular linkages between RelOptInfo and Path nodes can't
- * be handled easily in a simple depth-first traversal.
  *
- *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -23,11 +16,7 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
-#include "nodes/extensible.h"
-#include "nodes/plannodes.h"
-#include "nodes/relation.h"
 #include "utils/datum.h"
-#include "utils/rel.h"
 
 /* POLAR px */
 #include "px/px_gang.h"
@@ -55,12 +44,19 @@
 #define COPY_STRING_FIELD(fldname) \
 	(newnode->fldname = from->fldname ? pstrdup(from->fldname) : (char *) NULL)
 
+/* Copy a field that is an inline array */
+#define COPY_ARRAY_FIELD(fldname) \
+	memcpy(newnode->fldname, from->fldname, sizeof(newnode->fldname))
+
 /* Copy a field that is a pointer to a simple palloc'd object of size sz */
 #define COPY_POINTER_FIELD(fldname, sz) \
 	do { \
 		Size	_size = (sz); \
-		newnode->fldname = palloc(_size); \
-		memcpy(newnode->fldname, from->fldname, _size); \
+		if (_size > 0) \
+		{ \
+			newnode->fldname = palloc(_size); \
+			memcpy(newnode->fldname, from->fldname, _size); \
+		} \
 	} while (0)
 
 /* Copy a parse location field (for Copy, this is same as scalar case) */
@@ -68,6 +64,7 @@
 	(newnode->fldname = from->fldname)
 
 
+<<<<<<< HEAD
 /* ****************************************************************
  *					 plannodes.h copy functions
  * ****************************************************************
@@ -1518,116 +1515,15 @@ _copyAssertOp(const AssertOp *from)
 /* ****************************************************************
  *					   primnodes.h copy functions
  * ****************************************************************
- */
+=======
+#include "copyfuncs.funcs.c"
+
 
 /*
- * _copyAlias
- */
-static Alias *
-_copyAlias(const Alias *from)
-{
-	Alias	   *newnode = makeNode(Alias);
-
-	COPY_STRING_FIELD(aliasname);
-	COPY_NODE_FIELD(colnames);
-
-	return newnode;
-}
-
-/*
- * _copyRangeVar
- */
-static RangeVar *
-_copyRangeVar(const RangeVar *from)
-{
-	RangeVar   *newnode = makeNode(RangeVar);
-
-	COPY_STRING_FIELD(catalogname);
-	COPY_STRING_FIELD(schemaname);
-	COPY_STRING_FIELD(relname);
-	COPY_SCALAR_FIELD(inh);
-	COPY_SCALAR_FIELD(relpersistence);
-	COPY_NODE_FIELD(alias);
-	COPY_LOCATION_FIELD(location);
-
-	return newnode;
-}
-
-/*
- * _copyTableFunc
- */
-static TableFunc *
-_copyTableFunc(const TableFunc *from)
-{
-	TableFunc  *newnode = makeNode(TableFunc);
-
-	COPY_NODE_FIELD(ns_uris);
-	COPY_NODE_FIELD(ns_names);
-	COPY_NODE_FIELD(docexpr);
-	COPY_NODE_FIELD(rowexpr);
-	COPY_NODE_FIELD(colnames);
-	COPY_NODE_FIELD(coltypes);
-	COPY_NODE_FIELD(coltypmods);
-	COPY_NODE_FIELD(colcollations);
-	COPY_NODE_FIELD(colexprs);
-	COPY_NODE_FIELD(coldefexprs);
-	COPY_BITMAPSET_FIELD(notnulls);
-	COPY_SCALAR_FIELD(ordinalitycol);
-	COPY_LOCATION_FIELD(location);
-
-	return newnode;
-}
-
-/*
- * _copyIntoClause
- */
-static IntoClause *
-_copyIntoClause(const IntoClause *from)
-{
-	IntoClause *newnode = makeNode(IntoClause);
-
-	COPY_NODE_FIELD(rel);
-	COPY_NODE_FIELD(colNames);
-	COPY_NODE_FIELD(options);
-	COPY_SCALAR_FIELD(onCommit);
-	COPY_STRING_FIELD(tableSpaceName);
-	COPY_NODE_FIELD(viewQuery);
-	COPY_SCALAR_FIELD(skipData);
-
-	return newnode;
-}
-
-/*
- * We don't need a _copyExpr because Expr is an abstract supertype which
- * should never actually get instantiated.  Also, since it has no common
- * fields except NodeTag, there's no need for a helper routine to factor
- * out copying the common fields...
+ * Support functions for nodes with custom_copy_equal attribute
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  */
 
-/*
- * _copyVar
- */
-static Var *
-_copyVar(const Var *from)
-{
-	Var		   *newnode = makeNode(Var);
-
-	COPY_SCALAR_FIELD(varno);
-	COPY_SCALAR_FIELD(varattno);
-	COPY_SCALAR_FIELD(vartype);
-	COPY_SCALAR_FIELD(vartypmod);
-	COPY_SCALAR_FIELD(varcollid);
-	COPY_SCALAR_FIELD(varlevelsup);
-	COPY_SCALAR_FIELD(varnoold);
-	COPY_SCALAR_FIELD(varoattno);
-	COPY_LOCATION_FIELD(location);
-
-	return newnode;
-}
-
-/*
- * _copyConst
- */
 static Const *
 _copyConst(const Const *from)
 {
@@ -1663,6 +1559,7 @@ _copyConst(const Const *from)
 	return newnode;
 }
 
+<<<<<<< HEAD
 /*
  * _copyParam
  */
@@ -2852,30 +2749,40 @@ _copyParamRef(const ParamRef *from)
 	return newnode;
 }
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 static A_Const *
-_copyAConst(const A_Const *from)
+_copyA_Const(const A_Const *from)
 {
 	A_Const    *newnode = makeNode(A_Const);
 
-	/* This part must duplicate _copyValue */
-	COPY_SCALAR_FIELD(val.type);
-	switch (from->val.type)
+	COPY_SCALAR_FIELD(isnull);
+	if (!from->isnull)
 	{
-		case T_Integer:
-			COPY_SCALAR_FIELD(val.val.ival);
-			break;
-		case T_Float:
-		case T_String:
-		case T_BitString:
-			COPY_STRING_FIELD(val.val.str);
-			break;
-		case T_Null:
-			/* nothing to do */
-			break;
-		default:
-			elog(ERROR, "unrecognized node type: %d",
-				 (int) from->val.type);
-			break;
+		/* This part must duplicate other _copy*() functions. */
+		COPY_SCALAR_FIELD(val.node.type);
+		switch (nodeTag(&from->val))
+		{
+			case T_Integer:
+				COPY_SCALAR_FIELD(val.ival.ival);
+				break;
+			case T_Float:
+				COPY_STRING_FIELD(val.fval.fval);
+				break;
+			case T_Boolean:
+				COPY_SCALAR_FIELD(val.boolval.boolval);
+				break;
+			case T_String:
+				COPY_STRING_FIELD(val.sval.sval);
+				break;
+			case T_BitString:
+				COPY_STRING_FIELD(val.bsval.bsval);
+				break;
+			default:
+				elog(ERROR, "unrecognized node type: %d",
+					 (int) nodeTag(&from->val));
+				break;
+		}
 	}
 
 	COPY_LOCATION_FIELD(location);
@@ -2883,6 +2790,7 @@ _copyAConst(const A_Const *from)
 	return newnode;
 }
 
+<<<<<<< HEAD
 static FuncCall *
 _copyFuncCall(const FuncCall *from)
 {
@@ -4990,6 +4898,8 @@ _copyList(const List *from)
  *					extensible.h copy functions
  * ****************************************************************
  */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 static ExtensibleNode *
 _copyExtensibleNode(const ExtensibleNode *from)
 {
@@ -5007,13 +4917,10 @@ _copyExtensibleNode(const ExtensibleNode *from)
 	return newnode;
 }
 
-/* ****************************************************************
- *					value.h copy functions
- * ****************************************************************
- */
-static Value *
-_copyValue(const Value *from)
+static Bitmapset *
+_copyBitmapset(const Bitmapset *from)
 {
+<<<<<<< HEAD
 	Value	   *newnode = makeNode(Value);
 
 	/* See also _copyAConst when changing this code! */
@@ -5056,6 +4963,9 @@ _copyForeignKeyCacheInfo(const ForeignKeyCacheInfo *from)
 	memcpy(newnode->conpfeqop, from->conpfeqop, sizeof(newnode->conpfeqop));
 
 	return newnode;
+=======
+	return bms_copy(from);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 
@@ -5078,6 +4988,7 @@ copyObjectImpl(const void *from)
 
 	switch (nodeTag(from))
 	{
+<<<<<<< HEAD
 			/*
 			 * PLAN NODES
 			 */
@@ -5244,213 +5155,25 @@ copyObjectImpl(const void *from)
 			retval = _copyAssertOp(from);
 			break;
 		/* POLAR end */
+=======
+#include "copyfuncs.switch.c"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-			/*
-			 * PRIMITIVE NODES
-			 */
-		case T_Alias:
-			retval = _copyAlias(from);
-			break;
-		case T_RangeVar:
-			retval = _copyRangeVar(from);
-			break;
-		case T_TableFunc:
-			retval = _copyTableFunc(from);
-			break;
-		case T_IntoClause:
-			retval = _copyIntoClause(from);
-			break;
-		case T_Var:
-			retval = _copyVar(from);
-			break;
-		case T_Const:
-			retval = _copyConst(from);
-			break;
-		case T_Param:
-			retval = _copyParam(from);
-			break;
-		case T_Aggref:
-			retval = _copyAggref(from);
-			break;
-		case T_GroupingFunc:
-			retval = _copyGroupingFunc(from);
-			break;
-		case T_WindowFunc:
-			retval = _copyWindowFunc(from);
-			break;
-		case T_ArrayRef:
-			retval = _copyArrayRef(from);
-			break;
-		case T_FuncExpr:
-			retval = _copyFuncExpr(from);
-			break;
-		case T_NamedArgExpr:
-			retval = _copyNamedArgExpr(from);
-			break;
-		case T_OpExpr:
-			retval = _copyOpExpr(from);
-			break;
-		case T_DistinctExpr:
-			retval = _copyDistinctExpr(from);
-			break;
-		case T_NullIfExpr:
-			retval = _copyNullIfExpr(from);
-			break;
-		case T_ScalarArrayOpExpr:
-			retval = _copyScalarArrayOpExpr(from);
-			break;
-		case T_BoolExpr:
-			retval = _copyBoolExpr(from);
-			break;
-		case T_SubLink:
-			retval = _copySubLink(from);
-			break;
-		case T_SubPlan:
-			retval = _copySubPlan(from);
-			break;
-		case T_AlternativeSubPlan:
-			retval = _copyAlternativeSubPlan(from);
-			break;
-		case T_FieldSelect:
-			retval = _copyFieldSelect(from);
-			break;
-		case T_FieldStore:
-			retval = _copyFieldStore(from);
-			break;
-		case T_RelabelType:
-			retval = _copyRelabelType(from);
-			break;
-		case T_CoerceViaIO:
-			retval = _copyCoerceViaIO(from);
-			break;
-		case T_ArrayCoerceExpr:
-			retval = _copyArrayCoerceExpr(from);
-			break;
-		case T_ConvertRowtypeExpr:
-			retval = _copyConvertRowtypeExpr(from);
-			break;
-		case T_CollateExpr:
-			retval = _copyCollateExpr(from);
-			break;
-		case T_CaseExpr:
-			retval = _copyCaseExpr(from);
-			break;
-		case T_CaseWhen:
-			retval = _copyCaseWhen(from);
-			break;
-		case T_CaseTestExpr:
-			retval = _copyCaseTestExpr(from);
-			break;
-		case T_ArrayExpr:
-			retval = _copyArrayExpr(from);
-			break;
-		case T_RowExpr:
-			retval = _copyRowExpr(from);
-			break;
-		case T_RowCompareExpr:
-			retval = _copyRowCompareExpr(from);
-			break;
-		case T_CoalesceExpr:
-			retval = _copyCoalesceExpr(from);
-			break;
-		case T_MinMaxExpr:
-			retval = _copyMinMaxExpr(from);
-			break;
-		case T_SQLValueFunction:
-			retval = _copySQLValueFunction(from);
-			break;
-		case T_XmlExpr:
-			retval = _copyXmlExpr(from);
-			break;
-		case T_NullTest:
-			retval = _copyNullTest(from);
-			break;
-		case T_BooleanTest:
-			retval = _copyBooleanTest(from);
-			break;
-		case T_CoerceToDomain:
-			retval = _copyCoerceToDomain(from);
-			break;
-		case T_CoerceToDomainValue:
-			retval = _copyCoerceToDomainValue(from);
-			break;
-		case T_SetToDefault:
-			retval = _copySetToDefault(from);
-			break;
-		case T_CurrentOfExpr:
-			retval = _copyCurrentOfExpr(from);
-			break;
-		case T_NextValueExpr:
-			retval = _copyNextValueExpr(from);
-			break;
-		case T_InferenceElem:
-			retval = _copyInferenceElem(from);
-			break;
-		case T_TargetEntry:
-			retval = _copyTargetEntry(from);
-			break;
-		case T_RangeTblRef:
-			retval = _copyRangeTblRef(from);
-			break;
-		case T_JoinExpr:
-			retval = _copyJoinExpr(from);
-			break;
-		case T_FromExpr:
-			retval = _copyFromExpr(from);
-			break;
-		case T_OnConflictExpr:
-			retval = _copyOnConflictExpr(from);
-			break;
-
-			/*
-			 * RELATION NODES
-			 */
-		case T_PathKey:
-			retval = _copyPathKey(from);
-			break;
-		case T_RestrictInfo:
-			retval = _copyRestrictInfo(from);
-			break;
-		case T_PlaceHolderVar:
-			retval = _copyPlaceHolderVar(from);
-			break;
-		case T_SpecialJoinInfo:
-			retval = _copySpecialJoinInfo(from);
-			break;
-		case T_AppendRelInfo:
-			retval = _copyAppendRelInfo(from);
-			break;
-		case T_PlaceHolderInfo:
-			retval = _copyPlaceHolderInfo(from);
-			break;
-
-			/*
-			 * VALUE NODES
-			 */
-		case T_Integer:
-		case T_Float:
-		case T_String:
-		case T_BitString:
-		case T_Null:
-			retval = _copyValue(from);
-			break;
-
-			/*
-			 * LIST NODES
-			 */
 		case T_List:
-			retval = _copyList(from);
+			retval = list_copy_deep(from);
 			break;
 
 			/*
-			 * Lists of integers and OIDs don't need to be deep-copied, so we
-			 * perform a shallow copy via list_copy()
+			 * Lists of integers, OIDs and XIDs don't need to be deep-copied,
+			 * so we perform a shallow copy via list_copy()
 			 */
 		case T_IntList:
 		case T_OidList:
+		case T_XidList:
 			retval = list_copy(from);
 			break;
 
+<<<<<<< HEAD
 			/*
 			 * EXTENSIBLE NODES
 			 */
@@ -5994,6 +5717,8 @@ copyObjectImpl(const void *from)
 		case T_PartitionSelector:
 			retval = _copyPartitionSelector(from);
 			break;
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(from));
 			retval = 0;			/* keep compiler quiet */

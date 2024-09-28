@@ -1,4 +1,11 @@
+<<<<<<< HEAD
 comment = 'Test code for slru'
 default_version = '1.0'
 module_pathname = '$libdir/test_slru'
 relocatable = true
+=======
+comment = 'Test code for SLRU'
+default_version = '1.0'
+module_pathname = '$libdir/test_slru'
+relocatable = false
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

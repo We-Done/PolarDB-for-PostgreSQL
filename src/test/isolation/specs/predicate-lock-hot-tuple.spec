@@ -22,6 +22,7 @@ teardown
   DROP TABLE test;
 }
 
+<<<<<<< HEAD
 session "s1"
 step "b1" { BEGIN ISOLATION LEVEL SERIALIZABLE; }
 step "r1" { SELECT * FROM test WHERE i IN (5, 7) }
@@ -35,3 +36,18 @@ step "w2" { UPDATE test SET t = 'apple_xact2' WHERE i = 5 }
 step "c2" { COMMIT; }
 
 permutation "b1" "b2" "r1" "r2" "w1" "w2" "c1" "c2"
+=======
+session s1
+step b1 { BEGIN ISOLATION LEVEL SERIALIZABLE; }
+step r1 { SELECT * FROM test WHERE i IN (5, 7) }
+step w1 { UPDATE test SET t = 'pear_xact1' WHERE i = 7 }
+step c1 { COMMIT; }
+
+session s2
+step b2 { BEGIN ISOLATION LEVEL SERIALIZABLE; }
+step r2 { SELECT * FROM test WHERE i IN (5, 7) }
+step w2 { UPDATE test SET t = 'apple_xact2' WHERE i = 5 }
+step c2 { COMMIT; }
+
+permutation b1 b2 r1 r2 w1 w2 c1 c2
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

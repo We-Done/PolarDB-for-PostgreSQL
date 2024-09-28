@@ -3,7 +3,7 @@ CREATE TABLE bttest_b(id int8);
 CREATE TABLE bttest_multi(id int8, data int8);
 CREATE TABLE delete_test_table (a bigint, b bigint, c bigint, d bigint);
 
--- Stabalize tests
+-- Stabilize tests
 ALTER TABLE bttest_a SET (autovacuum_enabled = false);
 ALTER TABLE bttest_b SET (autovacuum_enabled = false);
 ALTER TABLE bttest_multi SET (autovacuum_enabled = false);
@@ -13,7 +13,7 @@ INSERT INTO bttest_a SELECT * FROM generate_series(1, 100000);
 INSERT INTO bttest_b SELECT * FROM generate_series(100000, 1, -1);
 INSERT INTO bttest_multi SELECT i, i%2  FROM generate_series(1, 100000) as i;
 
-CREATE INDEX bttest_a_idx ON bttest_a USING btree (id);
+CREATE INDEX bttest_a_idx ON bttest_a USING btree (id) WITH (deduplicate_items = ON);
 CREATE INDEX bttest_b_idx ON bttest_b USING btree (id);
 CREATE UNIQUE INDEX bttest_multi_idx ON bttest_multi
 USING btree (id) INCLUDE (data);
@@ -67,24 +67,30 @@ WHERE relation = ANY(ARRAY['bttest_a', 'bttest_a_idx', 'bttest_b', 'bttest_b_idx
     AND pid = pg_backend_pid();
 COMMIT;
 
+-- Deduplication
+TRUNCATE bttest_a;
+INSERT INTO bttest_a SELECT 42 FROM generate_series(1, 2000);
+SELECT bt_index_check('bttest_a_idx', true);
+
 -- normal check outside of xact for index with included columns
 SELECT bt_index_check('bttest_multi_idx');
--- more expansive test for index with included columns
-SELECT bt_index_parent_check('bttest_multi_idx', true);
+-- more expansive tests for index with included columns
+SELECT bt_index_parent_check('bttest_multi_idx', true, true);
 
--- repeat expansive test for index built using insertions
+-- repeat expansive tests for index built using insertions
 TRUNCATE bttest_multi;
 INSERT INTO bttest_multi SELECT i, i%2  FROM generate_series(1, 100000) as i;
-SELECT bt_index_parent_check('bttest_multi_idx', true);
+SELECT bt_index_parent_check('bttest_multi_idx', true, true);
 
 --
--- Test for multilevel page deletion/downlink present checks
+-- Test for multilevel page deletion/downlink present checks, and rootdescend
+-- checks
 --
 INSERT INTO delete_test_table SELECT i, 1, 2, 3 FROM generate_series(1,80000) i;
 ALTER TABLE delete_test_table ADD PRIMARY KEY (a,b,c,d);
-DELETE FROM delete_test_table WHERE a > 40000;
-VACUUM delete_test_table;
-DELETE FROM delete_test_table WHERE a > 10;
+-- Delete most entries, and vacuum, deleting internal pages and creating "fast
+-- root"
+DELETE FROM delete_test_table WHERE a < 79990;
 VACUUM delete_test_table;
 SELECT bt_index_parent_check('delete_test_table_pkey', true);
 
@@ -129,6 +135,38 @@ CREATE INDEX bttest_a_expr_idx ON bttest_a ((ifun(id) + ifun(0)))
 
 SELECT bt_index_check('bttest_a_expr_idx', true);
 
+<<<<<<< HEAD
+=======
+-- UNIQUE constraint check
+SELECT bt_index_check('bttest_a_idx', heapallindexed => true, checkunique => true);
+SELECT bt_index_check('bttest_b_idx', heapallindexed => false, checkunique => true);
+SELECT bt_index_parent_check('bttest_a_idx', heapallindexed => true, rootdescend => true, checkunique => true);
+SELECT bt_index_parent_check('bttest_b_idx', heapallindexed => true, rootdescend => false, checkunique => true);
+
+-- Check that null values in an unique index are not treated as equal
+CREATE TABLE bttest_unique_nulls (a serial, b int, c int UNIQUE);
+INSERT INTO bttest_unique_nulls VALUES (generate_series(1, 10000), 2, default);
+SELECT bt_index_check('bttest_unique_nulls_c_key', heapallindexed => true, checkunique => true);
+CREATE INDEX on bttest_unique_nulls (b,c);
+SELECT bt_index_check('bttest_unique_nulls_b_c_idx', heapallindexed => true, checkunique => true);
+
+-- Check support of both 1B and 4B header sizes of short varlena datum
+CREATE TABLE varlena_bug (v text);
+ALTER TABLE varlena_bug ALTER column v SET storage plain;
+INSERT INTO varlena_bug VALUES ('x');
+COPY varlena_bug from stdin;
+x
+\.
+CREATE INDEX varlena_bug_idx on varlena_bug(v);
+SELECT bt_index_check('varlena_bug_idx', true);
+
+-- Also check that we compress varlena values, which were previously stored
+-- uncompressed in index.
+INSERT INTO varlena_bug VALUES (repeat('Test', 250));
+ALTER TABLE varlena_bug ALTER COLUMN v SET STORAGE extended;
+SELECT bt_index_check('varlena_bug_idx', true);
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 -- cleanup
 DROP TABLE bttest_a;
 DROP TABLE bttest_b;
@@ -136,5 +174,12 @@ DROP TABLE bttest_multi;
 DROP TABLE delete_test_table;
 DROP TABLE toast_bug;
 DROP FUNCTION ifun(int8);
+<<<<<<< HEAD
 DROP OWNED BY regress_bttest_role; -- permissions
 DROP ROLE regress_bttest_role;
+=======
+DROP TABLE bttest_unique_nulls;
+DROP OWNED BY regress_bttest_role; -- permissions
+DROP ROLE regress_bttest_role;
+DROP TABLE varlena_bug;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

@@ -2,7 +2,7 @@
  *
  * deparse_utility.h
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/tcop/deparse_utility.h
@@ -29,7 +29,7 @@ typedef enum CollectedCommandType
 	SCT_AlterOpFamily,
 	SCT_AlterDefaultPrivileges,
 	SCT_CreateOpClass,
-	SCT_AlterTSConfig
+	SCT_AlterTSConfig,
 } CollectedCommandType;
 
 /*
@@ -102,7 +102,11 @@ typedef struct CollectedCommand
 		}			defprivs;
 	}			d;
 
+<<<<<<< HEAD
 	struct CollectedCommand	*parent;		/* when nested */
+=======
+	struct CollectedCommand *parent;	/* when nested */
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 } CollectedCommand;
 
 #endif							/* DEPARSE_UTILITY_H */

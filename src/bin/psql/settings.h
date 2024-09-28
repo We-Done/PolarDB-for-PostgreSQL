@@ -1,17 +1,17 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2024, PostgreSQL Global Development Group
  *
  * src/bin/psql/settings.h
  */
 #ifndef SETTINGS_H
 #define SETTINGS_H
 
-
-#include "variables.h"
 #include "fe_utils/print.h"
+#include "variables.h"
 
+#define DEFAULT_CSV_FIELD_SEP ','
 #define DEFAULT_FIELD_SEP "|"
 #define DEFAULT_RECORD_SEP "\n"
 
@@ -23,8 +23,8 @@
 #define DEFAULT_EDITOR_LINENUMBER_ARG "+"
 #endif
 
-#define DEFAULT_PROMPT1 "%/%R%# "
-#define DEFAULT_PROMPT2 "%/%R%# "
+#define DEFAULT_PROMPT1 "%/%R%x%# "
+#define DEFAULT_PROMPT2 "%/%R%x%# "
 #define DEFAULT_PROMPT3 ">> "
 
 /*
@@ -37,21 +37,21 @@ typedef enum
 	PSQL_ECHO_NONE,
 	PSQL_ECHO_QUERIES,
 	PSQL_ECHO_ERRORS,
-	PSQL_ECHO_ALL
+	PSQL_ECHO_ALL,
 } PSQL_ECHO;
 
 typedef enum
 {
 	PSQL_ECHO_HIDDEN_OFF,
 	PSQL_ECHO_HIDDEN_ON,
-	PSQL_ECHO_HIDDEN_NOEXEC
+	PSQL_ECHO_HIDDEN_NOEXEC,
 } PSQL_ECHO_HIDDEN;
 
 typedef enum
 {
 	PSQL_ERROR_ROLLBACK_OFF,
 	PSQL_ERROR_ROLLBACK_INTERACTIVE,
-	PSQL_ERROR_ROLLBACK_ON
+	PSQL_ERROR_ROLLBACK_ON,
 } PSQL_ERROR_ROLLBACK;
 
 typedef enum
@@ -59,22 +59,31 @@ typedef enum
 	PSQL_COMP_CASE_PRESERVE_UPPER,
 	PSQL_COMP_CASE_PRESERVE_LOWER,
 	PSQL_COMP_CASE_UPPER,
-	PSQL_COMP_CASE_LOWER
+	PSQL_COMP_CASE_LOWER,
 } PSQL_COMP_CASE;
+
+typedef enum
+{
+	PSQL_SEND_QUERY,
+	PSQL_SEND_EXTENDED_CLOSE,
+	PSQL_SEND_EXTENDED_PARSE,
+	PSQL_SEND_EXTENDED_QUERY_PARAMS,
+	PSQL_SEND_EXTENDED_QUERY_PREPARED,
+} PSQL_SEND_MODE;
 
 typedef enum
 {
 	hctl_none = 0,
 	hctl_ignorespace = 1,
 	hctl_ignoredups = 2,
-	hctl_ignoreboth = hctl_ignorespace | hctl_ignoredups
+	hctl_ignoreboth = hctl_ignorespace | hctl_ignoredups,
 } HistControl;
 
 enum trivalue
 {
 	TRI_DEFAULT,
 	TRI_NO,
-	TRI_YES
+	TRI_YES,
 };
 
 typedef struct _psqlSettings
@@ -91,14 +100,21 @@ typedef struct _psqlSettings
 
 	PGresult   *last_error_result;	/* most recent error result, if any */
 
-	printQueryOpt popt;
+	printQueryOpt popt;			/* The active print format settings */
 
 	char	   *gfname;			/* one-shot file output argument for \g */
-	bool		g_expanded;		/* one-shot expanded output requested via \gx */
+	printQueryOpt *gsavepopt;	/* if not null, saved print format settings */
+
 	char	   *gset_prefix;	/* one-shot prefix argument for \gset */
-	bool		gdesc_flag;		/* one-shot request to describe query results */
-	bool		gexec_flag;		/* one-shot request to execute query results */
-	bool		crosstab_flag;	/* one-shot request to crosstab results */
+	bool		gdesc_flag;		/* one-shot request to describe query result */
+	bool		gexec_flag;		/* one-shot request to execute query result */
+	PSQL_SEND_MODE send_mode;	/* one-shot request to send query with normal
+								 * or extended query protocol */
+	int			bind_nparams;	/* number of parameters */
+	char	  **bind_params;	/* parameters for extended query protocol call */
+	char	   *stmtName;		/* prepared statement name used for extended
+								 * query protocol commands */
+	bool		crosstab_flag;	/* one-shot request to crosstab result */
 	char	   *ctv_args[4];	/* \crosstabview arguments */
 
 	bool		notty;			/* stdin or stdout is not a tty (as determined
@@ -120,6 +136,13 @@ typedef struct _psqlSettings
 	VariableSpace vars;			/* "shell variable" repository */
 
 	/*
+	 * If we get a connection failure, the now-unusable PGconn is stashed here
+	 * until we can successfully reconnect.  Never attempt to do anything with
+	 * this PGconn except extract parameters for a \connect attempt.
+	 */
+	PGconn	   *dead_conn;		/* previous connection to backend */
+
+	/*
 	 * The remaining fields are set by assign hooks associated with entries in
 	 * "vars".  They should not be set directly except by those hook
 	 * functions.
@@ -129,6 +152,8 @@ typedef struct _psqlSettings
 	bool		quiet;
 	bool		singleline;
 	bool		singlestep;
+	bool		hide_compression;
+	bool		hide_tableam;
 	int			fetch_count;
 	int			histsize;
 	int			ignoreeof;
@@ -141,6 +166,7 @@ typedef struct _psqlSettings
 	const char *prompt2;
 	const char *prompt3;
 	PGVerbosity verbosity;		/* current error verbosity level */
+	bool		show_all_results;
 	PGContextVisibility show_context;	/* current context display level */
 
 	/* POLARD px begin */

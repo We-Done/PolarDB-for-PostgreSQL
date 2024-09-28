@@ -3,7 +3,7 @@
  * readfuncs.c
  *	  Reader functions for Postgres tree nodes.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -11,16 +11,16 @@
  *	  src/backend/nodes/readfuncs.c
  *
  * NOTES
- *	  Path nodes do not have any readfuncs support, because we never
- *	  have occasion to read them in.  (There was once code here that
- *	  claimed to read them, but it was broken as well as unused.)  We
- *	  never read executor state trees, either.
- *
  *	  Parse location fields are written out by outfuncs.c, but only for
- *	  possible debugging use.  When reading a location field, we discard
+ *	  debugging use.  When reading a location field, we normally discard
  *	  the stored value and set the location field to -1 (ie, "unknown").
  *	  This is because nodes coming from a stored rule should not be thought
  *	  to have a known location in the current query's text.
+ *
+ *	  However, if restore_location_fields is true, we do restore location
+ *	  fields from the string.  This is currently intended only for use by the
+ *	  debug_write_read_parse_plan_trees test code, which doesn't want to cause
+ *	  any change in the node contents.
  *
  *-------------------------------------------------------------------------
  */
@@ -28,13 +28,17 @@
 
 #include <math.h>
 
+<<<<<<< HEAD
 #include "fmgr.h"
 #include "miscadmin.h"
 #include "nodes/extensible.h"
 #include "nodes/parsenodes.h"
 #include "nodes/plannodes.h"
+=======
+#include "miscadmin.h"
+#include "nodes/bitmapset.h"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #include "nodes/readfuncs.h"
-#include "utils/builtins.h"
 
 /* POLAR px */
 #include "px/px_gang.h"
@@ -65,7 +69,7 @@ static const char *read_str_ptr;
 
 /* And a few guys need only the pg_strtok support fields */
 #define READ_TEMP_LOCALS()	\
-	char	   *token;		\
+	const char *token;		\
 	int			length
 
 /* ... but most need both */
@@ -97,7 +101,7 @@ static const char *read_str_ptr;
 #define READ_UINT64_FIELD(fldname) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
 	token = pg_strtok(&length);		/* get field value */ \
-	local_node->fldname = pg_strtouint64(token, NULL, 10)
+	local_node->fldname = strtou64(token, NULL, 10)
 
 /* Read a long integer field (anything written as ":fldname %ld") */
 #define READ_LONG_FIELD(fldname) \
@@ -142,12 +146,19 @@ static const char *read_str_ptr;
 	token = pg_strtok(&length);		/* get field value */ \
 	local_node->fldname = nullable_string(token, length)
 
-/* Read a parse location field (and throw away the value, per notes above) */
+/* Read a parse location field (and possibly throw away the value) */
+#ifdef DEBUG_NODE_TESTS_ENABLED
+#define READ_LOCATION_FIELD(fldname) \
+	token = pg_strtok(&length);		/* skip :fldname */ \
+	token = pg_strtok(&length);		/* get field value */ \
+	local_node->fldname = restore_location_fields ? atoi(token) : -1
+#else
 #define READ_LOCATION_FIELD(fldname) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
 	token = pg_strtok(&length);		/* get field value */ \
 	(void) token;				/* in case not used elsewhere */ \
 	local_node->fldname = -1	/* set field to "unknown" */
+#endif
 
 /* Read a Node field */
 #define READ_NODE_FIELD(fldname) \
@@ -180,6 +191,7 @@ static const char *read_str_ptr;
 #define READ_BOOL_ARRAY(fldname, len) \
 	token = pg_strtok(&length);		/* skip :fldname */ \
 	local_node->fldname = readBoolCols(len)
+<<<<<<< HEAD
 
 /*
  * POLAR px: Read a PolarDB PX field. It doesn't deal with
@@ -194,6 +206,8 @@ static const char *read_str_ptr;
 	(({token = polar_pg_strtok(&length); }) && \
 	 length == sizeof(CppAsString(tokname)) && \
 	 memcmp(token, ":" CppAsString(tokname), length) == 0)
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /* Routine exit */
 #define READ_DONE() \
@@ -213,8 +227,18 @@ static const char *read_str_ptr;
 
 #define strtobool(x)  ((*(x) == 't') ? true : false)
 
-#define nullable_string(token,length)  \
-	((length) == 0 ? NULL : debackslash(token, length))
+static char *
+nullable_string(const char *token, int length)
+{
+	/* outToken emits <> for NULL, and pg_strtok makes that an empty string */
+	if (length == 0)
+		return NULL;
+	/* outToken emits "" for empty string */
+	if (length == 2 && token[0] == '"' && token[1] == '"')
+		return pstrdup("");
+	/* otherwise, we must remove protective backslashes added by outToken */
+	return debackslash(token, length);
+}
 
 /* POLAR px: read flag for plangen from PXOPT */
 static bool is_px_read_plangen = false;
@@ -228,6 +252,10 @@ static int polar_node_output_version = POLAR_NODE_OUTPUT_VERSION;
 
 /*
  * _readBitmapset
+ *
+ * Note: this code is used in contexts where we know that a Bitmapset
+ * is expected.  There is equivalent code in nodeRead() that can read a
+ * Bitmapset when we come across one in other contexts.
  */
 static Bitmapset *
 _readBitmapset(void)
@@ -268,7 +296,8 @@ _readBitmapset(void)
 }
 
 /*
- * for use by extensions which define extensible nodes
+ * We export this function for use by extensions that define extensible nodes.
+ * That's somewhat historical, though, because calling nodeRead() will work.
  */
 Bitmapset *
 readBitmapset(void)
@@ -276,6 +305,7 @@ readBitmapset(void)
 	return _readBitmapset();
 }
 
+<<<<<<< HEAD
 /*
  * _readQuery
  */
@@ -492,105 +522,16 @@ _readSetOperationStmt(void)
 
 	READ_DONE();
 }
+=======
+#include "readfuncs.funcs.c"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 
 /*
- *	Stuff from primnodes.h.
+ * Support functions for nodes with custom_read_write attribute or
+ * special_read_write attribute
  */
 
-static Alias *
-_readAlias(void)
-{
-	READ_LOCALS(Alias);
-
-	READ_STRING_FIELD(aliasname);
-	READ_NODE_FIELD(colnames);
-
-	READ_DONE();
-}
-
-static RangeVar *
-_readRangeVar(void)
-{
-	READ_LOCALS(RangeVar);
-
-	local_node->catalogname = NULL; /* not currently saved in output format */
-
-	READ_STRING_FIELD(schemaname);
-	READ_STRING_FIELD(relname);
-	READ_BOOL_FIELD(inh);
-	READ_CHAR_FIELD(relpersistence);
-	READ_NODE_FIELD(alias);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readTableFunc
- */
-static TableFunc *
-_readTableFunc(void)
-{
-	READ_LOCALS(TableFunc);
-
-	READ_NODE_FIELD(ns_uris);
-	READ_NODE_FIELD(ns_names);
-	READ_NODE_FIELD(docexpr);
-	READ_NODE_FIELD(rowexpr);
-	READ_NODE_FIELD(colnames);
-	READ_NODE_FIELD(coltypes);
-	READ_NODE_FIELD(coltypmods);
-	READ_NODE_FIELD(colcollations);
-	READ_NODE_FIELD(colexprs);
-	READ_NODE_FIELD(coldefexprs);
-	READ_BITMAPSET_FIELD(notnulls);
-	READ_INT_FIELD(ordinalitycol);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-static IntoClause *
-_readIntoClause(void)
-{
-	READ_LOCALS(IntoClause);
-
-	READ_NODE_FIELD(rel);
-	READ_NODE_FIELD(colNames);
-	READ_NODE_FIELD(options);
-	READ_ENUM_FIELD(onCommit, OnCommitAction);
-	READ_STRING_FIELD(tableSpaceName);
-	READ_NODE_FIELD(viewQuery);
-	READ_BOOL_FIELD(skipData);
-
-	READ_DONE();
-}
-
-/*
- * _readVar
- */
-static Var *
-_readVar(void)
-{
-	READ_LOCALS(Var);
-
-	READ_UINT_FIELD(varno);
-	READ_INT_FIELD(varattno);
-	READ_OID_FIELD(vartype);
-	READ_INT_FIELD(vartypmod);
-	READ_OID_FIELD(varcollid);
-	READ_UINT_FIELD(varlevelsup);
-	READ_UINT_FIELD(varnoold);
-	READ_INT_FIELD(varoattno);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readConst
- */
 static Const *
 _readConst(void)
 {
@@ -613,6 +554,7 @@ _readConst(void)
 	READ_DONE();
 }
 
+<<<<<<< HEAD
 /*
  * _readParam
  */
@@ -848,6 +790,8 @@ _readScalarArrayOpExpr(void)
 /*
  * _readBoolExpr
  */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 static BoolExpr *
 _readBoolExpr(void)
 {
@@ -856,11 +800,11 @@ _readBoolExpr(void)
 	/* do-it-yourself enum representation */
 	token = pg_strtok(&length); /* skip :boolop */
 	token = pg_strtok(&length); /* get field value */
-	if (strncmp(token, "and", 3) == 0)
+	if (length == 3 && strncmp(token, "and", 3) == 0)
 		local_node->boolop = AND_EXPR;
-	else if (strncmp(token, "or", 2) == 0)
+	else if (length == 2 && strncmp(token, "or", 2) == 0)
 		local_node->boolop = OR_EXPR;
-	else if (strncmp(token, "not", 3) == 0)
+	else if (length == 3 && strncmp(token, "not", 3) == 0)
 		local_node->boolop = NOT_EXPR;
 	else
 		elog(ERROR, "unrecognized boolop \"%.*s\"", length, token);
@@ -871,542 +815,54 @@ _readBoolExpr(void)
 	READ_DONE();
 }
 
-/*
- * _readSubLink
- */
-static SubLink *
-_readSubLink(void)
+static A_Const *
+_readA_Const(void)
 {
-	READ_LOCALS(SubLink);
+	READ_LOCALS(A_Const);
 
-	READ_ENUM_FIELD(subLinkType, SubLinkType);
-	READ_INT_FIELD(subLinkId);
-	READ_NODE_FIELD(testexpr);
-	READ_NODE_FIELD(operName);
-	READ_NODE_FIELD(subselect);
+	/* We expect either NULL or :val here */
+	token = pg_strtok(&length);
+	if (length == 4 && strncmp(token, "NULL", 4) == 0)
+		local_node->isnull = true;
+	else
+	{
+		union ValUnion *tmp = nodeRead(NULL, 0);
+
+		/* To forestall valgrind complaints, copy only the valid data */
+		switch (nodeTag(tmp))
+		{
+			case T_Integer:
+				memcpy(&local_node->val, tmp, sizeof(Integer));
+				break;
+			case T_Float:
+				memcpy(&local_node->val, tmp, sizeof(Float));
+				break;
+			case T_Boolean:
+				memcpy(&local_node->val, tmp, sizeof(Boolean));
+				break;
+			case T_String:
+				memcpy(&local_node->val, tmp, sizeof(String));
+				break;
+			case T_BitString:
+				memcpy(&local_node->val, tmp, sizeof(BitString));
+				break;
+			default:
+				elog(ERROR, "unrecognized node type: %d",
+					 (int) nodeTag(tmp));
+				break;
+		}
+	}
+
 	READ_LOCATION_FIELD(location);
 
 	READ_DONE();
 }
 
-/*
- * _readSubPlan is not needed since it doesn't appear in stored rules.
- */
-
-/*
- * _readFieldSelect
- */
-static FieldSelect *
-_readFieldSelect(void)
-{
-	READ_LOCALS(FieldSelect);
-
-	READ_NODE_FIELD(arg);
-	READ_INT_FIELD(fieldnum);
-	READ_OID_FIELD(resulttype);
-	READ_INT_FIELD(resulttypmod);
-	READ_OID_FIELD(resultcollid);
-
-	READ_DONE();
-}
-
-/*
- * _readFieldStore
- */
-static FieldStore *
-_readFieldStore(void)
-{
-	READ_LOCALS(FieldStore);
-
-	READ_NODE_FIELD(arg);
-	READ_NODE_FIELD(newvals);
-	READ_NODE_FIELD(fieldnums);
-	READ_OID_FIELD(resulttype);
-
-	READ_DONE();
-}
-
-/*
- * _readRelabelType
- */
-static RelabelType *
-_readRelabelType(void)
-{
-	READ_LOCALS(RelabelType);
-
-	READ_NODE_FIELD(arg);
-	READ_OID_FIELD(resulttype);
-	READ_INT_FIELD(resulttypmod);
-	READ_OID_FIELD(resultcollid);
-	READ_ENUM_FIELD(relabelformat, CoercionForm);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCoerceViaIO
- */
-static CoerceViaIO *
-_readCoerceViaIO(void)
-{
-	READ_LOCALS(CoerceViaIO);
-
-	READ_NODE_FIELD(arg);
-	READ_OID_FIELD(resulttype);
-	READ_OID_FIELD(resultcollid);
-	READ_ENUM_FIELD(coerceformat, CoercionForm);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readArrayCoerceExpr
- */
-static ArrayCoerceExpr *
-_readArrayCoerceExpr(void)
-{
-	READ_LOCALS(ArrayCoerceExpr);
-
-	READ_NODE_FIELD(arg);
-	READ_NODE_FIELD(elemexpr);
-	READ_OID_FIELD(resulttype);
-	READ_INT_FIELD(resulttypmod);
-	READ_OID_FIELD(resultcollid);
-	READ_ENUM_FIELD(coerceformat, CoercionForm);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readConvertRowtypeExpr
- */
-static ConvertRowtypeExpr *
-_readConvertRowtypeExpr(void)
-{
-	READ_LOCALS(ConvertRowtypeExpr);
-
-	READ_NODE_FIELD(arg);
-	READ_OID_FIELD(resulttype);
-	READ_ENUM_FIELD(convertformat, CoercionForm);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCollateExpr
- */
-static CollateExpr *
-_readCollateExpr(void)
-{
-	READ_LOCALS(CollateExpr);
-
-	READ_NODE_FIELD(arg);
-	READ_OID_FIELD(collOid);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCaseExpr
- */
-static CaseExpr *
-_readCaseExpr(void)
-{
-	READ_LOCALS(CaseExpr);
-
-	READ_OID_FIELD(casetype);
-	READ_OID_FIELD(casecollid);
-	READ_NODE_FIELD(arg);
-	READ_NODE_FIELD(args);
-	READ_NODE_FIELD(defresult);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCaseWhen
- */
-static CaseWhen *
-_readCaseWhen(void)
-{
-	READ_LOCALS(CaseWhen);
-
-	READ_NODE_FIELD(expr);
-	READ_NODE_FIELD(result);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCaseTestExpr
- */
-static CaseTestExpr *
-_readCaseTestExpr(void)
-{
-	READ_LOCALS(CaseTestExpr);
-
-	READ_OID_FIELD(typeId);
-	READ_INT_FIELD(typeMod);
-	READ_OID_FIELD(collation);
-
-	READ_DONE();
-}
-
-/*
- * _readArrayExpr
- */
-static ArrayExpr *
-_readArrayExpr(void)
-{
-	READ_LOCALS(ArrayExpr);
-
-	READ_OID_FIELD(array_typeid);
-	READ_OID_FIELD(array_collid);
-	READ_OID_FIELD(element_typeid);
-	READ_NODE_FIELD(elements);
-	READ_BOOL_FIELD(multidims);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readRowExpr
- */
-static RowExpr *
-_readRowExpr(void)
-{
-	READ_LOCALS(RowExpr);
-
-	READ_NODE_FIELD(args);
-	READ_OID_FIELD(row_typeid);
-	READ_ENUM_FIELD(row_format, CoercionForm);
-	READ_NODE_FIELD(colnames);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readRowCompareExpr
- */
-static RowCompareExpr *
-_readRowCompareExpr(void)
-{
-	READ_LOCALS(RowCompareExpr);
-
-	READ_ENUM_FIELD(rctype, RowCompareType);
-	READ_NODE_FIELD(opnos);
-	READ_NODE_FIELD(opfamilies);
-	READ_NODE_FIELD(inputcollids);
-	READ_NODE_FIELD(largs);
-	READ_NODE_FIELD(rargs);
-
-	READ_DONE();
-}
-
-/*
- * _readCoalesceExpr
- */
-static CoalesceExpr *
-_readCoalesceExpr(void)
-{
-	READ_LOCALS(CoalesceExpr);
-
-	READ_OID_FIELD(coalescetype);
-	READ_OID_FIELD(coalescecollid);
-	READ_NODE_FIELD(args);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readMinMaxExpr
- */
-static MinMaxExpr *
-_readMinMaxExpr(void)
-{
-	READ_LOCALS(MinMaxExpr);
-
-	READ_OID_FIELD(minmaxtype);
-	READ_OID_FIELD(minmaxcollid);
-	READ_OID_FIELD(inputcollid);
-	READ_ENUM_FIELD(op, MinMaxOp);
-	READ_NODE_FIELD(args);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readSQLValueFunction
- */
-static SQLValueFunction *
-_readSQLValueFunction(void)
-{
-	READ_LOCALS(SQLValueFunction);
-
-	READ_ENUM_FIELD(op, SQLValueFunctionOp);
-	READ_OID_FIELD(type);
-	READ_INT_FIELD(typmod);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readXmlExpr
- */
-static XmlExpr *
-_readXmlExpr(void)
-{
-	READ_LOCALS(XmlExpr);
-
-	READ_ENUM_FIELD(op, XmlExprOp);
-	READ_STRING_FIELD(name);
-	READ_NODE_FIELD(named_args);
-	READ_NODE_FIELD(arg_names);
-	READ_NODE_FIELD(args);
-	READ_ENUM_FIELD(xmloption, XmlOptionType);
-	READ_OID_FIELD(type);
-	READ_INT_FIELD(typmod);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readNullTest
- */
-static NullTest *
-_readNullTest(void)
-{
-	READ_LOCALS(NullTest);
-
-	READ_NODE_FIELD(arg);
-	READ_ENUM_FIELD(nulltesttype, NullTestType);
-	READ_BOOL_FIELD(argisrow);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readBooleanTest
- */
-static BooleanTest *
-_readBooleanTest(void)
-{
-	READ_LOCALS(BooleanTest);
-
-	READ_NODE_FIELD(arg);
-	READ_ENUM_FIELD(booltesttype, BoolTestType);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCoerceToDomain
- */
-static CoerceToDomain *
-_readCoerceToDomain(void)
-{
-	READ_LOCALS(CoerceToDomain);
-
-	READ_NODE_FIELD(arg);
-	READ_OID_FIELD(resulttype);
-	READ_INT_FIELD(resulttypmod);
-	READ_OID_FIELD(resultcollid);
-	READ_ENUM_FIELD(coercionformat, CoercionForm);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCoerceToDomainValue
- */
-static CoerceToDomainValue *
-_readCoerceToDomainValue(void)
-{
-	READ_LOCALS(CoerceToDomainValue);
-
-	READ_OID_FIELD(typeId);
-	READ_INT_FIELD(typeMod);
-	READ_OID_FIELD(collation);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readSetToDefault
- */
-static SetToDefault *
-_readSetToDefault(void)
-{
-	READ_LOCALS(SetToDefault);
-
-	READ_OID_FIELD(typeId);
-	READ_INT_FIELD(typeMod);
-	READ_OID_FIELD(collation);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readCurrentOfExpr
- */
-static CurrentOfExpr *
-_readCurrentOfExpr(void)
-{
-	READ_LOCALS(CurrentOfExpr);
-
-	READ_UINT_FIELD(cvarno);
-	READ_STRING_FIELD(cursor_name);
-	READ_INT_FIELD(cursor_param);
-
-	READ_DONE();
-}
-
-/*
- * _readNextValueExpr
- */
-static NextValueExpr *
-_readNextValueExpr(void)
-{
-	READ_LOCALS(NextValueExpr);
-
-	READ_OID_FIELD(seqid);
-	READ_OID_FIELD(typeId);
-
-	READ_DONE();
-}
-
-/*
- * _readInferenceElem
- */
-static InferenceElem *
-_readInferenceElem(void)
-{
-	READ_LOCALS(InferenceElem);
-
-	READ_NODE_FIELD(expr);
-	READ_OID_FIELD(infercollid);
-	READ_OID_FIELD(inferopclass);
-
-	READ_DONE();
-}
-
-/*
- * _readTargetEntry
- */
-static TargetEntry *
-_readTargetEntry(void)
-{
-	READ_LOCALS(TargetEntry);
-
-	READ_NODE_FIELD(expr);
-	READ_INT_FIELD(resno);
-	READ_STRING_FIELD(resname);
-	READ_UINT_FIELD(ressortgroupref);
-	READ_OID_FIELD(resorigtbl);
-	READ_INT_FIELD(resorigcol);
-	READ_BOOL_FIELD(resjunk);
-
-	READ_DONE();
-}
-
-/*
- * _readRangeTblRef
- */
-static RangeTblRef *
-_readRangeTblRef(void)
-{
-	READ_LOCALS(RangeTblRef);
-
-	READ_INT_FIELD(rtindex);
-
-	READ_DONE();
-}
-
-/*
- * _readJoinExpr
- */
-static JoinExpr *
-_readJoinExpr(void)
-{
-	READ_LOCALS(JoinExpr);
-
-	READ_ENUM_FIELD(jointype, JoinType);
-	READ_BOOL_FIELD(isNatural);
-	READ_NODE_FIELD(larg);
-	READ_NODE_FIELD(rarg);
-	READ_NODE_FIELD(usingClause);
-	READ_NODE_FIELD(quals);
-	READ_NODE_FIELD(alias);
-	READ_INT_FIELD(rtindex);
-
-	READ_DONE();
-}
-
-/*
- * _readFromExpr
- */
-static FromExpr *
-_readFromExpr(void)
-{
-	READ_LOCALS(FromExpr);
-
-	READ_NODE_FIELD(fromlist);
-	READ_NODE_FIELD(quals);
-
-	READ_DONE();
-}
-
-/*
- * _readOnConflictExpr
- */
-static OnConflictExpr *
-_readOnConflictExpr(void)
-{
-	READ_LOCALS(OnConflictExpr);
-
-	READ_ENUM_FIELD(action, OnConflictAction);
-	READ_NODE_FIELD(arbiterElems);
-	READ_NODE_FIELD(arbiterWhere);
-	READ_OID_FIELD(constraint);
-	READ_NODE_FIELD(onConflictSet);
-	READ_NODE_FIELD(onConflictWhere);
-	READ_INT_FIELD(exclRelIndex);
-	READ_NODE_FIELD(exclRelTlist);
-
-	READ_DONE();
-}
-
-/*
- *	Stuff from parsenodes.h.
- */
-
-/*
- * _readRangeTblEntry
- */
 static RangeTblEntry *
 _readRangeTblEntry(void)
 {
 	READ_LOCALS(RangeTblEntry);
 
-	/* put alias + eref first to make dump more legible */
 	READ_NODE_FIELD(alias);
 	READ_NODE_FIELD(eref);
 	READ_ENUM_FIELD(rtekind, RTEKind);
@@ -1415,16 +871,29 @@ _readRangeTblEntry(void)
 	{
 		case RTE_RELATION:
 			READ_OID_FIELD(relid);
+			READ_BOOL_FIELD(inh);
 			READ_CHAR_FIELD(relkind);
+			READ_INT_FIELD(rellockmode);
+			READ_UINT_FIELD(perminfoindex);
 			READ_NODE_FIELD(tablesample);
 			break;
 		case RTE_SUBQUERY:
 			READ_NODE_FIELD(subquery);
 			READ_BOOL_FIELD(security_barrier);
+			/* we re-use these RELATION fields, too: */
+			READ_OID_FIELD(relid);
+			READ_BOOL_FIELD(inh);
+			READ_CHAR_FIELD(relkind);
+			READ_INT_FIELD(rellockmode);
+			READ_UINT_FIELD(perminfoindex);
 			break;
 		case RTE_JOIN:
 			READ_ENUM_FIELD(jointype, JoinType);
+			READ_INT_FIELD(joinmergedcols);
 			READ_NODE_FIELD(joinaliasvars);
+			READ_NODE_FIELD(joinleftcols);
+			READ_NODE_FIELD(joinrightcols);
+			READ_NODE_FIELD(join_using_alias);
 			break;
 		case RTE_FUNCTION:
 			READ_NODE_FIELD(functions);
@@ -1459,10 +928,17 @@ _readRangeTblEntry(void)
 		case RTE_NAMEDTUPLESTORE:
 			READ_STRING_FIELD(enrname);
 			READ_FLOAT_FIELD(enrtuples);
-			READ_OID_FIELD(relid);
 			READ_NODE_FIELD(coltypes);
 			READ_NODE_FIELD(coltypmods);
 			READ_NODE_FIELD(colcollations);
+			/* we re-use these RELATION fields, too: */
+			READ_OID_FIELD(relid);
+			break;
+		case RTE_RESULT:
+			/* no extra fields */
+			break;
+		case RTE_GROUP:
+			READ_NODE_FIELD(groupexprs);
 			break;
 		default:
 			elog(ERROR, "unrecognized RTE kind: %d",
@@ -1471,69 +947,100 @@ _readRangeTblEntry(void)
 	}
 
 	READ_BOOL_FIELD(lateral);
-	READ_BOOL_FIELD(inh);
 	READ_BOOL_FIELD(inFromCl);
-	READ_UINT_FIELD(requiredPerms);
-	READ_OID_FIELD(checkAsUser);
-	READ_BITMAPSET_FIELD(selectedCols);
-	READ_BITMAPSET_FIELD(insertedCols);
-	READ_BITMAPSET_FIELD(updatedCols);
 	READ_NODE_FIELD(securityQuals);
 
 	READ_DONE();
 }
 
-/*
- * _readRangeTblFunction
- */
-static RangeTblFunction *
-_readRangeTblFunction(void)
+static A_Expr *
+_readA_Expr(void)
 {
-	READ_LOCALS(RangeTblFunction);
+	READ_LOCALS(A_Expr);
 
-	READ_NODE_FIELD(funcexpr);
-	READ_INT_FIELD(funccolcount);
-	READ_NODE_FIELD(funccolnames);
-	READ_NODE_FIELD(funccoltypes);
-	READ_NODE_FIELD(funccoltypmods);
-	READ_NODE_FIELD(funccolcollations);
-	READ_BITMAPSET_FIELD(funcparams);
+	token = pg_strtok(&length);
 
-	READ_DONE();
-}
+	if (length == 3 && strncmp(token, "ANY", 3) == 0)
+	{
+		local_node->kind = AEXPR_OP_ANY;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 3 && strncmp(token, "ALL", 3) == 0)
+	{
+		local_node->kind = AEXPR_OP_ALL;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 8 && strncmp(token, "DISTINCT", 8) == 0)
+	{
+		local_node->kind = AEXPR_DISTINCT;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 12 && strncmp(token, "NOT_DISTINCT", 12) == 0)
+	{
+		local_node->kind = AEXPR_NOT_DISTINCT;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 6 && strncmp(token, "NULLIF", 6) == 0)
+	{
+		local_node->kind = AEXPR_NULLIF;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 2 && strncmp(token, "IN", 2) == 0)
+	{
+		local_node->kind = AEXPR_IN;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 4 && strncmp(token, "LIKE", 4) == 0)
+	{
+		local_node->kind = AEXPR_LIKE;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 5 && strncmp(token, "ILIKE", 5) == 0)
+	{
+		local_node->kind = AEXPR_ILIKE;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 7 && strncmp(token, "SIMILAR", 7) == 0)
+	{
+		local_node->kind = AEXPR_SIMILAR;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 7 && strncmp(token, "BETWEEN", 7) == 0)
+	{
+		local_node->kind = AEXPR_BETWEEN;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 11 && strncmp(token, "NOT_BETWEEN", 11) == 0)
+	{
+		local_node->kind = AEXPR_NOT_BETWEEN;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 11 && strncmp(token, "BETWEEN_SYM", 11) == 0)
+	{
+		local_node->kind = AEXPR_BETWEEN_SYM;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 15 && strncmp(token, "NOT_BETWEEN_SYM", 15) == 0)
+	{
+		local_node->kind = AEXPR_NOT_BETWEEN_SYM;
+		READ_NODE_FIELD(name);
+	}
+	else if (length == 5 && strncmp(token, ":name", 5) == 0)
+	{
+		local_node->kind = AEXPR_OP;
+		local_node->name = nodeRead(NULL, 0);
+	}
+	else
+		elog(ERROR, "unrecognized A_Expr kind: \"%.*s\"", length, token);
 
-/*
- * _readTableSampleClause
- */
-static TableSampleClause *
-_readTableSampleClause(void)
-{
-	READ_LOCALS(TableSampleClause);
-
-	READ_OID_FIELD(tsmhandler);
-	READ_NODE_FIELD(args);
-	READ_NODE_FIELD(repeatable);
-
-	READ_DONE();
-}
-
-/*
- * _readDefElem
- */
-static DefElem *
-_readDefElem(void)
-{
-	READ_LOCALS(DefElem);
-
-	READ_STRING_FIELD(defnamespace);
-	READ_STRING_FIELD(defname);
-	READ_NODE_FIELD(arg);
-	READ_ENUM_FIELD(defaction, DefElemAction);
+	READ_NODE_FIELD(lexpr);
+	READ_NODE_FIELD(rexpr);
 	READ_LOCATION_FIELD(location);
 
 	READ_DONE();
 }
 
+<<<<<<< HEAD
 /*
  *	Stuff from plannodes.h.
  */
@@ -2689,6 +2196,8 @@ _readAlternativeSubPlan(void)
 /*
  * _readExtensibleNode
  */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 static ExtensibleNode *
 _readExtensibleNode(void)
 {
@@ -2716,40 +2225,6 @@ _readExtensibleNode(void)
 	READ_DONE();
 }
 
-/*
- * _readPartitionBoundSpec
- */
-static PartitionBoundSpec *
-_readPartitionBoundSpec(void)
-{
-	READ_LOCALS(PartitionBoundSpec);
-
-	READ_CHAR_FIELD(strategy);
-	READ_BOOL_FIELD(is_default);
-	READ_INT_FIELD(modulus);
-	READ_INT_FIELD(remainder);
-	READ_NODE_FIELD(listdatums);
-	READ_NODE_FIELD(lowerdatums);
-	READ_NODE_FIELD(upperdatums);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
-
-/*
- * _readPartitionRangeDatum
- */
-static PartitionRangeDatum *
-_readPartitionRangeDatum(void)
-{
-	READ_LOCALS(PartitionRangeDatum);
-
-	READ_ENUM_FIELD(kind, PartitionRangeDatumKind);
-	READ_NODE_FIELD(value);
-	READ_LOCATION_FIELD(location);
-
-	READ_DONE();
-}
 
 /* POLAR px */
 static QueryDispatchDesc *
@@ -2992,8 +2467,6 @@ _readDMLActionExpr(void)
 Node *
 parseNodeString(void)
 {
-	void	   *return_value;
-
 	READ_TEMP_LOCALS();
 
 	/* Guard against stack overflow due to overly complex expressions */
@@ -3002,6 +2475,7 @@ parseNodeString(void)
 	token = pg_strtok(&length);
 
 
+<<<<<<< HEAD
 	if (MATCH("QUERY", 5))
 		return_value = _readQuery();
 	else if (MATCH("WITHCHECKOPTION", 15))
@@ -3271,8 +2745,12 @@ parseNodeString(void)
 		elog(ERROR, "badly formatted node string \"%.32s\"...", token);
 		return_value = NULL;	/* keep compiler quiet */
 	}
+=======
+#include "readfuncs.switch.c"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-	return (Node *) return_value;
+	elog(ERROR, "badly formatted node string \"%.32s\"...", token);
+	return NULL;				/* keep compiler quiet */
 }
 
 
@@ -3289,7 +2767,7 @@ readDatum(bool typbyval)
 	Size		length,
 				i;
 	int			tokenLength;
-	char	   *token;
+	const char *token;
 	Datum		res;
 	char	   *s;
 
@@ -3302,7 +2780,7 @@ readDatum(bool typbyval)
 	token = pg_strtok(&tokenLength);	/* read the '[' */
 	if (token == NULL || token[0] != '[')
 		elog(ERROR, "expected \"[\" to start datum, but got \"%s\"; length = %zu",
-			 token ? (const char *) token : "[NULL]", length);
+			 token ? token : "[NULL]", length);
 
 	if (typbyval)
 	{
@@ -3332,38 +2810,51 @@ readDatum(bool typbyval)
 	token = pg_strtok(&tokenLength);	/* read the ']' */
 	if (token == NULL || token[0] != ']')
 		elog(ERROR, "expected \"]\" to end datum, but got \"%s\"; length = %zu",
-			 token ? (const char *) token : "[NULL]", length);
+			 token ? token : "[NULL]", length);
 
 	return res;
 }
 
 /*
- * readAttrNumberCols
+ * common implementation for scalar-array-reading functions
+ *
+ * The data format is either "<>" for a NULL pointer (in which case numCols
+ * is ignored) or "(item item item)" where the number of items must equal
+ * numCols.  The convfunc must be okay with stopping at whitespace or a
+ * right parenthesis, since pg_strtok won't null-terminate the token.
  */
-AttrNumber *
-readAttrNumberCols(int numCols)
-{
-	int			tokenLength,
-				i;
-	char	   *token;
-	AttrNumber *attr_vals;
-
-	if (numCols <= 0)
-		return NULL;
-
-	attr_vals = (AttrNumber *) palloc(numCols * sizeof(AttrNumber));
-	for (i = 0; i < numCols; i++)
-	{
-		token = pg_strtok(&tokenLength);
-		attr_vals[i] = atoi(token);
-	}
-
-	return attr_vals;
+#define READ_SCALAR_ARRAY(fnname, datatype, convfunc) \
+datatype * \
+fnname(int numCols) \
+{ \
+	datatype   *vals; \
+	READ_TEMP_LOCALS(); \
+	token = pg_strtok(&length); \
+	if (token == NULL) \
+		elog(ERROR, "incomplete scalar array"); \
+	if (length == 0) \
+		return NULL;			/* it was "<>", so return NULL pointer */ \
+	if (length != 1 || token[0] != '(') \
+		elog(ERROR, "unrecognized token: \"%.*s\"", length, token); \
+	vals = (datatype *) palloc(numCols * sizeof(datatype)); \
+	for (int i = 0; i < numCols; i++) \
+	{ \
+		token = pg_strtok(&length); \
+		if (token == NULL || token[0] == ')') \
+			elog(ERROR, "incomplete scalar array"); \
+		vals[i] = convfunc(token); \
+	} \
+	token = pg_strtok(&length); \
+	if (token == NULL || length != 1 || token[0] != ')') \
+		elog(ERROR, "incomplete scalar array"); \
+	return vals; \
 }
 
 /*
- * readOidCols
+ * Note: these functions are exported in nodes.h for possible use by
+ * extensions, so don't mess too much with their names or API.
  */
+<<<<<<< HEAD
 Oid *
 readOidCols(int numCols)
 {
@@ -3449,3 +2940,11 @@ readNodeFromBinaryString(const char *str_arg, int len pg_attribute_unused())
 	return node;
 }
 /* POLAR end*/
+=======
+READ_SCALAR_ARRAY(readAttrNumberCols, int16, atoi)
+READ_SCALAR_ARRAY(readOidCols, Oid, atooid)
+/* outfuncs.c has writeIndexCols, but we don't yet need that here */
+/* READ_SCALAR_ARRAY(readIndexCols, Index, atoui) */
+READ_SCALAR_ARRAY(readIntCols, int, atoi)
+READ_SCALAR_ARRAY(readBoolCols, bool, strtobool)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

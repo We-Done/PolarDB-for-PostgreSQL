@@ -3,7 +3,7 @@
  * amapi.h
  *	  API for Postgres index access methods.
  *
- * Copyright (c) 2015-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2015-2024, PostgreSQL Global Development Group
  *
  * src/include/access/amapi.h
  *
@@ -51,8 +51,44 @@ typedef enum IndexAMProperty
 	AMPROP_CAN_UNIQUE,
 	AMPROP_CAN_MULTI_COL,
 	AMPROP_CAN_EXCLUDE,
-	AMPROP_CAN_INCLUDE
+	AMPROP_CAN_INCLUDE,
 } IndexAMProperty;
+
+/*
+ * We use lists of this struct type to keep track of both operators and
+ * support functions while building or adding to an opclass or opfamily.
+ * amadjustmembers functions receive lists of these structs, and are allowed
+ * to alter their "ref" fields.
+ *
+ * The "ref" fields define how the pg_amop or pg_amproc entry should depend
+ * on the associated objects (that is, which dependency type to use, and
+ * which opclass or opfamily it should depend on).
+ *
+ * If ref_is_hard is true, the entry will have a NORMAL dependency on the
+ * operator or support func, and an INTERNAL dependency on the opclass or
+ * opfamily.  This forces the opclass or opfamily to be dropped if the
+ * operator or support func is dropped, and requires the CASCADE option
+ * to do so.  Nor will ALTER OPERATOR FAMILY DROP be allowed.  This is
+ * the right behavior for objects that are essential to an opclass.
+ *
+ * If ref_is_hard is false, the entry will have an AUTO dependency on the
+ * operator or support func, and also an AUTO dependency on the opclass or
+ * opfamily.  This allows ALTER OPERATOR FAMILY DROP, and causes that to
+ * happen automatically if the operator or support func is dropped.  This
+ * is the right behavior for inessential ("loose") objects.
+ */
+typedef struct OpFamilyMember
+{
+	bool		is_func;		/* is this an operator, or support func? */
+	Oid			object;			/* operator or support func's OID */
+	int			number;			/* strategy or support func number */
+	Oid			lefttype;		/* lefttype */
+	Oid			righttype;		/* righttype */
+	Oid			sortfamily;		/* ordering operator's sort opfamily, or 0 */
+	bool		ref_is_hard;	/* hard or soft dependency? */
+	bool		ref_is_family;	/* is dependency on opclass or opfamily? */
+	Oid			refobjid;		/* OID of opclass or opfamily */
+} OpFamilyMember;
 
 
 /*
@@ -74,7 +110,12 @@ typedef bool (*aminsert_function) (Relation indexRelation,
 								   ItemPointer heap_tid,
 								   Relation heapRelation,
 								   IndexUniqueCheck checkUnique,
+								   bool indexUnchanged,
 								   struct IndexInfo *indexInfo);
+
+/* cleanup after insert */
+typedef void (*aminsertcleanup_function) (Relation indexRelation,
+										  struct IndexInfo *indexInfo);
 
 /* bulk delete */
 typedef IndexBulkDeleteResult *(*ambulkdelete_function) (IndexVacuumInfo *info,
@@ -99,6 +140,13 @@ typedef void (*amcostestimate_function) (struct PlannerInfo *root,
 										 double *indexCorrelation,
 										 double *indexPages);
 
+/* estimate height of a tree-structured index
+ *
+ * XXX This just computes a value that is later used by amcostestimate.  This
+ * API could be expanded to support passing more values if the need arises.
+ */
+typedef int (*amgettreeheight_function) (Relation rel);
+
 /* parse index reloptions */
 typedef bytea *(*amoptions_function) (Datum reloptions,
 									  bool validate);
@@ -108,8 +156,17 @@ typedef bool (*amproperty_function) (Oid index_oid, int attno,
 									 IndexAMProperty prop, const char *propname,
 									 bool *res, bool *isnull);
 
+/* name of phase as used in progress reporting */
+typedef char *(*ambuildphasename_function) (int64 phasenum);
+
 /* validate definition of an opclass for this AM */
 typedef bool (*amvalidate_function) (Oid opclassoid);
+
+/* validate operators and support functions to be added to an opclass/family */
+typedef void (*amadjustmembers_function) (Oid opfamilyoid,
+										  Oid opclassoid,
+										  List *operators,
+										  List *functions);
 
 /* prepare for index scan */
 typedef IndexScanDesc (*ambeginscan_function) (Relation indexRelation,
@@ -145,7 +202,7 @@ typedef void (*amrestrpos_function) (IndexScanDesc scan);
  */
 
 /* estimate size of parallel scan descriptor */
-typedef Size (*amestimateparallelscan_function) (void);
+typedef Size (*amestimateparallelscan_function) (int nkeys, int norderbys);
 
 /* prepare for parallel index scan */
 typedef void (*aminitparallelscan_function) (void *target);
@@ -168,6 +225,8 @@ typedef struct IndexAmRoutine
 	uint16		amstrategies;
 	/* total number of support functions that this AM uses */
 	uint16		amsupport;
+	/* opclass options support function number or 0 */
+	uint16		amoptsprocnum;
 	/* does AM support ORDER BY indexed column's value? */
 	bool		amcanorder;
 	/* does AM support ORDER BY result of an operator on indexed column? */
@@ -192,8 +251,16 @@ typedef struct IndexAmRoutine
 	bool		ampredlocks;
 	/* does AM support parallel scan? */
 	bool		amcanparallel;
+	/* does AM support parallel build? */
+	bool		amcanbuildparallel;
 	/* does AM support columns included with clause INCLUDE? */
 	bool		amcaninclude;
+	/* does AM use maintenance_work_mem? */
+	bool		amusemaintenanceworkmem;
+	/* does AM store tuple information only at block granularity? */
+	bool		amsummarizing;
+	/* OR of parallel vacuum flags.  See vacuum.h for flags. */
+	uint8		amparallelvacuumoptions;
 	/* type of data stored in index, or InvalidOid if variable */
 	Oid			amkeytype;
 
@@ -207,13 +274,17 @@ typedef struct IndexAmRoutine
 	ambuild_function ambuild;
 	ambuildempty_function ambuildempty;
 	aminsert_function aminsert;
+	aminsertcleanup_function aminsertcleanup;
 	ambulkdelete_function ambulkdelete;
 	amvacuumcleanup_function amvacuumcleanup;
 	amcanreturn_function amcanreturn;	/* can be NULL */
 	amcostestimate_function amcostestimate;
+	amgettreeheight_function amgettreeheight;	/* can be NULL */
 	amoptions_function amoptions;
 	amproperty_function amproperty; /* can be NULL */
+	ambuildphasename_function ambuildphasename; /* can be NULL */
 	amvalidate_function amvalidate;
+	amadjustmembers_function amadjustmembers;	/* can be NULL */
 	ambeginscan_function ambeginscan;
 	amrescan_function amrescan;
 	amgettuple_function amgettuple; /* can be NULL */

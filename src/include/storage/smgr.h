@@ -4,7 +4,7 @@
  *	  storage manager switch public interface declarations.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/smgr.h
@@ -14,6 +14,7 @@
 #ifndef SMGR_H
 #define SMGR_H
 
+<<<<<<< HEAD
 #include "access/xlog.h"
 #include "fmgr.h"
 #include "lib/ilist.h"
@@ -65,47 +66,42 @@ typedef struct SMgrSharedRelation SMgrSharedRelation;
 
 /* Extract the lowest dirty forknum from flags (there must be at least one). */
 #define SR_GET_ONE_DIRTY(mask)		pg_rightmost_one_pos32((((mask) >> 2) & (SR_DIRTY_MASK >> 2)))
+=======
+#include "lib/ilist.h"
+#include "storage/block.h"
+#include "storage/relfilelocator.h"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /*
  * smgr.c maintains a table of SMgrRelation objects, which are essentially
  * cached file handles.  An SMgrRelation is created (if not already present)
- * by smgropen(), and destroyed by smgrclose().  Note that neither of these
- * operations imply I/O, they just create or destroy a hashtable entry.
- * (But smgrclose() may release associated resources, such as OS-level file
+ * by smgropen(), and destroyed by smgrdestroy().  Note that neither of these
+ * operations imply I/O, they just create or destroy a hashtable entry.  (But
+ * smgrdestroy() may release associated resources, such as OS-level file
  * descriptors.)
  *
- * An SMgrRelation may have an "owner", which is just a pointer to it from
- * somewhere else; smgr.c will clear this pointer if the SMgrRelation is
- * closed.  We use this to avoid dangling pointers from relcache to smgr
- * without having to make the smgr explicitly aware of relcache.  There
- * can't be more than one "owner" pointer per SMgrRelation, but that's
- * all we need.
- *
- * SMgrRelations that do not have an "owner" are considered to be transient,
- * and are deleted at end of transaction.
+ * An SMgrRelation may be "pinned", to prevent it from being destroyed while
+ * it's in use.  We use this to prevent pointers relcache to smgr from being
+ * invalidated.  SMgrRelations that are not pinned are deleted at end of
+ * transaction.
  */
 typedef struct SMgrRelationData
 {
-	/* rnode is the hashtable lookup key, so it must be first! */
-	RelFileNodeBackend smgr_rnode;	/* relation physical identifier */
-
-	/* pointer to owning pointer, or NULL if none */
-	struct SMgrRelationData **smgr_owner;
+	/* rlocator is the hashtable lookup key, so it must be first! */
+	RelFileLocatorBackend smgr_rlocator;	/* relation physical identifier */
 
 	/* pointer to shared object, valid if non-NULL and generation matches */
 	SMgrSharedRelation *smgr_shared;
 	uint64		smgr_shared_generation;
 
 	/*
-	 * These next three fields are not actually used or manipulated by smgr,
-	 * except that they are reset to InvalidBlockNumber upon a cache flush
-	 * event (in particular, upon truncation of the relation).  Higher levels
-	 * store cached state here so that it will be reset when truncation
-	 * happens.  In all three cases, InvalidBlockNumber means "unknown".
+	 * The following fields are reset to InvalidBlockNumber upon a cache flush
+	 * event, and hold the last known size for each fork.  This information is
+	 * currently only reliable during recovery, since there is no cache
+	 * invalidation for fork extension.
 	 */
 	BlockNumber smgr_targblock; /* current insertion target block */
-	BlockNumber smgr_fsm_nblocks;	/* last known size of fsm fork */
-	BlockNumber smgr_vm_nblocks;	/* last known size of vm fork */
+	BlockNumber smgr_cached_nblocks[MAX_FORKNUM + 1];	/* last known size */
 
 	/*
 	 * The following fields are reset to InvalidBlockNumber upon a cache flush
@@ -130,6 +126,7 @@ typedef struct SMgrRelationData
 	int			md_num_open_segs[MAX_FORKNUM + 1];
 	struct _MdfdVec *md_seg_fds[MAX_FORKNUM + 1];
 
+<<<<<<< HEAD
 	/* if unowned, list link in list of all unowned SMgrRelations */
 	dlist_node	node;
 
@@ -138,6 +135,14 @@ typedef struct SMgrRelationData
 	BlockNumber polar_nblocks_faked_for_bulk_extend[MAX_FORKNUM + 1];
 	/* POLAR end */
 
+=======
+	/*
+	 * Pinning support.  If unpinned (ie. pincount == 0), 'node' is a list
+	 * link in list of all unpinned SMgrRelations.
+	 */
+	int			pincount;
+	dlist_node	node;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 } SMgrRelationData;
 
 typedef SMgrRelationData *SMgrRelation;
@@ -150,24 +155,26 @@ typedef struct SMgrSharedRelationPool
 } SMgrSharedRelationPool;
 
 #define SmgrIsTemp(smgr) \
-	RelFileNodeBackendIsTemp((smgr)->smgr_rnode)
+	RelFileLocatorBackendIsTemp((smgr)->smgr_rlocator)
 
 extern size_t smgr_shmem_size(void);
 extern void smgr_shmem_init(void);
 
 extern void smgrinit(void);
-extern SMgrRelation smgropen(RelFileNode rnode, BackendId backend);
+extern SMgrRelation smgropen(RelFileLocator rlocator, ProcNumber backend);
 extern bool smgrexists(SMgrRelation reln, ForkNumber forknum);
-extern void smgrsetowner(SMgrRelation *owner, SMgrRelation reln);
-extern void smgrclearowner(SMgrRelation *owner, SMgrRelation reln);
+extern void smgrpin(SMgrRelation reln);
+extern void smgrunpin(SMgrRelation reln);
 extern void smgrclose(SMgrRelation reln);
-extern void smgrcloseall(void);
-extern void smgrclosenode(RelFileNodeBackend rnode);
+extern void smgrdestroyall(void);
+extern void smgrrelease(SMgrRelation reln);
+extern void smgrreleaseall(void);
+extern void smgrreleaserellocator(RelFileLocatorBackend rlocator);
 extern void smgrcreate(SMgrRelation reln, ForkNumber forknum, bool isRedo);
-extern void smgrdounlink(SMgrRelation reln, bool isRedo);
+extern void smgrdosyncall(SMgrRelation *rels, int nrels);
 extern void smgrdounlinkall(SMgrRelation *rels, int nrels, bool isRedo);
-extern void smgrdounlinkfork(SMgrRelation reln, ForkNumber forknum, bool isRedo);
 extern void smgrextend(SMgrRelation reln, ForkNumber forknum,
+<<<<<<< HEAD
 		   BlockNumber blocknum, char *buffer, bool skipFsync);
 extern void smgrprefetch(SMgrRelation reln, ForkNumber forknum,
 			 BlockNumber blocknum);
@@ -181,18 +188,37 @@ extern void smgrread(SMgrRelation reln, ForkNumber forknum,
 		 BlockNumber blocknum, char *buffer);
 extern void smgrwrite(SMgrRelation reln, ForkNumber forknum,
 		  BlockNumber blocknum, char *buffer, bool skipFsync);
+=======
+					   BlockNumber blocknum, const void *buffer, bool skipFsync);
+extern void smgrzeroextend(SMgrRelation reln, ForkNumber forknum,
+						   BlockNumber blocknum, int nblocks, bool skipFsync);
+extern bool smgrprefetch(SMgrRelation reln, ForkNumber forknum,
+						 BlockNumber blocknum, int nblocks);
+extern void smgrreadv(SMgrRelation reln, ForkNumber forknum,
+					  BlockNumber blocknum,
+					  void **buffers, BlockNumber nblocks);
+extern void smgrwritev(SMgrRelation reln, ForkNumber forknum,
+					   BlockNumber blocknum,
+					   const void **buffers, BlockNumber nblocks,
+					   bool skipFsync);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 extern void smgrwriteback(SMgrRelation reln, ForkNumber forknum,
-			  BlockNumber blocknum, BlockNumber nblocks);
+						  BlockNumber blocknum, BlockNumber nblocks);
 extern BlockNumber smgrnblocks(SMgrRelation reln, ForkNumber forknum);
+<<<<<<< HEAD
 extern void smgrtruncate(SMgrRelation reln, ForkNumber forknum,
 			 BlockNumber nblocks);
 extern void polar_smgrtruncate_no_drop_buffer(SMgrRelation reln, ForkNumber forknum,
 			 BlockNumber nblocks);
+=======
+extern BlockNumber smgrnblocks_cached(SMgrRelation reln, ForkNumber forknum);
+extern void smgrtruncate(SMgrRelation reln, ForkNumber *forknum,
+						 int nforks, BlockNumber *nblocks);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 extern void smgrimmedsync(SMgrRelation reln, ForkNumber forknum);
-extern void smgrpreckpt(void);
-extern void smgrsync(void);
-extern void smgrpostckpt(void);
+extern void smgrregistersync(SMgrRelation reln, ForkNumber forknum);
 extern void AtEOXact_SMgr(void);
+<<<<<<< HEAD
 extern BlockNumber polar_smgrnblocks_use_file_cache(SMgrRelation reln, ForkNumber forknum);
 
 /* POLAR: bulk extend */
@@ -249,6 +275,23 @@ extern void RememberFsyncRequest(RelFileNode rnode, ForkNumber forknum,
 extern void ForgetRelationFsyncRequests(RelFileNode rnode, ForkNumber forknum);
 extern void ForgetDatabaseFsyncRequests(Oid dbid);
 extern void DropRelationFiles(RelFileNode *delrels, int ndelrels, bool isRedo);
+=======
+extern bool ProcessBarrierSmgrRelease(void);
+
+static inline void
+smgrread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+		 void *buffer)
+{
+	smgrreadv(reln, forknum, blocknum, &buffer, 1);
+}
+
+static inline void
+smgrwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+		  const void *buffer, bool skipFsync)
+{
+	smgrwritev(reln, forknum, blocknum, &buffer, 1, skipFsync);
+}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /* POLAR */
 extern void mdextendbatch(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,

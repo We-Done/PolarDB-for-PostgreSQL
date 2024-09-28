@@ -4,7 +4,7 @@
  *		visibility map interface
  *
  *
- * Portions Copyright (c) 2007-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2007-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/access/visibilitymap.h
@@ -14,11 +14,13 @@
 #ifndef VISIBILITYMAP_H
 #define VISIBILITYMAP_H
 
+#include "access/visibilitymapdefs.h"
 #include "access/xlogdefs.h"
 #include "storage/block.h"
 #include "storage/buf.h"
 #include "utils/relcache.h"
 
+<<<<<<< HEAD
 /* POLAR */
 #include "access/xlogreader.h"
 
@@ -52,6 +54,8 @@
 #define VISIBILITYMAP_VALID_BITS	0x03	/* OR of all valid visibilitymap
 											 * flags bits */
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 /* Macros for visibilitymap test */
 #define VM_ALL_VISIBLE(r, b, v) \
 	((visibilitymap_get_status((r), (b), (v)) & VISIBILITYMAP_ALL_VISIBLE) != 0)
@@ -59,16 +63,26 @@
 	((visibilitymap_get_status((r), (b), (v)) & VISIBILITYMAP_ALL_FROZEN) != 0)
 
 extern bool visibilitymap_clear(Relation rel, BlockNumber heapBlk,
+<<<<<<< HEAD
 					Buffer vmbuf, uint8 flags, XLogReaderState *polar_record);
+=======
+								Buffer vmbuf, uint8 flags);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 extern void visibilitymap_pin(Relation rel, BlockNumber heapBlk,
-				  Buffer *vmbuf);
+							  Buffer *vmbuf);
 extern bool visibilitymap_pin_ok(BlockNumber heapBlk, Buffer vmbuf);
 extern void visibilitymap_set(Relation rel, BlockNumber heapBlk, Buffer heapBuf,
+<<<<<<< HEAD
 				  XLogRecPtr recptr, Buffer vmBuf, TransactionId cutoff_xid,
 				  uint8 flags, XLogRecPtr polar_read_rec_ptr);
+=======
+							  XLogRecPtr recptr, Buffer vmBuf, TransactionId cutoff_xid,
+							  uint8 flags);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 extern uint8 visibilitymap_get_status(Relation rel, BlockNumber heapBlk, Buffer *vmbuf);
 extern void visibilitymap_count(Relation rel, BlockNumber *all_visible, BlockNumber *all_frozen);
-extern void visibilitymap_truncate(Relation rel, BlockNumber nheapblocks);
+extern BlockNumber visibilitymap_prepare_truncate(Relation rel,
+												  BlockNumber nheapblocks);
 
 /* POLAR: polar_visibilitymap.c functions */
 extern void polar_visibilitymap_set(BlockNumber heapBlk, Buffer vmBuf, uint8 flags);

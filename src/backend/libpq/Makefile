@@ -15,6 +15,7 @@ override CPPFLAGS := -I$(srcdir) -I$(libpq_srcdir) -I$(top_srcdir)/src/port $(CP
 
 # be-fsstubs is here for historical reasons, probably belongs elsewhere
 
+<<<<<<< HEAD
 OBJS = be-fsstubs.o be-secure.o be-secure-common.o auth.o crypt.o hba.o ifaddr.o pqcomm.o \
 	   pqformat.o pqmq.o pqsignal.o auth-scram.o polar_network_stats.o
 
@@ -43,5 +44,29 @@ clean distclean: clean-symlinks
 clean-symlinks:
 	rm -f fe-protocol3.c fe-connect.c fe-exec.c pqexpbuffer.c fe-auth.c fe-misc.c fe-protocol2.c fe-secure.c getpeereid.c fe-secure-common.c fe-secure-openssl.c fe-auth-scram.c
 
+=======
+OBJS = \
+	auth-sasl.o \
+	auth-scram.o \
+	auth.o \
+	be-fsstubs.o \
+	be-secure-common.o \
+	be-secure.o \
+	crypt.o \
+	hba.o \
+	ifaddr.o \
+	pqcomm.o \
+	pqformat.o \
+	pqmq.o \
+	pqsignal.o
+
+ifeq ($(with_ssl),openssl)
+OBJS += be-secure-openssl.o
+endif
+
+ifeq ($(with_gssapi),yes)
+OBJS += be-gssapi-common.o be-secure-gssapi.o
+endif
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 include $(top_srcdir)/src/backend/common.mk

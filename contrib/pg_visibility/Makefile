@@ -1,7 +1,9 @@
 # contrib/pg_visibility/Makefile
 
 MODULE_big = pg_visibility
-OBJS = pg_visibility.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	pg_visibility.o
 
 EXTENSION = pg_visibility
 DATA = pg_visibility--1.1.sql pg_visibility--1.1--1.2.sql \
@@ -9,6 +11,7 @@ DATA = pg_visibility--1.1.sql pg_visibility--1.1--1.2.sql \
 PGFILEDESC = "pg_visibility - page visibility information"
 
 REGRESS = pg_visibility
+TAP_TESTS = 1
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

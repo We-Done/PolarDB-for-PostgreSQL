@@ -3,10 +3,17 @@
 --
 -- These tests logically belong in plpgsql_record.sql, and perhaps someday
 -- can be merged back into it.  For now, however, their results are different
+<<<<<<< HEAD
 -- between regular and CLOBBER_CACHE_ALWAYS builds, so we must have two
 -- expected-output files to cover both cases.  To minimize the maintenance
 -- effort resulting from that, this file should contain only tests that
 -- do have different results under CLOBBER_CACHE_ALWAYS.
+=======
+-- depending on debug_discard_caches, so we must have two expected-output
+-- files to cover both cases.  To minimize the maintenance effort resulting
+-- from that, this file should contain only tests that do have different
+-- results under debug_discard_caches.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 --
 
 -- check behavior with changes of a named rowtype
@@ -20,7 +27,11 @@ alter table c_mutable drop column f1;
 alter table c_mutable add column f1 float8;
 
 -- currently, this fails due to cached plan for "r.f1 + 1" expression
+<<<<<<< HEAD
 -- (but a CLOBBER_CACHE_ALWAYS build will succeed)
+=======
+-- (but if debug_discard_caches is on, it will succeed)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 select c_sillyaddone(42);
 
 -- but it's OK if we force plan rebuilding
@@ -42,7 +53,11 @@ $$;
 
 select show_result_type('select 1 as a');
 -- currently this fails due to cached plan for pg_typeof expression
+<<<<<<< HEAD
 -- (but a CLOBBER_CACHE_ALWAYS build will succeed)
+=======
+-- (but if debug_discard_caches is on, it will succeed)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 select show_result_type('select 2.0 as a');
 
 -- but it's OK if we force plan rebuilding

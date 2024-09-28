@@ -39,3 +39,17 @@ REINDEX INDEX pg_index_indexrelid_index; -- non-mapped, non-shared, critical
 REINDEX INDEX pg_index_indrelid_index; -- non-mapped, non-shared, non-critical
 REINDEX INDEX pg_database_oid_index; -- mapped, shared, critical
 REINDEX INDEX pg_shdescription_o_c_index; -- mapped, shared, non-critical
+<<<<<<< HEAD
+=======
+
+-- Check the same REINDEX INDEX statements under parallelism.
+BEGIN;
+SET min_parallel_table_scan_size = 0;
+REINDEX INDEX pg_class_oid_index; -- mapped, non-shared, critical
+REINDEX INDEX pg_class_relname_nsp_index; -- mapped, non-shared, non-critical
+REINDEX INDEX pg_index_indexrelid_index; -- non-mapped, non-shared, critical
+REINDEX INDEX pg_index_indrelid_index; -- non-mapped, non-shared, non-critical
+REINDEX INDEX pg_database_oid_index; -- mapped, shared, critical
+REINDEX INDEX pg_shdescription_o_c_index; -- mapped, shared, non-critical
+ROLLBACK;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

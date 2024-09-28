@@ -121,8 +121,8 @@
    </biblioentry>
 
    <biblioentry id="ull88">
-    <title>Principles of Database and Knowledge</title>
-    <subtitle>Base Systems</subtitle>
+    <title>Principles of Database and Knowledge-Base Systems</title>
+    <subtitle>Classical Database Systems</subtitle>
     <authorgroup>
      <author>
       <firstname>Jeffrey D.</firstname>
@@ -134,6 +134,14 @@
      <publishername>Computer Science Press</publishername>
     </publisher>
     <pubdate>1988</pubdate>
+   </biblioentry>
+
+   <biblioentry id="sqltr-19075-6">
+    <title>SQL Technical Report</title>
+    <subtitle>Part 6: SQL support for JavaScript Object
+      Notation (JSON)</subtitle>
+    <edition>First Edition</edition>
+    <pubdate>2017</pubdate>
    </biblioentry>
 
   </bibliodiv>
@@ -222,6 +230,7 @@ ssimkovi@ag.or.at
   <bibliodiv>
    <title>Proceedings and Articles</title>
 
+<<<<<<< HEAD
    <biblioentry id="ports12">
     <biblioset relation="article">
      <title><ulink url="https://arxiv.org/pdf/1208.4179">Serializable Snapshot Isolation in PostgreSQL</ulink></title>
@@ -243,6 +252,8 @@ ssimkovi@ag.or.at
     </confgroup>
    </biblioentry>
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
    <biblioentry id="berenson95">
     <biblioset relation="article">
      <title><ulink url="https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-95-51.pdf">A Critique of ANSI SQL Isolation Levels</ulink></title>
@@ -280,6 +291,27 @@ ssimkovi@ag.or.at
     </confgroup>
    </biblioentry>
 
+<<<<<<< HEAD
+=======
+   <biblioentry id="hell18">
+    <biblioset relation="article">
+     <title><ulink url="https://arxiv.org/pdf/1901.01973">Looking Back at Postgres</ulink></title>
+     <author>
+      <firstname>J.</firstname>
+      <surname>Hellerstein</surname>
+     </author>
+    </biblioset>
+    <biblioset relation="book">
+     <title>Making Databases Work</title>
+     <isbn>978-1-947487-19-2</isbn>
+     <publisher>
+      <publishername>Association for Computing Machinery and Morgan &amp; Claypool</publishername>
+     </publisher>
+     <pubdate>2018</pubdate>
+    </biblioset>
+   </biblioentry>
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
    <biblioentry id="olson93">
     <title>Partial indexing in POSTGRES: research project</title>
     <authorgroup>
@@ -318,6 +350,27 @@ ssimkovi@ag.or.at
     </publisher>
     <pubdate>April, 1990</pubdate>
    </biblioset>
+   </biblioentry>
+
+   <biblioentry id="ports12">
+    <biblioset relation="article">
+     <title><ulink url="https://arxiv.org/pdf/1208.4179">Serializable Snapshot Isolation in PostgreSQL</ulink></title>
+     <authorgroup>
+      <author>
+       <firstname>D.</firstname>
+       <surname>Ports</surname>
+      </author>
+      <author>
+       <firstname>K.</firstname>
+       <surname>Grittner</surname>
+      </author>
+     </authorgroup>
+    </biblioset>
+    <confgroup>
+     <conftitle>VLDB Conference</conftitle>
+     <confdates>August 2012</confdates>
+     <address>Istanbul, Turkey</address>
+    </confgroup>
    </biblioentry>
 
    <biblioentry id="rowe87">
@@ -359,7 +412,7 @@ ssimkovi@ag.or.at
    </biblioset>
     <confgroup>
      <conftitle>Eleventh International Conference on Data Engineering</conftitle>
-     <confdates>6-10 March 1995</confdates>
+     <confdates>6&ndash;10 March 1995</confdates>
      <address>Taipeh, Taiwan</address>
     </confgroup>
     <pubsnumber>Cat. No.95CH35724</pubsnumber>
@@ -368,7 +421,7 @@ ssimkovi@ag.or.at
      <address>Los Alamitos, California</address>
     </publisher>
     <pubdate>1995</pubdate>
-    <pagenums>420-7</pagenums>
+    <pagenums>420&ndash;7</pagenums>
    </biblioentry>
 
    <biblioentry id="ston86">
@@ -477,7 +530,7 @@ ssimkovi@ag.or.at
    <biblioset relation="journal">
     <title>SIGMOD Record 18(4)</title>
     <date>Dec. 1989</date>
-    <pagenums>4-11</pagenums>
+    <pagenums>4&ndash;11</pagenums>
    </biblioset>
    </biblioentry>
 

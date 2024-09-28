@@ -9,10 +9,11 @@
 
 #include "access/htup_details.h"
 #include "catalog/pg_statistic.h"
+#include "common/hashfn.h"
+#include "ltree.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/selfuncs.h"
-#include "ltree.h"
 
 PG_MODULE_MAGIC;
 
@@ -24,6 +25,8 @@ PG_FUNCTION_INFO_V1(ltree_eq);
 PG_FUNCTION_INFO_V1(ltree_ne);
 PG_FUNCTION_INFO_V1(ltree_ge);
 PG_FUNCTION_INFO_V1(ltree_gt);
+PG_FUNCTION_INFO_V1(hash_ltree);
+PG_FUNCTION_INFO_V1(hash_ltree_extended);
 PG_FUNCTION_INFO_V1(nlevel);
 PG_FUNCTION_INFO_V1(ltree_isparent);
 PG_FUNCTION_INFO_V1(ltree_risparent);
@@ -91,42 +94,108 @@ Datum
 ltree_lt(PG_FUNCTION_ARGS)
 {
 	RUNCMP;
-	PG_RETURN_BOOL((res < 0) ? true : false);
+	PG_RETURN_BOOL(res < 0);
 }
 
 Datum
 ltree_le(PG_FUNCTION_ARGS)
 {
 	RUNCMP;
-	PG_RETURN_BOOL((res <= 0) ? true : false);
+	PG_RETURN_BOOL(res <= 0);
 }
 
 Datum
 ltree_eq(PG_FUNCTION_ARGS)
 {
 	RUNCMP;
-	PG_RETURN_BOOL((res == 0) ? true : false);
+	PG_RETURN_BOOL(res == 0);
 }
 
 Datum
 ltree_ge(PG_FUNCTION_ARGS)
 {
 	RUNCMP;
-	PG_RETURN_BOOL((res >= 0) ? true : false);
+	PG_RETURN_BOOL(res >= 0);
 }
 
 Datum
 ltree_gt(PG_FUNCTION_ARGS)
 {
 	RUNCMP;
-	PG_RETURN_BOOL((res > 0) ? true : false);
+	PG_RETURN_BOOL(res > 0);
 }
 
 Datum
 ltree_ne(PG_FUNCTION_ARGS)
 {
 	RUNCMP;
-	PG_RETURN_BOOL((res != 0) ? true : false);
+	PG_RETURN_BOOL(res != 0);
+}
+
+/* Compute a hash for the ltree */
+Datum
+hash_ltree(PG_FUNCTION_ARGS)
+{
+	ltree	   *a = PG_GETARG_LTREE_P(0);
+	uint32		result = 1;
+	int			an = a->numlevel;
+	ltree_level *al = LTREE_FIRST(a);
+
+	while (an > 0)
+	{
+		uint32		levelHash = DatumGetUInt32(hash_any((unsigned char *) al->name, al->len));
+
+		/*
+		 * Combine hash values of successive elements by multiplying the
+		 * current value by 31 and adding on the new element's hash value.
+		 *
+		 * This method is borrowed from hash_array(), which see for further
+		 * commentary.
+		 */
+		result = (result << 5) - result + levelHash;
+
+		an--;
+		al = LEVEL_NEXT(al);
+	}
+
+	PG_FREE_IF_COPY(a, 0);
+	PG_RETURN_UINT32(result);
+}
+
+/* Compute an extended hash for the ltree */
+Datum
+hash_ltree_extended(PG_FUNCTION_ARGS)
+{
+	ltree	   *a = PG_GETARG_LTREE_P(0);
+	const uint64 seed = PG_GETARG_INT64(1);
+	uint64		result = 1;
+	int			an = a->numlevel;
+	ltree_level *al = LTREE_FIRST(a);
+
+	/*
+	 * If the path has length zero, return 1 + seed to ensure that the low 32
+	 * bits of the result match hash_ltree when the seed is 0, as required by
+	 * the hash index support functions, but to also return a different value
+	 * when there is a seed.
+	 */
+	if (an == 0)
+	{
+		PG_FREE_IF_COPY(a, 0);
+		PG_RETURN_UINT64(result + seed);
+	}
+
+	while (an > 0)
+	{
+		uint64		levelHash = DatumGetUInt64(hash_any_extended((unsigned char *) al->name, al->len, seed));
+
+		result = (result << 5) - result + levelHash;
+
+		an--;
+		al = LEVEL_NEXT(al);
+	}
+
+	PG_FREE_IF_COPY(a, 0);
+	PG_RETURN_UINT64(result);
 }
 
 Datum
@@ -566,10 +635,11 @@ ltree2text(PG_FUNCTION_ARGS)
 }
 
 
-#define DEFAULT_PARENT_SEL 0.001
-
 /*
  *	ltreeparentsel - Selectivity of parent relationship for ltree data types.
+ *
+ * This function is not used anymore, if the ltree extension has been
+ * updated to 1.2 or later.
  */
 Datum
 ltreeparentsel(PG_FUNCTION_ARGS)
@@ -578,101 +648,12 @@ ltreeparentsel(PG_FUNCTION_ARGS)
 	Oid			operator = PG_GETARG_OID(1);
 	List	   *args = (List *) PG_GETARG_POINTER(2);
 	int			varRelid = PG_GETARG_INT32(3);
-	VariableStatData vardata;
-	Node	   *other;
-	bool		varonleft;
 	double		selec;
 
-	/*
-	 * If expression is not variable <@ something or something <@ variable,
-	 * then punt and return a default estimate.
-	 */
-	if (!get_restriction_variable(root, args, varRelid,
-								  &vardata, &other, &varonleft))
-		PG_RETURN_FLOAT8(DEFAULT_PARENT_SEL);
-
-	/*
-	 * If the something is a NULL constant, assume operator is strict and
-	 * return zero, ie, operator will never return TRUE.
-	 */
-	if (IsA(other, Const) &&
-		((Const *) other)->constisnull)
-	{
-		ReleaseVariableStats(vardata);
-		PG_RETURN_FLOAT8(0.0);
-	}
-
-	if (IsA(other, Const))
-	{
-		/* Variable is being compared to a known non-null constant */
-		Datum		constval = ((Const *) other)->constvalue;
-		FmgrInfo	contproc;
-		double		mcvsum;
-		double		mcvsel;
-		double		nullfrac;
-		int			hist_size;
-
-		fmgr_info(get_opcode(operator), &contproc);
-
-		/*
-		 * Is the constant "<@" to any of the column's most common values?
-		 */
-		mcvsel = mcv_selectivity(&vardata, &contproc, constval, varonleft,
-								 &mcvsum);
-
-		/*
-		 * If the histogram is large enough, see what fraction of it the
-		 * constant is "<@" to, and assume that's representative of the
-		 * non-MCV population.  Otherwise use the default selectivity for the
-		 * non-MCV population.
-		 */
-		selec = histogram_selectivity(&vardata, &contproc,
-									  constval, varonleft,
-									  10, 1, &hist_size);
-		if (selec < 0)
-		{
-			/* Nope, fall back on default */
-			selec = DEFAULT_PARENT_SEL;
-		}
-		else if (hist_size < 100)
-		{
-			/*
-			 * For histogram sizes from 10 to 100, we combine the histogram
-			 * and default selectivities, putting increasingly more trust in
-			 * the histogram for larger sizes.
-			 */
-			double		hist_weight = hist_size / 100.0;
-
-			selec = selec * hist_weight +
-				DEFAULT_PARENT_SEL * (1.0 - hist_weight);
-		}
-
-		/* In any case, don't believe extremely small or large estimates. */
-		if (selec < 0.0001)
-			selec = 0.0001;
-		else if (selec > 0.9999)
-			selec = 0.9999;
-
-		if (HeapTupleIsValid(vardata.statsTuple))
-			nullfrac = ((Form_pg_statistic) GETSTRUCT(vardata.statsTuple))->stanullfrac;
-		else
-			nullfrac = 0.0;
-
-		/*
-		 * Now merge the results from the MCV and histogram calculations,
-		 * realizing that the histogram covers only the non-null values that
-		 * are not listed in MCV.
-		 */
-		selec *= 1.0 - nullfrac - mcvsum;
-		selec += mcvsel;
-	}
-	else
-		selec = DEFAULT_PARENT_SEL;
-
-	ReleaseVariableStats(vardata);
-
-	/* result should be in range, but make sure... */
-	CLAMP_PROBABILITY(selec);
+	/* Use generic restriction selectivity logic, with default 0.001. */
+	selec = generic_restriction_selectivity(root, operator, InvalidOid,
+											args, varRelid,
+											0.001);
 
 	PG_RETURN_FLOAT8((float8) selec);
 }

@@ -5,7 +5,7 @@
  *	  on system catalogs
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/indexing.h
@@ -16,6 +16,7 @@
 #define INDEXING_H
 
 #include "access/htup.h"
+#include "nodes/execnodes.h"
 #include "utils/relcache.h"
 
 /*
@@ -26,20 +27,31 @@
 typedef struct ResultRelInfo *CatalogIndexState;
 
 /*
+ * Cap the maximum amount of bytes allocated for multi-inserts with system
+ * catalogs, limiting the number of slots used.
+ */
+#define MAX_CATALOG_MULTI_INSERT_BYTES 65535
+
+/*
  * indexing.c prototypes
  */
 extern CatalogIndexState CatalogOpenIndexes(Relation heapRel);
 extern void CatalogCloseIndexes(CatalogIndexState indstate);
-extern Oid	CatalogTupleInsert(Relation heapRel, HeapTuple tup);
-extern Oid CatalogTupleInsertWithInfo(Relation heapRel, HeapTuple tup,
-						   CatalogIndexState indstate);
+extern void CatalogTupleInsert(Relation heapRel, HeapTuple tup);
+extern void CatalogTupleInsertWithInfo(Relation heapRel, HeapTuple tup,
+									   CatalogIndexState indstate);
+extern void CatalogTuplesMultiInsertWithInfo(Relation heapRel,
+											 TupleTableSlot **slot,
+											 int ntuples,
+											 CatalogIndexState indstate);
 extern void CatalogTupleUpdate(Relation heapRel, ItemPointer otid,
-				   HeapTuple tup);
+							   HeapTuple tup);
 extern void CatalogTupleUpdateWithInfo(Relation heapRel,
-						   ItemPointer otid, HeapTuple tup,
-						   CatalogIndexState indstate);
+									   ItemPointer otid, HeapTuple tup,
+									   CatalogIndexState indstate);
 extern void CatalogTupleDelete(Relation heapRel, ItemPointer tid);
 
+<<<<<<< HEAD
 
 /*
  * These macros are just to keep the C compiler from spitting up on the
@@ -359,4 +371,6 @@ DECLARE_UNIQUE_INDEX(pg_subscription_subname_index, 6115, on pg_subscription usi
 
 DECLARE_UNIQUE_INDEX(pg_subscription_rel_srrelid_srsubid_index, 6117, on pg_subscription_rel using btree(srrelid oid_ops, srsubid oid_ops));
 #define SubscriptionRelSrrelidSrsubidIndexId 6117
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #endif							/* INDEXING_H */

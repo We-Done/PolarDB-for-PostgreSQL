@@ -3,7 +3,7 @@
  * nodeWorktablescan.c
  *	  routines to handle WorkTableScan nodes.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,7 +15,7 @@
 
 #include "postgres.h"
 
-#include "executor/execdebug.h"
+#include "executor/executor.h"
 #include "executor/nodeWorktablescan.h"
 
 static TupleTableSlot *WorkTableScanNext(WorkTableScanState *node);
@@ -159,8 +159,13 @@ ExecInitWorkTableScan(WorkTableScan *node, EState *estate, int eflags)
 	/*
 	 * tuple table initialization
 	 */
-	ExecInitResultTupleSlotTL(estate, &scanstate->ss.ps);
-	ExecInitScanTupleSlot(estate, &scanstate->ss, NULL);
+	ExecInitResultTypeTL(&scanstate->ss.ps);
+
+	/* signal that return type is not yet known */
+	scanstate->ss.ps.resultopsset = true;
+	scanstate->ss.ps.resultopsfixed = false;
+
+	ExecInitScanTupleSlot(estate, &scanstate->ss, NULL, &TTSOpsMinimalTuple);
 
 	/*
 	 * initialize child expressions
@@ -177,27 +182,6 @@ ExecInitWorkTableScan(WorkTableScan *node, EState *estate, int eflags)
 }
 
 /* ----------------------------------------------------------------
- *		ExecEndWorkTableScan
- *
- *		frees any storage allocated through C routines.
- * ----------------------------------------------------------------
- */
-void
-ExecEndWorkTableScan(WorkTableScanState *node)
-{
-	/*
-	 * Free exprcontext
-	 */
-	ExecFreeExprContext(&node->ss.ps);
-
-	/*
-	 * clean out the tuple table
-	 */
-	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
-	ExecClearTuple(node->ss.ss_ScanTupleSlot);
-}
-
-/* ----------------------------------------------------------------
  *		ExecReScanWorkTableScan
  *
  *		Rescans the relation.
@@ -206,7 +190,8 @@ ExecEndWorkTableScan(WorkTableScanState *node)
 void
 ExecReScanWorkTableScan(WorkTableScanState *node)
 {
-	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
+	if (node->ss.ps.ps_ResultTupleSlot)
+		ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 
 	ExecScanReScan(&node->ss);
 

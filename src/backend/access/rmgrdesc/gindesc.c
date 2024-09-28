@@ -3,7 +3,7 @@
  * gindesc.c
  *	  rmgr descriptor routines for access/transam/gin/ginxlog.c
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,9 +15,7 @@
 #include "postgres.h"
 
 #include "access/ginxlog.h"
-#include "access/xlogutils.h"
 #include "lib/stringinfo.h"
-#include "storage/relfilenode.h"
 
 static void
 desc_recompress_leaf(StringInfo buf, ginxlogRecompressDataLeaf *insertData)
@@ -78,9 +76,6 @@ gin_desc(StringInfo buf, XLogReaderState *record)
 
 	switch (info)
 	{
-		case XLOG_GIN_CREATE_INDEX:
-			/* no further information */
-			break;
 		case XLOG_GIN_CREATE_PTREE:
 			/* no further information */
 			break;
@@ -123,7 +118,7 @@ gin_desc(StringInfo buf, XLogReaderState *record)
 					else
 					{
 						ginxlogInsertDataInternal *insertData =
-						(ginxlogInsertDataInternal *) payload;
+							(ginxlogInsertDataInternal *) payload;
 
 						appendStringInfo(buf, " pitem: %u-%u/%u",
 										 PostingItemGetBlockNumber(&insertData->newitem),
@@ -159,7 +154,7 @@ gin_desc(StringInfo buf, XLogReaderState *record)
 				else
 				{
 					ginxlogVacuumDataLeafPage *xlrec =
-					(ginxlogVacuumDataLeafPage *) XLogRecGetBlockData(record, 0, NULL);
+						(ginxlogVacuumDataLeafPage *) XLogRecGetBlockData(record, 0, NULL);
 
 					desc_recompress_leaf(buf, &xlrec->data);
 				}
@@ -188,9 +183,6 @@ gin_identify(uint8 info)
 
 	switch (info & ~XLR_INFO_MASK)
 	{
-		case XLOG_GIN_CREATE_INDEX:
-			id = "CREATE_INDEX";
-			break;
 		case XLOG_GIN_CREATE_PTREE:
 			id = "CREATE_PTREE";
 			break;

@@ -12,7 +12,7 @@
  * Note that other approaches to parameters are possible using the parser
  * hooks defined in ParseState.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -31,13 +31,14 @@
 #include "parser/parse_param.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
+#include "utils/memutils.h"
 
 /* POLAR */
 #include "utils/guc.h"
 
 typedef struct FixedParamState
 {
-	Oid		   *paramTypes;		/* array of parameter type OIDs */
+	const Oid  *paramTypes;		/* array of parameter type OIDs */
 	int			numParams;		/* number of array entries */
 } FixedParamState;
 
@@ -57,8 +58,8 @@ typedef struct VarParamState
 static Node *fixed_paramref_hook(ParseState *pstate, ParamRef *pref);
 static Node *variable_paramref_hook(ParseState *pstate, ParamRef *pref);
 static Node *variable_coerce_param_hook(ParseState *pstate, Param *param,
-						   Oid targetTypeId, int32 targetTypeMod,
-						   int location);
+										Oid targetTypeId, int32 targetTypeMod,
+										int location);
 static bool check_parameter_resolution_walker(Node *node, ParseState *pstate);
 static bool query_contains_extern_params_walker(Node *node, void *context);
 
@@ -67,8 +68,8 @@ static bool query_contains_extern_params_walker(Node *node, void *context);
  * Set up to process a query containing references to fixed parameters.
  */
 void
-parse_fixed_parameters(ParseState *pstate,
-					   Oid *paramTypes, int numParams)
+setup_parse_fixed_parameters(ParseState *pstate,
+							 const Oid *paramTypes, int numParams)
 {
 	FixedParamState *parstate = palloc(sizeof(FixedParamState));
 
@@ -83,8 +84,13 @@ parse_fixed_parameters(ParseState *pstate,
  * Set up to process a query containing references to variable parameters.
  */
 void
+<<<<<<< HEAD
 parse_variable_parameters(ParseState *pstate,
 						  Oid **paramTypes, int **paramLocation, int *numParams)
+=======
+setup_parse_variable_parameters(ParseState *pstate,
+								Oid **paramTypes, int *numParams)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 {
 	VarParamState *parstate = palloc(sizeof(VarParamState));
 
@@ -140,7 +146,7 @@ variable_paramref_hook(ParseState *pstate, ParamRef *pref)
 	Param	   *param;
 
 	/* Check parameter number is in range */
-	if (paramno <= 0 || paramno > INT_MAX / sizeof(Oid))
+	if (paramno <= 0 || paramno > MaxAllocSize / sizeof(Oid))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_PARAMETER),
 				 errmsg("there is no parameter $%d", paramno),
@@ -149,9 +155,10 @@ variable_paramref_hook(ParseState *pstate, ParamRef *pref)
 	{
 		/* Need to enlarge param array */
 		if (*parstate->paramTypes)
-			*parstate->paramTypes = (Oid *) repalloc(*parstate->paramTypes,
-													 paramno * sizeof(Oid));
+			*parstate->paramTypes = repalloc0_array(*parstate->paramTypes, Oid,
+													*parstate->numParams, paramno);
 		else
+<<<<<<< HEAD
 			*parstate->paramTypes = (Oid *) palloc(paramno * sizeof(Oid));
 		/* Zero out the previously-unreferenced slots */
 		MemSet(*parstate->paramTypes + *parstate->numParams,
@@ -173,6 +180,9 @@ variable_paramref_hook(ParseState *pstate, ParamRef *pref)
 				(paramno - *parstate->numParams) * sizeof(int));
 		}
 
+=======
+			*parstate->paramTypes = palloc0_array(Oid, paramno);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		*parstate->numParams = paramno;
 	}
 
@@ -187,6 +197,15 @@ variable_paramref_hook(ParseState *pstate, ParamRef *pref)
 
 	/* If not seen before, initialize to UNKNOWN type */
 	if (*pptype == InvalidOid)
+		*pptype = UNKNOWNOID;
+
+	/*
+	 * If the argument is of type void and it's procedure call, interpret it
+	 * as unknown.  This allows the JDBC driver to not have to distinguish
+	 * function and procedure calls.  See also another component of this hack
+	 * in ParseFuncOrColumn().
+	 */
+	if (*pptype == VOIDOID && pstate->p_expr_kind == EXPR_KIND_CALL_ARGUMENT)
 		*pptype = UNKNOWNOID;
 
 	param = makeNode(Param);

@@ -6,7 +6,7 @@
  *	  pg_shadow and pg_group are now publicly accessible views on pg_authid.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_authid.h
@@ -30,6 +30,7 @@
  */
 CATALOG(pg_authid,1260,AuthIdRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(2842,AuthIdRelation_Rowtype_Id) BKI_SCHEMA_MACRO
 {
+	Oid			oid;			/* oid */
 	NameData	rolname;		/* name of role */
 	bool		rolsuper;		/* read this field via superuser() only! */
 	bool		rolinherit;		/* inherit privileges from other roles? */
@@ -37,7 +38,7 @@ CATALOG(pg_authid,1260,AuthIdRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(284
 	bool		rolcreatedb;	/* allowed to create databases? */
 	bool		rolcanlogin;	/* allowed to log in as session user? */
 	bool		rolreplication; /* role used for streaming replication */
-	bool		rolbypassrls;	/* bypasses row level security? */
+	bool		rolbypassrls;	/* bypasses row-level security? */
 	int32		rolconnlimit;	/* max connections allowed (-1=no limit) */
 
 	/* remaining fields may be null; use heap_getattr to read them! */
@@ -54,6 +55,7 @@ CATALOG(pg_authid,1260,AuthIdRelationId) BKI_SHARED_RELATION BKI_ROWTYPE_OID(284
  */
 typedef FormData_pg_authid *Form_pg_authid;
 
+<<<<<<< HEAD
 /*
  * POLAR: POLAR_SUPERUSER is the defoult role for only marking the user as polar_superuser kind user.
  * So this POLAR_SUPERUSER is a key word and user could not create an same role or user with
@@ -61,5 +63,12 @@ typedef FormData_pg_authid *Form_pg_authid;
  */
 #define POLAR_SUPERUSER_OID 5500 
 extern char            polar_superuser_name[20];
+=======
+DECLARE_UNIQUE_INDEX(pg_authid_rolname_index, 2676, AuthIdRolnameIndexId, pg_authid, btree(rolname name_ops));
+DECLARE_UNIQUE_INDEX_PKEY(pg_authid_oid_index, 2677, AuthIdOidIndexId, pg_authid, btree(oid oid_ops));
+
+MAKE_SYSCACHE(AUTHNAME, pg_authid_rolname_index, 8);
+MAKE_SYSCACHE(AUTHOID, pg_authid_oid_index, 8);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #endif							/* PG_AUTHID_H */

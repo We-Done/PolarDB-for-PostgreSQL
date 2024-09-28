@@ -3,7 +3,7 @@
  * arrayutils.c
  *	  This file contains some support routines required for array functions.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -44,29 +44,10 @@ ArrayGetOffset(int n, const int *dim, const int *lb, const int *indx)
 }
 
 /*
- * Same, but subscripts are assumed 0-based, and use a scale array
- * instead of raw dimension data (see mda_get_prod to create scale array)
- */
-int
-ArrayGetOffset0(int n, const int *tup, const int *scale)
-{
-	int			i,
-				lin = 0;
-
-	for (i = 0; i < n; i++)
-		lin += tup[i] * scale[i];
-	return lin;
-}
-
-/*
  * Convert array dimensions into number of elements
  *
  * This must do overflow checking, since it is used to validate that a user
  * dimensionality request doesn't overflow what we can handle.
- *
- * We limit array sizes to at most about a quarter billion elements,
- * so that it's not necessary to check for overflow in quite so many
- * places --- for instance when palloc'ing Datum arrays.
  *
  * The multiplication overflow check only works on machines that have int64
  * arithmetic, but that is nearly all platforms these days, and doing check
@@ -75,10 +56,18 @@ ArrayGetOffset0(int n, const int *tup, const int *scale)
 int
 ArrayGetNItems(int ndim, const int *dims)
 {
+	return ArrayGetNItemsSafe(ndim, dims, NULL);
+}
+
+/*
+ * This entry point can return the error into an ErrorSaveContext
+ * instead of throwing an exception.  -1 is returned after an error.
+ */
+int
+ArrayGetNItemsSafe(int ndim, const int *dims, struct Node *escontext)
+{
 	int32		ret;
 	int			i;
-
-#define MaxArraySize ((Size) (MaxAllocSize / sizeof(Datum)))
 
 	if (ndim <= 0)
 		return 0;
@@ -89,7 +78,7 @@ ArrayGetNItems(int ndim, const int *dims)
 
 		/* A negative dimension implies that UB-LB overflowed ... */
 		if (dims[i] < 0)
-			ereport(ERROR,
+			ereturn(escontext, -1,
 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 					 errmsg("array size exceeds the maximum allowed (%d)",
 							(int) MaxArraySize)));
@@ -98,14 +87,14 @@ ArrayGetNItems(int ndim, const int *dims)
 
 		ret = (int32) prod;
 		if ((int64) ret != prod)
-			ereport(ERROR,
+			ereturn(escontext, -1,
 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 					 errmsg("array size exceeds the maximum allowed (%d)",
 							(int) MaxArraySize)));
 	}
 	Assert(ret >= 0);
 	if ((Size) ret > MaxArraySize)
-		ereport(ERROR,
+		ereturn(escontext, -1,
 				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 				 errmsg("array size exceeds the maximum allowed (%d)",
 						(int) MaxArraySize)));
@@ -127,6 +116,20 @@ ArrayGetNItems(int ndim, const int *dims)
 void
 ArrayCheckBounds(int ndim, const int *dims, const int *lb)
 {
+<<<<<<< HEAD
+=======
+	(void) ArrayCheckBoundsSafe(ndim, dims, lb, NULL);
+}
+
+/*
+ * This entry point can return the error into an ErrorSaveContext
+ * instead of throwing an exception.
+ */
+bool
+ArrayCheckBoundsSafe(int ndim, const int *dims, const int *lb,
+					 struct Node *escontext)
+{
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	int			i;
 
 	for (i = 0; i < ndim; i++)
@@ -135,11 +138,20 @@ ArrayCheckBounds(int ndim, const int *dims, const int *lb)
 		int32		sum PG_USED_FOR_ASSERTS_ONLY;
 
 		if (pg_add_s32_overflow(dims[i], lb[i], &sum))
+<<<<<<< HEAD
 			ereport(ERROR,
+=======
+			ereturn(escontext, false,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
 					 errmsg("array lower bound is too large: %d",
 							lb[i])));
 	}
+<<<<<<< HEAD
+=======
+
+	return true;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
@@ -249,16 +261,12 @@ ArrayGetIntegerTypmods(ArrayType *arr, int *n)
 				(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
 				 errmsg("typmod array must not contain nulls")));
 
-	/* hardwired knowledge about cstring's representation details here */
-	deconstruct_array(arr, CSTRINGOID,
-					  -2, false, 'c',
-					  &elem_values, NULL, n);
+	deconstruct_array_builtin(arr, CSTRINGOID, &elem_values, NULL, n);
 
 	result = (int32 *) palloc(*n * sizeof(int32));
 
 	for (i = 0; i < *n; i++)
-		result[i] = pg_atoi(DatumGetCString(elem_values[i]),
-							sizeof(int32), '\0');
+		result[i] = pg_strtoint32(DatumGetCString(elem_values[i]));
 
 	pfree(elem_values);
 

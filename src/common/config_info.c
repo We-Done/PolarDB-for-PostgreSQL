@@ -4,7 +4,7 @@
  *		Common code for pg_config output
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -38,8 +38,13 @@ get_configdata(const char *my_exec_path, size_t *configdata_len)
 	int			i = 0;
 
 	/* Adjust this to match the number of items filled below */
+<<<<<<< HEAD
 	*configdata_len = 24;
 	configdata = (ConfigData *) palloc(*configdata_len * sizeof(ConfigData));
+=======
+	*configdata_len = 23;
+	configdata = palloc_array(ConfigData, *configdata_len);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	configdata[i].name = pstrdup("BINDIR");
 	strlcpy(path, my_exec_path, sizeof(path));
@@ -124,11 +129,7 @@ get_configdata(const char *my_exec_path, size_t *configdata_len)
 	i++;
 
 	configdata[i].name = pstrdup("CONFIGURE");
-#ifdef VAL_CONFIGURE
-	configdata[i].setting = pstrdup(VAL_CONFIGURE);
-#else
-	configdata[i].setting = pstrdup(_("not recorded"));
-#endif
+	configdata[i].setting = pstrdup(CONFIGURE_ARGS);
 	i++;
 
 	configdata[i].name = pstrdup("CC");

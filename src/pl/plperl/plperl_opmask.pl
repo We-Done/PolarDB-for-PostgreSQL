@@ -1,7 +1,9 @@
-#!perl -w
+#!perl
+
+# Copyright (c) 2021-2024, PostgreSQL Global Development Group
 
 use strict;
-use warnings;
+use warnings FATAL => 'all';
 
 use Opcode qw(opset opset_to_ops opdesc);
 
@@ -52,7 +54,7 @@ foreach my $opname (opset_to_ops(opset(@allowed_ops)))
 	printf $fh qq{  opmask[OP_%-12s] = 0;\t/* %s */ \\\n},
 	  uc($opname), opdesc($opname);
 }
-printf $fh "  /* end */ \n";
+printf $fh "								/* end */\n";
 
 close $fh
   or die "Error closing $plperl_opmask_tmp: $!";

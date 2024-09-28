@@ -36,7 +36,7 @@ ALTER DOMAIN <replaceable class="parameter">name</replaceable>
 ALTER DOMAIN <replaceable class="parameter">name</replaceable>
     VALIDATE CONSTRAINT <replaceable class="parameter">constraint_name</replaceable>
 ALTER DOMAIN <replaceable class="parameter">name</replaceable>
-    OWNER TO { <replaceable class="parameter">new_owner</replaceable> | CURRENT_USER | SESSION_USER }
+    OWNER TO { <replaceable class="parameter">new_owner</replaceable> | CURRENT_ROLE | CURRENT_USER | SESSION_USER }
 ALTER DOMAIN <replaceable class="parameter">name</replaceable>
     RENAME TO <replaceable class="parameter">new_name</replaceable>
 ALTER DOMAIN <replaceable class="parameter">name</replaceable>
@@ -80,7 +80,7 @@ ALTER DOMAIN <replaceable class="parameter">name</replaceable>
     <listitem>
      <para>
       This form adds a new constraint to a domain using the same syntax as
-      <xref linkend="sql-createdomain"/>.
+      <link linkend="sql-createdomain"><command>CREATE DOMAIN</command></link>.
       When a new constraint is added to a domain, all columns using that
       domain will be checked against the newly added constraint.  These
       checks can be suppressed by adding the new constraint using the
@@ -157,9 +157,9 @@ ALTER DOMAIN <replaceable class="parameter">name</replaceable>
    You must own the domain to use <command>ALTER DOMAIN</command>.
    To change the schema of a domain, you must also have
    <literal>CREATE</literal> privilege on the new schema.
-   To alter the owner, you must also be a direct or indirect member of the new
-   owning role, and that role must have <literal>CREATE</literal> privilege on
-   the domain's schema.  (These restrictions enforce that altering the owner
+   To alter the owner, you must be able to <literal>SET ROLE</literal> to the
+   new owning role, and that role must have <literal>CREATE</literal> privilege
+   on the domain's schema.  (These restrictions enforce that altering the owner
    doesn't do anything you couldn't do by dropping and recreating the domain.
    However, a superuser can alter ownership of any domain anyway.)
   </para>

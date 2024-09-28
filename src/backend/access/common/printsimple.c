@@ -8,7 +8,7 @@
  *	  doesn't handle standalone backends or protocol versions other than
  *	  3.0, because we don't need such handling for current applications.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -20,8 +20,8 @@
 
 #include "access/printsimple.h"
 #include "catalog/pg_type.h"
-#include "fmgr.h"
 #include "libpq/pqformat.h"
+#include "libpq/protocol.h"
 #include "utils/builtins.h"
 
 /*
@@ -33,7 +33,7 @@ printsimple_startup(DestReceiver *self, int operation, TupleDesc tupdesc)
 	StringInfoData buf;
 	int			i;
 
-	pq_beginmessage(&buf, 'T'); /* RowDescription */
+	pq_beginmessage(&buf, PqMsg_RowDescription);
 	pq_sendint16(&buf, tupdesc->natts);
 
 	for (i = 0; i < tupdesc->natts; ++i)
@@ -66,7 +66,7 @@ printsimple(TupleTableSlot *slot, DestReceiver *self)
 	slot_getallattrs(slot);
 
 	/* Prepare and send message */
-	pq_beginmessage(&buf, 'D');
+	pq_beginmessage(&buf, PqMsg_DataRow);
 	pq_sendint16(&buf, tupdesc->natts);
 
 	for (i = 0; i < tupdesc->natts; ++i)
@@ -95,8 +95,7 @@ printsimple(TupleTableSlot *slot, DestReceiver *self)
 
 					pq_sendcountedtext(&buf,
 									   VARDATA_ANY(t),
-									   VARSIZE_ANY_EXHDR(t),
-									   false);
+									   VARSIZE_ANY_EXHDR(t));
 				}
 				break;
 
@@ -104,19 +103,32 @@ printsimple(TupleTableSlot *slot, DestReceiver *self)
 				{
 					int32		num = DatumGetInt32(value);
 					char		str[12];	/* sign, 10 digits and '\0' */
+					int			len;
 
-					pg_ltoa(num, str);
-					pq_sendcountedtext(&buf, str, strlen(str), false);
+					len = pg_ltoa(num, str);
+					pq_sendcountedtext(&buf, str, len);
 				}
 				break;
 
 			case INT8OID:
 				{
 					int64		num = DatumGetInt64(value);
-					char		str[23];	/* sign, 21 digits and '\0' */
+					char		str[MAXINT8LEN + 1];
+					int			len;
 
-					pg_lltoa(num, str);
-					pq_sendcountedtext(&buf, str, strlen(str), false);
+					len = pg_lltoa(num, str);
+					pq_sendcountedtext(&buf, str, len);
+				}
+				break;
+
+			case OIDOID:
+				{
+					Oid			num = ObjectIdGetDatum(value);
+					char		str[10];	/* 10 digits */
+					int			len;
+
+					len = pg_ultoa_n(num, str);
+					pq_sendcountedtext(&buf, str, len);
 				}
 				break;
 

@@ -23,7 +23,8 @@
  *
  * See psqlscan_int.h for additional commentary.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ *
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -33,12 +34,16 @@
  */
 #include "postgres_fe.h"
 
+#include "common/logging.h"
 #include "fe_utils/psqlscan.h"
 
 #include "libpq-fe.h"
 }
 
 %{
+
+/* LCOV_EXCL_START */
+
 #include "fe_utils/psqlscan_int.h"
 
 /*
@@ -70,8 +75,6 @@ typedef int YYSTYPE;
  */
 extern int	psql_yyget_column(yyscan_t yyscanner);
 extern void psql_yyset_column(int column_no, yyscan_t yyscanner);
-
-/* LCOV_EXCL_START */
 
 %}
 
@@ -109,14 +112,13 @@ extern void psql_yyset_column(int column_no, yyscan_t yyscanner);
  *  <xb> bit string literal
  *  <xc> extended C-style comments
  *  <xd> delimited identifiers (double-quoted identifiers)
- *  <xh> hexadecimal numeric string
+ *  <xh> hexadecimal byte string
  *  <xq> standard quoted strings
+ *  <xqs> quote stop (detect continued strings)
  *  <xe> extended quoted strings (support backslash escape sequences)
  *  <xdolq> $foo$ quoted strings
  *  <xui> quoted identifier with Unicode escapes
- *  <xuiend> end of a quoted identifier with Unicode escapes, UESCAPE can follow
  *  <xus> quoted string with Unicode escapes
- *  <xusend> end of a quoted string with Unicode escapes, UESCAPE can follow
  *
  * Note: we intentionally don't mimic the backend's <xeu> state; we have
  * no need to distinguish it from <xe> state, and no good way to get out
@@ -128,13 +130,12 @@ extern void psql_yyset_column(int column_no, yyscan_t yyscanner);
 %x xc
 %x xd
 %x xh
-%x xe
 %x xq
+%x xqs
+%x xe
 %x xdolq
 %x xui
-%x xuiend
 %x xus
-%x xusend
 
 /*
  * In order to make the world safe for Windows and Mac clients as well as
@@ -148,16 +149,16 @@ extern void psql_yyset_column(int column_no, yyscan_t yyscanner);
  * versions of Postgres failed to recognize -- as a comment if the input
  * did not end with a newline.
  *
- * XXX perhaps \f (formfeed) should be treated as a newline as well?
+ * non_newline_space tracks all space characters except newlines.
  *
  * XXX if you change the set of whitespace characters, fix scanner_isspace()
- * to agree, and see also the plpgsql lexer.
+ * to agree.
  */
 
-space			[ \t\n\r\f]
-horiz_space		[ \t\f]
-newline			[\n\r]
-non_newline		[^\n\r]
+space				[ \t\n\r\f\v]
+non_newline_space	[ \t\f\v]
+newline				[\n\r]
+non_newline			[^\n\r]
 
 comment			("--"{non_newline}*)
 
@@ -171,22 +172,21 @@ whitespace		({space}+|{comment})
  */
 
 special_whitespace		({space}+|{comment}{newline})
-horiz_whitespace		({horiz_space}|{comment})
-whitespace_with_newline	({horiz_whitespace}*{newline}{special_whitespace}*)
+non_newline_whitespace	({non_newline_space}|{comment})
+whitespace_with_newline	({non_newline_whitespace}*{newline}{special_whitespace}*)
+
+quote			'
+/* If we see {quote} then {quotecontinue}, the quoted string continues */
+quotecontinue	{whitespace_with_newline}{quote}
 
 /*
- * To ensure that {quotecontinue} can be scanned without having to back up
- * if the full pattern isn't matched, we include trailing whitespace in
- * {quotestop}.  This matches all cases where {quotecontinue} fails to match,
- * except for {quote} followed by whitespace and just one "-" (not two,
- * which would start a {comment}).  To cover that we have {quotefail}.
- * The actions for {quotestop} and {quotefail} must throw back characters
- * beyond the quote proper.
+ * {quotecontinuefail} is needed to avoid lexer backup when we fail to match
+ * {quotecontinue}.  It might seem that this could just be {whitespace}*,
+ * but if there's a dash after {whitespace_with_newline}, it must be consumed
+ * to see if there's another dash --- which would start a {comment} and thus
+ * allow continuation of the {quotecontinue} token.
  */
-quote			'
-quotestop		{quote}{whitespace}*
-quotecontinue	{quote}{whitespace_with_newline}{quote}
-quotefail		{quote}{whitespace}*"-"
+quotecontinuefail	{whitespace}*"-"?
 
 /* Bit string
  * It is tempting to scan the string for only those characters
@@ -200,7 +200,7 @@ quotefail		{quote}{whitespace}*"-"
 xbstart			[bB]{quote}
 xbinside		[^']*
 
-/* Hexadecimal number */
+/* Hexadecimal byte string */
 xhstart			[xX]{quote}
 xhinside		[^']*
 
@@ -247,20 +247,11 @@ xdstop			{dquote}
 xddouble		{dquote}{dquote}
 xdinside		[^"]+
 
-/* Unicode escapes */
-uescape			[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}[^']{quote}
-/* error rule to avoid backup */
-uescapefail		[uU][eE][sS][cC][aA][pP][eE]{whitespace}*"-"|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}[^']|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*|[uU][eE][sS][cC][aA][pP]|[uU][eE][sS][cC][aA]|[uU][eE][sS][cC]|[uU][eE][sS]|[uU][eE]|[uU]
-
 /* Quoted identifier with Unicode escapes */
 xuistart		[uU]&{dquote}
 
 /* Quoted string with Unicode escapes */
 xusstart		[uU]&{quote}
-
-/* Optional UESCAPE after a quoted string or identifier with Unicode escapes. */
-xustop1		{uescapefail}?
-xustop2		{uescape}
 
 /* error rule to avoid backup */
 xufailed		[uU]&
@@ -288,7 +279,6 @@ xcstart			\/\*{op_chars}*
 xcstop			\*+\/
 xcinside		[^*/]+
 
-digit			[0-9]
 ident_start		[A-Za-z\200-\377_]
 ident_cont		[A-Za-z\200-\377_0-9\$]
 
@@ -327,24 +317,61 @@ self			[,()\[\].;\:\+\-\*\/\%\^\<\>\=]
 op_chars		[\~\!\@\#\^\&\|\`\?\+\-\*\/\%\<\>\=]
 operator		{op_chars}+
 
-/* we no longer allow unary minus in numbers.
- * instead we pass it separately to parser. there it gets
- * coerced via doNegate() -- Leon aug 20 1999
+/*
+ * Numbers
  *
- * {decimalfail} is used because we would like "1..10" to lex as 1, dot_dot, 10.
+ * Unary minus is not part of a number here.  Instead we pass it separately to
+ * the parser, and there it gets coerced via doNegate().
  *
- * {realfail1} and {realfail2} are added to prevent the need for scanner
+ * {numericfail} is used because we would like "1..10" to lex as 1, dot_dot, 10.
+ *
+ * {realfail} is added to prevent the need for scanner
  * backup when the {real} rule fails to match completely.
  */
+decdigit		[0-9]
+hexdigit		[0-9A-Fa-f]
+octdigit		[0-7]
+bindigit		[0-1]
 
-integer			{digit}+
-decimal			(({digit}*\.{digit}+)|({digit}+\.{digit}*))
-decimalfail		{digit}+\.\.
-real			({integer}|{decimal})[Ee][-+]?{digit}+
-realfail1		({integer}|{decimal})[Ee]
-realfail2		({integer}|{decimal})[Ee][-+]
+decinteger		{decdigit}(_?{decdigit})*
+hexinteger		0[xX](_?{hexdigit})+
+octinteger		0[oO](_?{octdigit})+
+bininteger		0[bB](_?{bindigit})+
 
-param			\${integer}
+hexfail			0[xX]_?
+octfail			0[oO]_?
+binfail			0[bB]_?
+
+numeric			(({decinteger}\.{decinteger}?)|(\.{decinteger}))
+numericfail		{decinteger}\.\.
+
+real			({decinteger}|{numeric})[Ee][-+]?{decinteger}
+realfail		({decinteger}|{numeric})[Ee][-+]
+
+/* Positional parameters don't accept underscores. */
+param			\${decdigit}+
+
+/*
+ * An identifier immediately following an integer literal is disallowed because
+ * in some cases it's ambiguous what is meant: for example, 0x1234 could be
+ * either a hexinteger or a decinteger "0" and an identifier "x1234".  We can
+ * detect such problems by seeing if integer_junk matches a longer substring
+ * than any of the XXXinteger patterns (decinteger, hexinteger, octinteger,
+ * bininteger).  One "junk" pattern is sufficient because
+ * {decinteger}{identifier} will match all the same strings we'd match with
+ * {hexinteger}{identifier} etc.
+ *
+ * Note that the rule for integer_junk must appear after the ones for
+ * XXXinteger to make this work correctly: 0x1234 will match both hexinteger
+ * and integer_junk, and we need hexinteger to be chosen in that case.
+ *
+ * Also disallow strings matched by numeric_junk, real_junk and param_junk
+ * for consistency.
+ */
+integer_junk	{decinteger}{identifier}
+numeric_junk	{numeric}{identifier}
+real_junk		{real}{identifier}
+param_junk		\${decdigit}+{identifier}
 
 /* psql-specific: characters allowed in variable names */
 variable_char	[A-Za-z\200-\377_0-9]
@@ -385,12 +412,11 @@ other			.
 					/*
 					 * Note that the whitespace rule includes both true
 					 * whitespace and single-line ("--" style) comments.
-					 * We suppress whitespace at the start of the query
-					 * buffer.  We also suppress all single-line comments,
-					 * which is pretty dubious but is the historical
-					 * behavior.
+					 * We suppress whitespace until we have collected some
+					 * non-whitespace data.  (This interacts with some
+					 * decisions in MainLoop(); see there for details.)
 					 */
-					if (!(output_buf->len == 0 || yytext[0] == '-'))
+					if (output_buf->len > 0)
 						ECHO;
 				}
 
@@ -402,14 +428,15 @@ other			.
 					ECHO;
 				}
 
-<xc>{xcstart}	{
+<xc>{
+{xcstart}		{
 					cur_state->xcdepth++;
 					/* Put back any characters past slash-star; see above */
 					yyless(2);
 					ECHO;
 				}
 
-<xc>{xcstop}	{
+{xcstop}		{
 					if (cur_state->xcdepth <= 0)
 						BEGIN(INITIAL);
 					else
@@ -417,34 +444,25 @@ other			.
 					ECHO;
 				}
 
-<xc>{xcinside}	{
+{xcinside}		{
 					ECHO;
 				}
 
-<xc>{op_chars}	{
+{op_chars}		{
 					ECHO;
 				}
 
-<xc>\*+			{
+\*+				{
 					ECHO;
 				}
+} /* <xc> */
 
 {xbstart}		{
 					BEGIN(xb);
 					ECHO;
 				}
-<xb>{quotestop}	|
-<xb>{quotefail} {
-					yyless(1);
-					BEGIN(INITIAL);
-					ECHO;
-				}
 <xh>{xhinside}	|
 <xb>{xbinside}	{
-					ECHO;
-				}
-<xh>{quotecontinue}	|
-<xb>{quotecontinue}	{
 					ECHO;
 				}
 
@@ -456,12 +474,6 @@ other			.
 					 * to mark it for the input routine as a hex string.
 					 */
 					BEGIN(xh);
-					ECHO;
-				}
-<xh>{quotestop}	|
-<xh>{quotefail} {
-					yyless(1);
-					BEGIN(INITIAL);
 					ECHO;
 				}
 
@@ -485,32 +497,41 @@ other			.
 					BEGIN(xus);
 					ECHO;
 				}
-<xq,xe>{quotestop}	|
-<xq,xe>{quotefail} {
-					yyless(1);
-					BEGIN(INITIAL);
+
+<xb,xh,xq,xe,xus>{quote} {
+					/*
+					 * When we are scanning a quoted string and see an end
+					 * quote, we must look ahead for a possible continuation.
+					 * If we don't see one, we know the end quote was in fact
+					 * the end of the string.  To reduce the lexer table size,
+					 * we use a single "xqs" state to do the lookahead for all
+					 * types of strings.
+					 */
+					cur_state->state_before_str_stop = YYSTATE;
+					BEGIN(xqs);
 					ECHO;
 				}
-<xus>{quotestop} |
-<xus>{quotefail} {
-					/* throw back all but the quote */
-					yyless(1);
-					BEGIN(xusend);
+<xqs>{quotecontinue} {
+					/*
+					 * Found a quote continuation, so return to the in-quote
+					 * state and continue scanning the literal.  Nothing is
+					 * added to the literal's contents.
+					 */
+					BEGIN(cur_state->state_before_str_stop);
 					ECHO;
 				}
-<xusend>{whitespace} {
-					ECHO;
-				}
-<xusend>{other} |
-<xusend>{xustop1} {
+<xqs>{quotecontinuefail} |
+<xqs>{other}	{
+					/*
+					 * Failed to see a quote continuation.  Throw back
+					 * everything after the end quote, and handle the string
+					 * according to the state we were in previously.
+					 */
 					yyless(0);
 					BEGIN(INITIAL);
-					ECHO;
+					/* There's nothing to echo ... */
 				}
-<xusend>{xustop2} {
-					BEGIN(INITIAL);
-					ECHO;
-				}
+
 <xq,xe,xus>{xqdouble} {
 					ECHO;
 				}
@@ -533,9 +554,6 @@ other			.
 					ECHO;
 				}
 <xe>{xehexesc}  {
-					ECHO;
-				}
-<xq,xe,xus>{quotecontinue} {
 					ECHO;
 				}
 <xe>.			{
@@ -594,21 +612,7 @@ other			.
 					BEGIN(INITIAL);
 					ECHO;
 				}
-<xui>{dquote} {
-					yyless(1);
-					BEGIN(xuiend);
-					ECHO;
-				}
-<xuiend>{whitespace} {
-					ECHO;
-				}
-<xuiend>{other} |
-<xuiend>{xustop1} {
-					yyless(0);
-					BEGIN(INITIAL);
-					ECHO;
-				}
-<xuiend>{xustop2}	{
+<xui>{dquote}	{
 					BEGIN(INITIAL);
 					ECHO;
 				}
@@ -676,10 +680,11 @@ other			.
 
 ";"				{
 					ECHO;
-					if (cur_state->paren_depth == 0)
+					if (cur_state->paren_depth == 0 && cur_state->begin_depth == 0)
 					{
 						/* Terminate lexing temporarily */
 						cur_state->start_state = YY_START;
+						cur_state->identifier_count = 0;
 						return LEXRES_SEMI;
 					}
 				}
@@ -690,8 +695,10 @@ other			.
 	 */
 
 "\\"[;:]		{
-					/* Force a semicolon or colon into the query buffer */
+					/* Force a semi-colon or colon into the query buffer */
 					psqlscan_emit(cur_state, yytext + 1, 1);
+					if (yytext[1] == ';')
+						cur_state->identifier_count = 0;
 				}
 
 "\\"			{
@@ -721,7 +728,7 @@ other			.
 						if (psqlscan_var_is_current_source(cur_state, varname))
 						{
 							/* Recursive expansion --- don't go there */
-							cur_state->callbacks->write_error("skipping recursive expansion of variable \"%s\"\n",
+							pg_log_warning("skipping recursive expansion of variable \"%s\"",
 															  varname);
 							/* Instead copy the string as is */
 							ECHO;
@@ -866,14 +873,35 @@ other			.
 {param}			{
 					ECHO;
 				}
+{param_junk}	{
+					ECHO;
+				}
 
-{integer}		{
+{decinteger}	{
 					ECHO;
 				}
-{decimal}		{
+{hexinteger}	{
 					ECHO;
 				}
-{decimalfail}	{
+{octinteger}	{
+					ECHO;
+				}
+{bininteger}	{
+					ECHO;
+				}
+{hexfail}		{
+					ECHO;
+				}
+{octfail}		{
+					ECHO;
+				}
+{binfail}		{
+					ECHO;
+				}
+{numeric}		{
+					ECHO;
+				}
+{numericfail}	{
 					/* throw back the .., and treat as integer */
 					yyless(yyleng - 2);
 					ECHO;
@@ -881,24 +909,70 @@ other			.
 {real}			{
 					ECHO;
 				}
-{realfail1}		{
-					/*
-					 * throw back the [Ee], and treat as {decimal}.  Note
-					 * that it is possible the input is actually {integer},
-					 * but since this case will almost certainly lead to a
-					 * syntax error anyway, we don't bother to distinguish.
-					 */
-					yyless(yyleng - 1);
+{realfail}		{
 					ECHO;
 				}
-{realfail2}		{
-					/* throw back the [Ee][+-], and proceed as above */
-					yyless(yyleng - 2);
+{integer_junk}	{
+					ECHO;
+				}
+{numeric_junk}	{
+					ECHO;
+				}
+{real_junk}		{
 					ECHO;
 				}
 
 
 {identifier}	{
+					/*
+					 * We need to track if we are inside a BEGIN .. END block
+					 * in a function definition, so that semicolons contained
+					 * therein don't terminate the whole statement.  Short of
+					 * writing a full parser here, the following heuristic
+					 * should work.  First, we track whether the beginning of
+					 * the statement matches CREATE [OR REPLACE]
+					 * {FUNCTION|PROCEDURE}
+					 */
+
+					if (cur_state->identifier_count == 0)
+						memset(cur_state->identifiers, 0, sizeof(cur_state->identifiers));
+
+					if (pg_strcasecmp(yytext, "create") == 0 ||
+						pg_strcasecmp(yytext, "function") == 0 ||
+						pg_strcasecmp(yytext, "procedure") == 0 ||
+						pg_strcasecmp(yytext, "or") == 0 ||
+						pg_strcasecmp(yytext, "replace") == 0)
+					{
+						if (cur_state->identifier_count < sizeof(cur_state->identifiers))
+							cur_state->identifiers[cur_state->identifier_count] = pg_tolower((unsigned char) yytext[0]);
+					}
+
+					cur_state->identifier_count++;
+
+					if (cur_state->identifiers[0] == 'c' &&
+						(cur_state->identifiers[1] == 'f' || cur_state->identifiers[1] == 'p' ||
+						 (cur_state->identifiers[1] == 'o' && cur_state->identifiers[2] == 'r' &&
+						  (cur_state->identifiers[3] == 'f' || cur_state->identifiers[3] == 'p'))) &&
+						cur_state->paren_depth == 0)
+					{
+						if (pg_strcasecmp(yytext, "begin") == 0)
+							cur_state->begin_depth++;
+						else if (pg_strcasecmp(yytext, "case") == 0)
+						{
+							/*
+							 * CASE also ends with END.  We only need to track
+							 * this if we are already inside a BEGIN.
+							 */
+							if (cur_state->begin_depth >= 1)
+								cur_state->begin_depth++;
+						}
+						else if (pg_strcasecmp(yytext, "end") == 0)
+						{
+							if (cur_state->begin_depth > 0)
+								cur_state->begin_depth--;
+						}
+					}
+
 					ECHO;
 				}
 
@@ -1080,12 +1154,16 @@ psql_scan(PsqlScanState state,
 			switch (state->start_state)
 			{
 				case INITIAL:
-				case xuiend:	/* we treat these like INITIAL */
-				case xusend:
+				case xqs:		/* we treat this like INITIAL */
 					if (state->paren_depth > 0)
 					{
 						result = PSCAN_INCOMPLETE;
 						*prompt = PROMPT_PAREN;
+					}
+					else if (state->begin_depth > 0)
+					{
+						result = PSCAN_INCOMPLETE;
+						*prompt = PROMPT_CONTINUE;
 					}
 					else if (query_buf->len > 0)
 					{
@@ -1203,6 +1281,8 @@ psql_scan_reset(PsqlScanState state)
 	if (state->dolqstart)
 		free(state->dolqstart);
 	state->dolqstart = NULL;
+	state->identifier_count = 0;
+	state->begin_depth = 0;
 }
 
 /*
@@ -1236,7 +1316,8 @@ psql_scan_reselect_sql_lexer(PsqlScanState state)
 bool
 psql_scan_in_quote(PsqlScanState state)
 {
-	return state->start_state != INITIAL;
+	return state->start_state != INITIAL &&
+			state->start_state != xqs;
 }
 
 /*

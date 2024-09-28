@@ -26,9 +26,9 @@
   <para>
    When a table is created, it contains no data.  The first thing to
    do before a database can be of much use is to insert data.  Data is
-   conceptually inserted one row at a time.  Of course you can also
-   insert more than one row, but there is no way to insert less than
-   one row.  Even if you know only some column values, a
+   inserted one row at a time.  You can also insert more than one row
+   in a single command, but it is not possible to insert something that
+   is not a complete row.  Even if you know only some column values, a
    complete row must be created.
   </para>
 
@@ -245,7 +245,7 @@ UPDATE mytable SET a = 5, b = 3, c = 1 WHERE a &gt; 0;
   <para>
    You use the <xref linkend="sql-delete"/>
    command to remove rows; the syntax is very similar to the
-   <command>UPDATE</command> command.  For instance, to remove all
+   <xref linkend="sql-update"/> command.  For instance, to remove all
    rows from the products table that have a price of 10, use:
 <programlisting>
 DELETE FROM products WHERE price = 10;
@@ -262,7 +262,7 @@ DELETE FROM products;
  </sect1>
 
  <sect1 id="dml-returning">
-  <title>Returning Data From Modified Rows</title>
+  <title>Returning Data from Modified Rows</title>
 
   <indexterm zone="dml-returning">
    <primary>RETURNING</primary>
@@ -283,10 +283,15 @@ DELETE FROM products;
    <secondary>RETURNING</secondary>
   </indexterm>
 
+  <indexterm zone="dml-returning">
+   <primary>MERGE</primary>
+   <secondary>RETURNING</secondary>
+  </indexterm>
+
   <para>
    Sometimes it is useful to obtain data from modified rows while they are
    being manipulated.  The <command>INSERT</command>, <command>UPDATE</command>,
-   and <command>DELETE</command> commands all have an
+   <command>DELETE</command>, and <command>MERGE</command> commands all have an
    optional <literal>RETURNING</literal> clause that supports this.  Use
    of <literal>RETURNING</literal> avoids performing an extra database query to
    collect the data, and is especially valuable when it would otherwise be
@@ -336,6 +341,21 @@ UPDATE products SET price = price * 1.10
 DELETE FROM products
   WHERE obsoletion_date = 'today'
   RETURNING *;
+</programlisting>
+  </para>
+
+  <para>
+   In a <command>MERGE</command>, the data available to <literal>RETURNING</literal> is
+   the content of the source row plus the content of the inserted, updated, or
+   deleted target row.  Since it is quite common for the source and target to
+   have many of the same columns, specifying <literal>RETURNING *</literal>
+   can lead to a lot of duplicated columns, so it is often more useful to
+   qualify it so as to return just the source or target row.  For example:
+<programlisting>
+MERGE INTO products p USING new_products n ON p.product_no = n.product_no
+  WHEN NOT MATCHED THEN INSERT VALUES (n.product_no, n.name, n.price)
+  WHEN MATCHED THEN UPDATE SET name = n.name, price = n.price
+  RETURNING p.*;
 </programlisting>
   </para>
 

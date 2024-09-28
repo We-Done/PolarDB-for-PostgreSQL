@@ -17,7 +17,7 @@
  * longest path from root to leaf is only about twice as long as the shortest,
  * so lookups are guaranteed to run in O(lg n) time.
  *
- * Copyright (c) 2009-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2009-2024, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/lib/rbtree.c
@@ -62,7 +62,11 @@ struct RBTree
 
 static RBTNode sentinel =
 {
+<<<<<<< HEAD
 	RBTBLACK, RBTNIL, RBTNIL, NULL
+=======
+	.color = RBTBLACK,.left = RBTNIL,.right = RBTNIL,.parent = NULL
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 };
 
 
@@ -162,6 +166,71 @@ rbt_find(RBTree *rbt, const RBTNode *data)
 }
 
 /*
+<<<<<<< HEAD
+=======
+ * rbt_find_great: search for a greater value in an RBTree
+ *
+ * If equal_match is true, this will be a great or equal search.
+ *
+ * Returns the matching tree entry, or NULL if no match is found.
+ */
+RBTNode *
+rbt_find_great(RBTree *rbt, const RBTNode *data, bool equal_match)
+{
+	RBTNode    *node = rbt->root;
+	RBTNode    *greater = NULL;
+
+	while (node != RBTNIL)
+	{
+		int			cmp = rbt->comparator(data, node, rbt->arg);
+
+		if (equal_match && cmp == 0)
+			return node;
+		else if (cmp < 0)
+		{
+			greater = node;
+			node = node->left;
+		}
+		else
+			node = node->right;
+	}
+
+	return greater;
+}
+
+/*
+ * rbt_find_less: search for a lesser value in an RBTree
+ *
+ * If equal_match is true, this will be a less or equal search.
+ *
+ * Returns the matching tree entry, or NULL if no match is found.
+ */
+RBTNode *
+rbt_find_less(RBTree *rbt, const RBTNode *data, bool equal_match)
+{
+	RBTNode    *node = rbt->root;
+	RBTNode    *lesser = NULL;
+
+	while (node != RBTNIL)
+	{
+		int			cmp = rbt->comparator(data, node, rbt->arg);
+
+		if (equal_match && cmp == 0)
+			return node;
+		else if (cmp > 0)
+		{
+			lesser = node;
+			node = node->right;
+		}
+		else
+			node = node->left;
+	}
+
+	return lesser;
+}
+
+/*
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  * rbt_leftmost: fetch the leftmost (smallest-valued) tree node.
  * Returns NULL if tree is empty.
  *

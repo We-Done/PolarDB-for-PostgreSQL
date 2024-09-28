@@ -8,7 +8,7 @@
  *
  * See fe_utils/psqlscan_int.h for additional commentary.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -18,7 +18,12 @@
  */
 #include "postgres_fe.h"
 
+#include <ctype.h>
+
+#include "common.h"
 #include "psqlscanslash.h"
+
+#include "common/logging.h"
 #include "fe_utils/conditional.h"
 
 #include "libpq-fe.h"
@@ -105,7 +110,7 @@ extern void slash_yyset_column(int column_no, yyscan_t yyscanner);
 /*
  * Assorted character class definitions that should match psqlscan.l.
  */
-space			[ \t\n\r\f]
+space			[ \t\n\r\f\v]
 quote			'
 xeoctesc		[\\][0-7]{1,3}
 xehexesc		[\\]x[0-9A-Fa-f]{1,2}
@@ -605,7 +610,7 @@ psql_scan_slash_option(PsqlScanState state,
 			/* empty arg */
 			break;
 		case xslasharg:
-			/* Strip any unquoted trailing semi-colons if requested */
+			/* Strip any unquoted trailing semicolons if requested */
 			if (semicolon)
 			{
 				while (unquoted_option_chars-- > 0 &&
@@ -633,11 +638,26 @@ psql_scan_slash_option(PsqlScanState state,
 		case xslashbackquote:
 		case xslashdquote:
 			/* must have hit EOL inside quotes */
-			state->callbacks->write_error("unterminated quoted string\n");
+			pg_log_error("unterminated quoted string");
 			termPQExpBuffer(&mybuf);
 			return NULL;
 		case xslashwholeline:
-			/* always okay */
+			/*
+			 * In whole-line mode, we interpret semicolon = true as stripping
+			 * trailing whitespace as well as semicolons; this gives the
+			 * nearest equivalent to what semicolon = true does in normal
+			 * mode.  Note there's no concept of quoting in this mode.
+			 */
+			if (semicolon)
+			{
+				while (mybuf.len > 0 &&
+					   (mybuf.data[mybuf.len - 1] == ';' ||
+						(isascii((unsigned char) mybuf.data[mybuf.len - 1]) &&
+						 isspace((unsigned char) mybuf.data[mybuf.len - 1]))))
+				{
+					mybuf.data[--mybuf.len] = '\0';
+				}
+			}
 			break;
 		default:
 			/* can't get here */
@@ -752,7 +772,7 @@ dequote_downcase_identifier(char *str, bool downcase, int encoding)
 		{
 			if (downcase && !inquotes)
 				*cp = pg_tolower((unsigned char) *cp);
-			cp += PQmblen(cp, encoding);
+			cp += PQmblenBounded(cp, encoding);
 		}
 	}
 }
@@ -771,16 +791,19 @@ evaluate_backtick(PsqlScanState state)
 	PQExpBufferData cmd_output;
 	FILE	   *fd;
 	bool		error = false;
+	int			exit_code = 0;
 	char		buf[512];
 	size_t		result;
 
 	initPQExpBuffer(&cmd_output);
 
-	fd = popen(cmd, PG_BINARY_R);
+	fflush(NULL);
+	fd = popen(cmd, "r");
 	if (!fd)
 	{
-		state->callbacks->write_error("%s: %s\n", cmd, strerror(errno));
+		pg_log_error("%s: %m", cmd);
 		error = true;
+		exit_code = -1;
 	}
 
 	if (!error)
@@ -790,7 +813,7 @@ evaluate_backtick(PsqlScanState state)
 			result = fread(buf, 1, sizeof(buf), fd);
 			if (ferror(fd))
 			{
-				state->callbacks->write_error("%s: %s\n", cmd, strerror(errno));
+				pg_log_error("%s: %m", cmd);
 				error = true;
 				break;
 			}
@@ -798,15 +821,24 @@ evaluate_backtick(PsqlScanState state)
 		} while (!feof(fd));
 	}
 
-	if (fd && pclose(fd) == -1)
+	if (fd)
 	{
-		state->callbacks->write_error("%s: %s\n", cmd, strerror(errno));
-		error = true;
+		/*
+		 * Although pclose's result always sets the shell result variables, we
+		 * historically have abandoned the backtick substitution only if it
+		 * returns -1.
+		 */
+		exit_code = pclose(fd);
+		if (exit_code == -1)
+		{
+			pg_log_error("%s: %m", cmd);
+			error = true;
+		}
 	}
 
 	if (PQExpBufferDataBroken(cmd_output))
 	{
-		state->callbacks->write_error("%s: out of memory\n", cmd);
+		pg_log_error("%s: out of memory", cmd);
 		error = true;
 	}
 
@@ -817,12 +849,15 @@ evaluate_backtick(PsqlScanState state)
 	/* If no error, transfer result to output_buf */
 	if (!error)
 	{
-		/* strip any trailing newline */
+		/* strip any trailing newline (but only one) */
 		if (cmd_output.len > 0 &&
 			cmd_output.data[cmd_output.len - 1] == '\n')
 			cmd_output.len--;
 		appendBinaryPQExpBuffer(output_buf, cmd_output.data, cmd_output.len);
 	}
+
+	/* And finally, set the shell result variables */
+	SetShellResultVariables(exit_code);
 
 	termPQExpBuffer(&cmd_output);
 }

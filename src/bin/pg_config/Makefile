@@ -2,7 +2,7 @@
 #
 # Makefile for src/bin/pg_config
 #
-# Copyright (c) 1998-2018, PostgreSQL Global Development Group
+# Copyright (c) 1998-2024, PostgreSQL Global Development Group
 #
 # src/bin/pg_config/Makefile
 #
@@ -15,7 +15,9 @@ subdir = src/bin/pg_config
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS=   pg_config.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	pg_config.o
 
 all: pg_config
 
@@ -31,7 +33,7 @@ installdirs:
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/pg_config$(X)'
 
-clean distclean maintainer-clean:
+clean distclean:
 	rm -f pg_config$(X) $(OBJS)
 	rm -rf tmp_check
 

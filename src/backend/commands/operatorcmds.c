@@ -4,7 +4,7 @@
  *
  *	  Routines for operator manipulation commands
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -27,33 +27,33 @@
  *		"create operator":
  *				operators
  *
- *		Most of the parse-tree manipulation routines are defined in
- *		commands/manip.c.
- *
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
 
-#include "access/heapam.h"
 #include "access/htup_details.h"
-#include "catalog/dependency.h"
+#include "access/table.h"
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
+#include "catalog/pg_namespace.h"
 #include "catalog/pg_operator.h"
+#include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
-#include "commands/alter.h"
 #include "commands/defrem.h"
 #include "miscadmin.h"
 #include "parser/parse_func.h"
 #include "parser/parse_oper.h"
 #include "parser/parse_type.h"
-#include "utils/builtins.h"
+#include "utils/acl.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
 #include "utils/syscache.h"
 
 static Oid	ValidateRestrictionEstimator(List *restrictionName);
 static Oid	ValidateJoinEstimator(List *joinName);
+static Oid	ValidateOperatorReference(List *name,
+									  Oid leftTypeId,
+									  Oid rightTypeId);
 
 /*
  * DefineOperator
@@ -92,7 +92,7 @@ DefineOperator(List *names, List *parameters)
 	oprNamespace = QualifiedNameGetCreationNamespace(names, &oprName);
 
 	/* Check we have creation rights in target namespace */
-	aclresult = pg_namespace_aclcheck(oprNamespace, GetUserId(), ACL_CREATE);
+	aclresult = object_aclcheck(NamespaceRelationId, oprNamespace, GetUserId(), ACL_CREATE);
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error(aclresult, OBJECT_SCHEMA,
 					   get_namespace_name(oprNamespace));
@@ -170,21 +170,33 @@ DefineOperator(List *names, List *parameters)
 	if (typeName2)
 		typeId2 = typenameTypeId(NULL, typeName2);
 
+	/*
+	 * If only the right argument is missing, the user is likely trying to
+	 * create a postfix operator, so give them a hint about why that does not
+	 * work.  But if both arguments are missing, do not mention postfix
+	 * operators, as the user most likely simply neglected to mention the
+	 * arguments.
+	 */
 	if (!OidIsValid(typeId1) && !OidIsValid(typeId2))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-				 errmsg("at least one of leftarg or rightarg must be specified")));
+				 errmsg("operator argument types must be specified")));
+	if (!OidIsValid(typeId2))
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("operator right argument type must be specified"),
+				 errdetail("Postfix operators are not supported.")));
 
 	if (typeName1)
 	{
-		aclresult = pg_type_aclcheck(typeId1, GetUserId(), ACL_USAGE);
+		aclresult = object_aclcheck(TypeRelationId, typeId1, GetUserId(), ACL_USAGE);
 		if (aclresult != ACLCHECK_OK)
 			aclcheck_error_type(aclresult, typeId1);
 	}
 
 	if (typeName2)
 	{
-		aclresult = pg_type_aclcheck(typeId2, GetUserId(), ACL_USAGE);
+		aclresult = object_aclcheck(TypeRelationId, typeId2, GetUserId(), ACL_USAGE);
 		if (aclresult != ACLCHECK_OK)
 			aclcheck_error_type(aclresult, typeId2);
 	}
@@ -215,13 +227,13 @@ DefineOperator(List *names, List *parameters)
 	 * necessary, since EXECUTE will be checked at any attempted use of the
 	 * operator, but it seems like a good idea anyway.
 	 */
-	aclresult = pg_proc_aclcheck(functionOid, GetUserId(), ACL_EXECUTE);
+	aclresult = object_aclcheck(ProcedureRelationId, functionOid, GetUserId(), ACL_EXECUTE);
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error(aclresult, OBJECT_FUNCTION,
 					   NameListToString(functionName));
 
 	rettype = get_func_rettype(functionOid);
-	aclresult = pg_type_aclcheck(rettype, GetUserId(), ACL_USAGE);
+	aclresult = object_aclcheck(TypeRelationId, rettype, GetUserId(), ACL_USAGE);
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error_type(aclresult, rettype);
 
@@ -255,7 +267,7 @@ DefineOperator(List *names, List *parameters)
 }
 
 /*
- * Look up a restriction estimator function ny name, and verify that it has
+ * Look up a restriction estimator function by name, and verify that it has
  * the correct signature and we have the permissions to attach it to an
  * operator.
  */
@@ -281,7 +293,7 @@ ValidateRestrictionEstimator(List *restrictionName)
 						NameListToString(restrictionName), "float8")));
 
 	/* Require EXECUTE rights for the estimator */
-	aclresult = pg_proc_aclcheck(restrictionOid, GetUserId(), ACL_EXECUTE);
+	aclresult = object_aclcheck(ProcedureRelationId, restrictionOid, GetUserId(), ACL_EXECUTE);
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error(aclresult, OBJECT_FUNCTION,
 					   NameListToString(restrictionName));
@@ -290,7 +302,7 @@ ValidateRestrictionEstimator(List *restrictionName)
 }
 
 /*
- * Look up a join estimator function ny name, and verify that it has the
+ * Look up a join estimator function by name, and verify that it has the
  * correct signature and we have the permissions to attach it to an
  * operator.
  */
@@ -339,13 +351,60 @@ ValidateJoinEstimator(List *joinName)
 						NameListToString(joinName), "float8")));
 
 	/* Require EXECUTE rights for the estimator */
-	aclresult = pg_proc_aclcheck(joinOid, GetUserId(), ACL_EXECUTE);
+	aclresult = object_aclcheck(ProcedureRelationId, joinOid, GetUserId(), ACL_EXECUTE);
 	if (aclresult != ACLCHECK_OK)
 		aclcheck_error(aclresult, OBJECT_FUNCTION,
 					   NameListToString(joinName));
 
 	return joinOid;
 }
+
+/*
+ * Look up and return the OID of an operator,
+ * given a possibly-qualified name and left and right type IDs.
+ *
+ * Verifies that the operator is defined (not a shell) and owned by
+ * the current user, so that we have permission to associate it with
+ * the operator being altered.  Rejecting shell operators is a policy
+ * choice to help catch mistakes, rather than something essential.
+ */
+static Oid
+ValidateOperatorReference(List *name,
+						  Oid leftTypeId,
+						  Oid rightTypeId)
+{
+	Oid			oid;
+	bool		defined;
+
+	oid = OperatorLookup(name,
+						 leftTypeId,
+						 rightTypeId,
+						 &defined);
+
+	/* These message strings are chosen to match parse_oper.c */
+	if (!OidIsValid(oid))
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("operator does not exist: %s",
+						op_signature_string(name,
+											leftTypeId,
+											rightTypeId))));
+
+	if (!defined)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_FUNCTION),
+				 errmsg("operator is only a shell: %s",
+						op_signature_string(name,
+											leftTypeId,
+											rightTypeId))));
+
+	if (!object_ownercheck(OperatorRelationId, oid, GetUserId()))
+		aclcheck_error(ACLCHECK_NOT_OWNER, OBJECT_OPERATOR,
+					   NameListToString(name));
+
+	return oid;
+}
+
 
 /*
  * Guts of operator deletion.
@@ -357,7 +416,7 @@ RemoveOperatorById(Oid operOid)
 	HeapTuple	tup;
 	Form_pg_operator op;
 
-	relation = heap_open(OperatorRelationId, RowExclusiveLock);
+	relation = table_open(OperatorRelationId, RowExclusiveLock);
 
 	tup = SearchSysCache1(OPEROID, ObjectIdGetDatum(operOid));
 	if (!HeapTupleIsValid(tup)) /* should not happen */
@@ -386,7 +445,7 @@ RemoveOperatorById(Oid operOid)
 
 	ReleaseSysCache(tup);
 
-	heap_close(relation, RowExclusiveLock);
+	table_close(relation, RowExclusiveLock);
 }
 
 /*
@@ -394,6 +453,10 @@ RemoveOperatorById(Oid operOid)
  *		routine implementing ALTER OPERATOR <operator> SET (option = ...).
  *
  * Currently, only RESTRICT and JOIN estimator functions can be changed.
+ * COMMUTATOR, NEGATOR, MERGES, and HASHES attributes can be set if they
+ * have not been set previously.  (Changing or removing one of these
+ * attributes could invalidate existing plans, which seems more trouble
+ * than it's worth.)
  */
 ObjectAddress
 AlterOperator(AlterOperatorStmt *stmt)
@@ -414,10 +477,18 @@ AlterOperator(AlterOperatorStmt *stmt)
 	List	   *joinName = NIL; /* optional join sel. function */
 	bool		updateJoin = false;
 	Oid			joinOid;
+	List	   *commutatorName = NIL;	/* optional commutator operator name */
+	Oid			commutatorOid;
+	List	   *negatorName = NIL;	/* optional negator operator name */
+	Oid			negatorOid;
+	bool		canMerge = false;
+	bool		updateMerges = false;
+	bool		canHash = false;
+	bool		updateHashes = false;
 
 	/* Look up the operator */
 	oprId = LookupOperWithArgs(stmt->opername, false);
-	catalog = heap_open(OperatorRelationId, RowExclusiveLock);
+	catalog = table_open(OperatorRelationId, RowExclusiveLock);
 	tup = SearchSysCacheCopy1(OPEROID, ObjectIdGetDatum(oprId));
 	if (!HeapTupleIsValid(tup))
 		elog(ERROR, "cache lookup failed for operator %u", oprId);
@@ -444,6 +515,24 @@ AlterOperator(AlterOperatorStmt *stmt)
 			joinName = param;
 			updateJoin = true;
 		}
+		else if (strcmp(defel->defname, "commutator") == 0)
+		{
+			commutatorName = defGetQualifiedName(defel);
+		}
+		else if (strcmp(defel->defname, "negator") == 0)
+		{
+			negatorName = defGetQualifiedName(defel);
+		}
+		else if (strcmp(defel->defname, "merges") == 0)
+		{
+			canMerge = defGetBoolean(defel);
+			updateMerges = true;
+		}
+		else if (strcmp(defel->defname, "hashes") == 0)
+		{
+			canHash = defGetBoolean(defel);
+			updateHashes = true;
+		}
 
 		/*
 		 * The rest of the options that CREATE accepts cannot be changed.
@@ -452,11 +541,15 @@ AlterOperator(AlterOperatorStmt *stmt)
 		else if (strcmp(defel->defname, "leftarg") == 0 ||
 				 strcmp(defel->defname, "rightarg") == 0 ||
 				 strcmp(defel->defname, "function") == 0 ||
+<<<<<<< HEAD
 				 strcmp(defel->defname, "procedure") == 0 ||
 				 strcmp(defel->defname, "commutator") == 0 ||
 				 strcmp(defel->defname, "negator") == 0 ||
 				 strcmp(defel->defname, "hashes") == 0 ||
 				 strcmp(defel->defname, "merges") == 0)
+=======
+				 strcmp(defel->defname, "procedure") == 0)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_SYNTAX_ERROR),
@@ -471,12 +564,12 @@ AlterOperator(AlterOperatorStmt *stmt)
 	}
 
 	/* Check permissions. Must be owner. */
-	if (!pg_oper_ownercheck(oprId, GetUserId()))
+	if (!object_ownercheck(OperatorRelationId, oprId, GetUserId()))
 		aclcheck_error(ACLCHECK_NOT_OWNER, OBJECT_OPERATOR,
 					   NameStr(oprForm->oprname));
 
 	/*
-	 * Look up restriction and join estimators if specified
+	 * Look up OIDs for any parameters specified
 	 */
 	if (restrictionName)
 		restrictionOid = ValidateRestrictionEstimator(restrictionName);
@@ -487,27 +580,78 @@ AlterOperator(AlterOperatorStmt *stmt)
 	else
 		joinOid = InvalidOid;
 
-	/* Perform additional checks, like OperatorCreate does */
-	if (!(OidIsValid(oprForm->oprleft) && OidIsValid(oprForm->oprright)))
+	if (commutatorName)
 	{
-		/* If it's not a binary op, these things mustn't be set: */
-		if (OidIsValid(joinOid))
+		/* commutator has reversed arg types */
+		commutatorOid = ValidateOperatorReference(commutatorName,
+												  oprForm->oprright,
+												  oprForm->oprleft);
+
+		/*
+		 * We don't need to do anything extra for a self commutator as in
+		 * OperatorCreate, since the operator surely exists already.
+		 */
+	}
+	else
+		commutatorOid = InvalidOid;
+
+	if (negatorName)
+	{
+		negatorOid = ValidateOperatorReference(negatorName,
+											   oprForm->oprleft,
+											   oprForm->oprright);
+
+		/* Must reject self-negation */
+		if (negatorOid == oprForm->oid)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("only binary operators can have join selectivity")));
+					 errmsg("operator cannot be its own negator")));
+	}
+	else
+	{
+		negatorOid = InvalidOid;
 	}
 
-	if (oprForm->oprresult != BOOLOID)
-	{
-		if (OidIsValid(restrictionOid))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("only boolean operators can have restriction selectivity")));
-		if (OidIsValid(joinOid))
-			ereport(ERROR,
-					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-					 errmsg("only boolean operators can have join selectivity")));
-	}
+	/*
+	 * Check that we're not changing any attributes that might be depended on
+	 * by plans, while allowing no-op updates.
+	 */
+	if (OidIsValid(commutatorOid) && OidIsValid(oprForm->oprcom) &&
+		commutatorOid != oprForm->oprcom)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("operator attribute \"%s\" cannot be changed if it has already been set",
+						"commutator")));
+
+	if (OidIsValid(negatorOid) && OidIsValid(oprForm->oprnegate) &&
+		negatorOid != oprForm->oprnegate)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("operator attribute \"%s\" cannot be changed if it has already been set",
+						"negator")));
+
+	if (updateMerges && oprForm->oprcanmerge && !canMerge)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("operator attribute \"%s\" cannot be changed if it has already been set",
+						"merges")));
+
+	if (updateHashes && oprForm->oprcanhash && !canHash)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+				 errmsg("operator attribute \"%s\" cannot be changed if it has already been set",
+						"hashes")));
+
+	/* Perform additional checks, like OperatorCreate does */
+	OperatorValidateParams(oprForm->oprleft,
+						   oprForm->oprright,
+						   oprForm->oprresult,
+						   OidIsValid(commutatorOid),
+						   OidIsValid(negatorOid),
+						   OidIsValid(restrictionOid),
+						   OidIsValid(joinOid),
+						   canMerge,
+						   canHash);
 
 	/* Update the tuple */
 	for (i = 0; i < Natts_pg_operator; ++i)
@@ -519,12 +663,32 @@ AlterOperator(AlterOperatorStmt *stmt)
 	if (updateRestriction)
 	{
 		replaces[Anum_pg_operator_oprrest - 1] = true;
-		values[Anum_pg_operator_oprrest - 1] = restrictionOid;
+		values[Anum_pg_operator_oprrest - 1] = ObjectIdGetDatum(restrictionOid);
 	}
 	if (updateJoin)
 	{
 		replaces[Anum_pg_operator_oprjoin - 1] = true;
-		values[Anum_pg_operator_oprjoin - 1] = joinOid;
+		values[Anum_pg_operator_oprjoin - 1] = ObjectIdGetDatum(joinOid);
+	}
+	if (OidIsValid(commutatorOid))
+	{
+		replaces[Anum_pg_operator_oprcom - 1] = true;
+		values[Anum_pg_operator_oprcom - 1] = ObjectIdGetDatum(commutatorOid);
+	}
+	if (OidIsValid(negatorOid))
+	{
+		replaces[Anum_pg_operator_oprnegate - 1] = true;
+		values[Anum_pg_operator_oprnegate - 1] = ObjectIdGetDatum(negatorOid);
+	}
+	if (updateMerges)
+	{
+		replaces[Anum_pg_operator_oprcanmerge - 1] = true;
+		values[Anum_pg_operator_oprcanmerge - 1] = BoolGetDatum(canMerge);
+	}
+	if (updateHashes)
+	{
+		replaces[Anum_pg_operator_oprcanhash - 1] = true;
+		values[Anum_pg_operator_oprcanhash - 1] = BoolGetDatum(canHash);
 	}
 
 	tup = heap_modify_tuple(tup, RelationGetDescr(catalog),
@@ -532,11 +696,14 @@ AlterOperator(AlterOperatorStmt *stmt)
 
 	CatalogTupleUpdate(catalog, &tup->t_self, tup);
 
-	address = makeOperatorDependencies(tup, true);
+	address = makeOperatorDependencies(tup, false, true);
+
+	if (OidIsValid(commutatorOid) || OidIsValid(negatorOid))
+		OperatorUpd(oprId, commutatorOid, negatorOid, false);
 
 	InvokeObjectPostAlterHook(OperatorRelationId, oprId, 0);
 
-	heap_close(catalog, NoLock);
+	table_close(catalog, NoLock);
 
 	return address;
 }

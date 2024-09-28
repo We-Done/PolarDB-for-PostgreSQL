@@ -6,9 +6,15 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: ecpg-cs (PostgreSQL 9.3)\n"
+<<<<<<< HEAD
 "Report-Msgid-Bugs-To: pgsql-bugs@postgresql.org\n"
 "POT-Creation-Date: 2018-07-13 19:38+0000\n"
 "PO-Revision-Date: 2018-07-13 23:43+0200\n"
+=======
+"Report-Msgid-Bugs-To: pgsql-bugs@lists.postgresql.org\n"
+"POT-Creation-Date: 2020-10-31 16:09+0000\n"
+"PO-Revision-Date: 2021-09-16 09:06+0200\n"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 "Last-Translator: Tomas Vondra <tv@fuzzy.cz>\n"
 "Language-Team: Czech <info@cspug.cx>\n"
 "Language: cs\n"
@@ -16,7 +22,11 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
+<<<<<<< HEAD
 "X-Generator: Poedit 2.0.7\n"
+=======
+"X-Generator: Poedit 2.4.1\n"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #: descriptor.c:64
 #, c-format
@@ -108,11 +118,8 @@ msgstr "  -D SYMBOL      definuje SYMBOL\n"
 
 #: ecpg.c:49
 #, c-format
-msgid ""
-"  -h             parse a header file, this option includes option \"-c\"\n"
-msgstr ""
-"  -h             naparsuje hlavičkový soubor, tato volba zahrnuje volbu \"-c"
-"\"\n"
+msgid "  -h             parse a header file, this option includes option \"-c\"\n"
+msgstr "  -h             naparsuje hlavičkový soubor, tato volba zahrnuje volbu \"-c\"\n"
 
 #: ecpg.c:50
 #, c-format
@@ -127,7 +134,7 @@ msgstr "  -I ADRESÁŘ     vyhledá include soubory v ADRESÁŘi\n"
 #: ecpg.c:52
 #, c-format
 msgid "  -o OUTFILE     write result to OUTFILE\n"
-msgstr "  -o SOUBOR     zapíše výsledek do SOUBORu\n"
+msgstr "  -o SOUBOR      zapíše výsledek do SOUBORu\n"
 
 #: ecpg.c:53
 #, c-format
@@ -135,7 +142,7 @@ msgid ""
 "  -r OPTION      specify run-time behavior; OPTION can be:\n"
 "                 \"no_indicator\", \"prepare\", \"questionmarks\"\n"
 msgstr ""
-"  -r VOLBA      určuje run-time chování; VOLBA může být:\n"
+"  -r VOLBA       určuje run-time chování; VOLBA může být:\n"
 "                 \"no_indicator\", \"prepare\", \"questionmarks\"\n"
 
 #: ecpg.c:55
@@ -151,7 +158,11 @@ msgstr "  -t             zapne autocommit transakcí\n"
 #: ecpg.c:57
 #, c-format
 msgid "  -V, --version  output version information, then exit\n"
+<<<<<<< HEAD
 msgstr "  -V, --version      vypíše informaci o verzi, poté skončí\n"
+=======
+msgstr "  -V, --version  vypíše informaci o verzi, poté skončí\n"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #: ecpg.c:58
 #, c-format
@@ -174,47 +185,84 @@ msgstr ""
 #, c-format
 msgid ""
 "\n"
-"Report bugs to <pgsql-bugs@postgresql.org>.\n"
+"Report bugs to <%s>.\n"
 msgstr ""
 "\n"
-"Chyby hlaste na adresu <pgsql-bugs@postgresql.org>.\n"
+"Chyby hlašte na <%s>.\n"
 
+<<<<<<< HEAD
 #: ecpg.c:139
+=======
+#: ecpg.c:62
+#, c-format
+msgid "%s home page: <%s>\n"
+msgstr "%s domácí stránka: <%s>\n"
+
+#: ecpg.c:140
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: could not locate my own executable path\n"
 msgstr "%s: nelze nalézt cestu k vlastnímu spustitelnému souboru\n"
 
+<<<<<<< HEAD
 #: ecpg.c:174 ecpg.c:331 ecpg.c:342
+=======
+#: ecpg.c:175 ecpg.c:332 ecpg.c:343
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: could not open file \"%s\": %s\n"
 msgstr "%s: nelze otevřít soubor \"%s\": %s\n"
 
+<<<<<<< HEAD
 #: ecpg.c:217 ecpg.c:230 ecpg.c:246 ecpg.c:272
+=======
+#: ecpg.c:218 ecpg.c:231 ecpg.c:247 ecpg.c:273
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Try \"%s --help\" for more information.\n"
 msgstr "Zkuste \"%s --help\" pro více informací.\n"
 
+<<<<<<< HEAD
 #: ecpg.c:241
+=======
+#: ecpg.c:242
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: parser debug support (-d) not available\n"
 msgstr "%s: podpora pro ladicí informace parseru (-d) není dostupná\n"
 
+<<<<<<< HEAD
 #: ecpg.c:260
+=======
+#: ecpg.c:261
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s, the PostgreSQL embedded C preprocessor, version %s\n"
 msgstr "%s, PostgreSQL embedded C preprocessor, verze %s\n"
 
+<<<<<<< HEAD
 #: ecpg.c:262
+=======
+#: ecpg.c:263
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "EXEC SQL INCLUDE ... search starts here:\n"
 msgstr "EXEC SQL INCLUDE ... hledání začíná zde:\n"
 
+<<<<<<< HEAD
 #: ecpg.c:265
+=======
+#: ecpg.c:266
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "end of search list\n"
 msgstr "konec vyhledávacího seznamu\n"
 
+<<<<<<< HEAD
 #: ecpg.c:271
+=======
+#: ecpg.c:272
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: no input files specified\n"
 msgstr "%s: nebyl zadán žádný vstupní soubor\n"
@@ -224,56 +272,108 @@ msgstr "%s: nebyl zadán žádný vstupní soubor\n"
 msgid "cursor \"%s\" has been declared but not opened"
 msgstr "kurzor \"%s\" byl deklarován ale nebyl otevřen"
 
+<<<<<<< HEAD
 #: ecpg.c:478 preproc.y:127
+=======
+#: ecpg.c:479 preproc.y:128
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "could not remove output file \"%s\"\n"
 msgstr "nelze odstranit výstupní soubor \"%s\"\n"
 
+<<<<<<< HEAD
 #: pgc.l:435
+=======
+#: pgc.l:502
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unterminated /* comment"
 msgstr "neukončený /* komentář"
 
+<<<<<<< HEAD
 #: pgc.l:448
 #, c-format
 msgid "invalid bit string literal"
 msgstr "neplatný bit string literál"
 
 #: pgc.l:457
+=======
+#: pgc.l:519
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unterminated bit string literal"
 msgstr "neukončený literál - bitový řetězec"
 
+<<<<<<< HEAD
 #: pgc.l:473
+=======
+#: pgc.l:527
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unterminated hexadecimal string literal"
 msgstr "neukončený literál - hexadecimální řetězec"
 
+<<<<<<< HEAD
 #: pgc.l:551
+=======
+#: pgc.l:602
+#, c-format
+msgid "invalid bit string literal"
+msgstr "neplatný bit string literál"
+
+#: pgc.l:623
+#, c-format
+msgid "unhandled previous state in xqs\n"
+msgstr "neošetřený předchozí stav v xqs\n"
+
+#: pgc.l:652 pgc.l:754
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unterminated quoted string"
 msgstr "neukončený řetězec v uvozovkách"
 
+<<<<<<< HEAD
 #: pgc.l:609 pgc.l:622
+=======
+#: pgc.l:703
+#, c-format
+msgid "unterminated dollar-quoted string"
+msgstr "neukončený dollar-quoted řetězec"
+
+#: pgc.l:721 pgc.l:734
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "zero-length delimited identifier"
 msgstr "ohraničený (delimited) identifikátor s nulovou délkou"
 
+<<<<<<< HEAD
 #: pgc.l:630
+=======
+#: pgc.l:745
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unterminated quoted identifier"
 msgstr "neukončený identifikátor v uvozovkách"
 
+<<<<<<< HEAD
 #: pgc.l:880
+=======
+#: pgc.l:1076
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "nested /* ... */ comments"
 msgstr "vnořené /* ... */ komentáře"
 
+<<<<<<< HEAD
 #: pgc.l:973
+=======
+#: pgc.l:1169
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "missing identifier in EXEC SQL UNDEF command"
 msgstr "chybějící identifikátor v příkazu EXEC SQL UNDEF"
 
+<<<<<<< HEAD
 #: pgc.l:1019 pgc.l:1033
 #, c-format
 msgid "missing matching \"EXEC SQL IFDEF\" / \"EXEC SQL IFNDEF\""
@@ -295,41 +395,83 @@ msgid "unmatched EXEC SQL ENDIF"
 msgstr "neodpovídající EXEC SQL ENDIF"
 
 #: pgc.l:1126
+=======
+#: pgc.l:1187 pgc.l:1200 pgc.l:1216 pgc.l:1229
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "too many nested EXEC SQL IFDEF conditions"
 msgstr "příliš mnoho zanořených EXEC SQL IFDEF podmínek"
 
+<<<<<<< HEAD
 #: pgc.l:1159
+=======
+#: pgc.l:1245 pgc.l:1256 pgc.l:1271 pgc.l:1293
+#, c-format
+msgid "missing matching \"EXEC SQL IFDEF\" / \"EXEC SQL IFNDEF\""
+msgstr "chybějící odpovídající \"EXEC SQL IFDEF\" / \"EXEC SQL IFNDEF\""
+
+#: pgc.l:1247 pgc.l:1258 pgc.l:1439
+#, c-format
+msgid "missing \"EXEC SQL ENDIF;\""
+msgstr "chybějící \"EXEC SQL ENDIF;\""
+
+#: pgc.l:1273 pgc.l:1295
+#, c-format
+msgid "more than one EXEC SQL ELSE"
+msgstr "více než jedna větev EXEC SQL ELSE"
+
+#: pgc.l:1318 pgc.l:1332
+#, c-format
+msgid "unmatched EXEC SQL ENDIF"
+msgstr "neodpovídající EXEC SQL ENDIF"
+
+#: pgc.l:1387
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "missing identifier in EXEC SQL IFDEF command"
 msgstr "chybějící identifikátor v příkazu EXEC SQL IFDEF"
 
+<<<<<<< HEAD
 #: pgc.l:1168
+=======
+#: pgc.l:1396
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "missing identifier in EXEC SQL DEFINE command"
 msgstr "chybějící identifikátor v příkazu EXEC SQL DEFINE"
 
+<<<<<<< HEAD
 #: pgc.l:1201
+=======
+#: pgc.l:1429
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "syntax error in EXEC SQL INCLUDE command"
 msgstr "syntaktická chyba v příkazu EXEC SQL INCLUDE"
 
+<<<<<<< HEAD
 #: pgc.l:1250
+=======
+#: pgc.l:1479
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid ""
-"internal error: unreachable state; please report this to <pgsql-"
-"bugs@postgresql.org>"
-msgstr ""
-"interní chyba: nedosažitelný stav; oznamte toto prosím na <pgsql-"
-"bugs@postgresql.org>"
+msgid "internal error: unreachable state; please report this to <%s>"
+msgstr "interní chyba: nedosažitelný stav; oznamte toto prosím na <%s>"
 
+<<<<<<< HEAD
 #: pgc.l:1379
+=======
+#: pgc.l:1631
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Error: include path \"%s/%s\" is too long on line %d, skipping\n"
-msgstr ""
-"Chyba: include path \"%s/%s\" na řádku %d je příliš dlouhá, přeskakuji\n"
+msgstr "Chyba: include path \"%s/%s\" na řádku %d je příliš dlouhá, přeskakuji\n"
 
+<<<<<<< HEAD
 #: pgc.l:1402
+=======
+#: pgc.l:1654
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "could not open include file \"%s\" on line %d"
 msgstr "nelze otevřít soubor \"%s\" na řádku %d"
@@ -338,7 +480,7 @@ msgstr "nelze otevřít soubor \"%s\" na řádku %d"
 msgid "syntax error"
 msgstr "syntaktická chyba"
 
-#: preproc.y:81
+#: preproc.y:82
 #, c-format
 msgid "WARNING: "
 msgstr "VAROVÁNÍ: "
@@ -348,204 +490,358 @@ msgstr "VAROVÁNÍ: "
 msgid "ERROR: "
 msgstr "CHYBA: "
 
+<<<<<<< HEAD
 #: preproc.y:508
+=======
+#: preproc.y:512
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "cursor \"%s\" does not exist"
 msgstr "kurzor \"%s\" neexistuje"
 
+<<<<<<< HEAD
 #: preproc.y:537
+=======
+#: preproc.y:541
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "initializer not allowed in type definition"
 msgstr "inicializátor (initializer) není v definici typu povolen"
 
+<<<<<<< HEAD
 #: preproc.y:539
+=======
+#: preproc.y:543
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "type name \"string\" is reserved in Informix mode"
 msgstr "název typu \"string\" je vyhrazen pro mód Informix"
 
+<<<<<<< HEAD
 #: preproc.y:546 preproc.y:15731
+=======
+#: preproc.y:550 preproc.y:15960
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "type \"%s\" is already defined"
 msgstr "typ \"%s\" je již definován"
 
+<<<<<<< HEAD
 #: preproc.y:570 preproc.y:16389 preproc.y:16714 variable.c:620
+=======
+#: preproc.y:575 preproc.y:16603 preproc.y:16928 variable.c:621
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "multidimensional arrays for simple data types are not supported"
 msgstr "vícerozměrná pole pro jednoduché datové typy nejsou podporována"
 
+<<<<<<< HEAD
 #: preproc.y:1693
+=======
+#: preproc.y:1704
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "AT option not allowed in CLOSE DATABASE statement"
 msgstr "AT volba není v příkazu CLOSE DATABASE povolena"
 
+<<<<<<< HEAD
 #: preproc.y:1902
+=======
+#: preproc.y:1952
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "AT option not allowed in CONNECT statement"
 msgstr "AT volba není v příkazu CONNECT povolena"
 
+<<<<<<< HEAD
 #: preproc.y:1936
+=======
+#: preproc.y:1986
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "AT option not allowed in DISCONNECT statement"
 msgstr "AT volba není v příkazu DISCONNECT povolena"
 
+<<<<<<< HEAD
 #: preproc.y:1991
+=======
+#: preproc.y:2041
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "AT option not allowed in SET CONNECTION statement"
 msgstr "AT volba není v příkazu SET CONNECTION povolena"
 
+<<<<<<< HEAD
 #: preproc.y:2013
+=======
+#: preproc.y:2063
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "AT option not allowed in TYPE statement"
 msgstr "AT volba není v příkazu TYPE povolena"
 
+<<<<<<< HEAD
 #: preproc.y:2022
+=======
+#: preproc.y:2072
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "AT option not allowed in VAR statement"
 msgstr "AT volba není v příkazu VAR povolena"
 
+<<<<<<< HEAD
 #: preproc.y:2029
+=======
+#: preproc.y:2079
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "AT option not allowed in WHENEVER statement"
 msgstr "AT volba není v příkazu WHENEVER povolena"
 
+<<<<<<< HEAD
 #: preproc.y:2106 preproc.y:2278 preproc.y:2283 preproc.y:2399 preproc.y:4044
 #: preproc.y:5602 preproc.y:5611 preproc.y:5911 preproc.y:7510 preproc.y:9003
 #: preproc.y:9008 preproc.y:11799
+=======
+#: preproc.y:2156 preproc.y:2328 preproc.y:2333 preproc.y:2456 preproc.y:4034
+#: preproc.y:4682 preproc.y:5624 preproc.y:5924 preproc.y:7542 preproc.y:9081
+#: preproc.y:9086 preproc.y:11921
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unsupported feature will be passed to server"
 msgstr "nepodporovaná vlastnost bude předána serveru"
 
+<<<<<<< HEAD
 #: preproc.y:2657
+=======
+#: preproc.y:2714
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "SHOW ALL is not implemented"
 msgstr "příkaz SHOW ALL není implementován"
 
+<<<<<<< HEAD
 #: preproc.y:3385
+=======
+#: preproc.y:3382
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "COPY FROM STDIN is not implemented"
 msgstr "příkaz COPY FROM STDIN není implementován"
 
+<<<<<<< HEAD
 #: preproc.y:9956 preproc.y:15320
+=======
+#: preproc.y:10060 preproc.y:15545
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "using variable \"%s\" in different declare statements is not supported"
 msgstr "použití proměnné \"%s\" v dalších deklaracích není podporováno"
 
+<<<<<<< HEAD
 #: preproc.y:9958 preproc.y:15322
+=======
+#: preproc.y:10062 preproc.y:15547
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "cursor \"%s\" is already defined"
 msgstr "kurzor \"%s\" je již definován"
 
+<<<<<<< HEAD
 #: preproc.y:10388
+=======
+#: preproc.y:10502
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "no longer supported LIMIT #,# syntax passed to server"
 msgstr "již neopdporovaná syntaxe LIMIT #,# předána serveru"
 
+<<<<<<< HEAD
 #: preproc.y:10713 preproc.y:10720
+=======
+#: preproc.y:10835 preproc.y:10842
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "subquery in FROM must have an alias"
 msgstr "poddotaz ve FROM musí mít alias"
 
+<<<<<<< HEAD
 #: preproc.y:15050
+=======
+#: preproc.y:15268 preproc.y:15275
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "CREATE TABLE AS cannot specify INTO"
 msgstr "CREATE TABLE AS nemůže specifikovat INTO"
 
+<<<<<<< HEAD
 #: preproc.y:15086
+=======
+#: preproc.y:15311
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "expected \"@\", found \"%s\""
 msgstr "očekáváno \"@\", nalezeno \"%s\""
 
+<<<<<<< HEAD
 #: preproc.y:15098
+=======
+#: preproc.y:15323
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid ""
-"only protocols \"tcp\" and \"unix\" and database type \"postgresql\" are "
-"supported"
-msgstr ""
-"podporovány jsou pouze protokoly \"tcp\" a \"unix\" a typ databáze "
-"\"postgresql\""
+msgid "only protocols \"tcp\" and \"unix\" and database type \"postgresql\" are supported"
+msgstr "podporovány jsou pouze protokoly \"tcp\" a \"unix\" a typ databáze \"postgresql\""
 
+<<<<<<< HEAD
 #: preproc.y:15101
+=======
+#: preproc.y:15326
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "expected \"://\", found \"%s\""
 msgstr "očekáváno \"://\", nalezeno \"%s\""
 
+<<<<<<< HEAD
 #: preproc.y:15106
+=======
+#: preproc.y:15331
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Unix-domain sockets only work on \"localhost\" but not on \"%s\""
 msgstr "Unixové sockety fungují pouze na \"localhost\" ale ne na \"%s\""
 
+<<<<<<< HEAD
 #: preproc.y:15132
+=======
+#: preproc.y:15357
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "expected \"postgresql\", found \"%s\""
 msgstr "očekáváno \"postgresql\", nalezeno \"%s\""
 
+<<<<<<< HEAD
 #: preproc.y:15135
+=======
+#: preproc.y:15360
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "invalid connection type: %s"
 msgstr "chybný typ spojení: %s"
 
+<<<<<<< HEAD
 #: preproc.y:15144
+=======
+#: preproc.y:15369
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "expected \"@\" or \"://\", found \"%s\""
 msgstr "očekáváno \"@\" nebo \"://\", nalezeno \"%s\""
 
+<<<<<<< HEAD
 #: preproc.y:15219 preproc.y:15237
+=======
+#: preproc.y:15444 preproc.y:15462
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "invalid data type"
 msgstr "chybný datový typ"
 
+<<<<<<< HEAD
 #: preproc.y:15248 preproc.y:15265
+=======
+#: preproc.y:15473 preproc.y:15490
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "incomplete statement"
 msgstr "neúplný příkaz"
 
+<<<<<<< HEAD
 #: preproc.y:15251 preproc.y:15268
+=======
+#: preproc.y:15476 preproc.y:15493
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unrecognized token \"%s\""
 msgstr "nerozpoznaný token \"%s\""
 
+<<<<<<< HEAD
 #: preproc.y:15542
+=======
+#: preproc.y:15763
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "only data types numeric and decimal have precision/scale argument"
 msgstr "pouze datové typy numeric a decimal mají argumenty přesnost/velikost"
 
+<<<<<<< HEAD
 #: preproc.y:15554
+=======
+#: preproc.y:15775
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "interval specification not allowed here"
 msgstr "specifikace intervalu zde není povolena"
 
+<<<<<<< HEAD
 #: preproc.y:15706 preproc.y:15758
+=======
+#: preproc.y:15935 preproc.y:15987
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "too many levels in nested structure/union definition"
 msgstr "příliš mnoho úrovní v definici vnořené struktury/union"
 
+<<<<<<< HEAD
 #: preproc.y:15897
+=======
+#: preproc.y:16110
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "pointers to varchar are not implemented"
 msgstr "ukazatele na varchar nejsou implementovány"
 
+<<<<<<< HEAD
 #: preproc.y:16084 preproc.y:16109
+=======
+#: preproc.y:16297 preproc.y:16322
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "using unsupported DESCRIBE statement"
 msgstr "použití nepodporovaného příkazu DESCRIBE"
 
+<<<<<<< HEAD
 #: preproc.y:16356
+=======
+#: preproc.y:16569
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "initializer not allowed in EXEC SQL VAR command"
 msgstr "inicializátor není v příkazu EXEC SQL VAR podporován"
 
+<<<<<<< HEAD
 #: preproc.y:16672
+=======
+#: preproc.y:16886
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "arrays of indicators are not allowed on input"
 msgstr "pole identifikátorů nejsou na vstupu povolena"
 
+<<<<<<< HEAD
 #: preproc.y:16893
+=======
+#: preproc.y:17073
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "operator not allowed in variable definition"
 msgstr "operátor není povolen v definici proměnné"
 
 #. translator: %s is typically the translation of "syntax error"
+<<<<<<< HEAD
 #: preproc.y:16934
+=======
+#: preproc.y:17114
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s at or near \"%s\""
 msgstr "%s na nebo blízko \"%s\""
@@ -555,64 +851,86 @@ msgstr "%s na nebo blízko \"%s\""
 msgid "out of memory"
 msgstr "paměť vyčerpána"
 
+<<<<<<< HEAD
 #: type.c:212 type.c:676
+=======
+#: type.c:214 type.c:685
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unrecognized variable type code %d"
 msgstr "nerozpoznaný kód typu proměnné %d"
 
-#: type.c:261
+#: type.c:263
 #, c-format
 msgid "variable \"%s\" is hidden by a local variable of a different type"
 msgstr "proměnná \"%s\" je překryta lokální proměnnou s jiným datovým typem"
 
-#: type.c:263
+#: type.c:265
 #, c-format
 msgid "variable \"%s\" is hidden by a local variable"
 msgstr "proměnná \"%s\" je překryta lokální proměnnou"
 
-#: type.c:275
-#, c-format
-msgid ""
-"indicator variable \"%s\" is hidden by a local variable of a different type"
-msgstr ""
-"indicator variable \"%s\" je překryta lokální proměnnou s jiným datovým typem"
-
 #: type.c:277
+#, c-format
+msgid "indicator variable \"%s\" is hidden by a local variable of a different type"
+msgstr "indicator variable \"%s\" je překryta lokální proměnnou s jiným datovým typem"
+
+#: type.c:279
 #, c-format
 msgid "indicator variable \"%s\" is hidden by a local variable"
 msgstr "indicator variable \"%s\" je překryta lokální proměnnou"
 
-#: type.c:285
+#: type.c:287
 #, c-format
 msgid "indicator for array/pointer has to be array/pointer"
 msgstr "indicator variable pro pole/ukaztel musí být pole/ukazatel"
 
-#: type.c:289
+#: type.c:291
 #, c-format
 msgid "nested arrays are not supported (except strings)"
 msgstr "vnořená pole nejsou podporována (kromě řetězců)"
 
+<<<<<<< HEAD
 #: type.c:331
+=======
+#: type.c:333
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "indicator for struct has to be a struct"
 msgstr "indikátor pro strukturu musí být struktura"
 
+<<<<<<< HEAD
 #: type.c:351 type.c:372 type.c:392
+=======
+#: type.c:353 type.c:374 type.c:394
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "indicator for simple data type has to be simple"
 msgstr "indikátor pro jednoduché datové typy musí být jednoduchý"
 
+<<<<<<< HEAD
 #: type.c:616
+=======
+#: type.c:625
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "indicator struct \"%s\" has too few members"
 msgstr "indikátor pro strukturu \"%s\" má příliš málo položek"
 
+<<<<<<< HEAD
 #: type.c:624
+=======
+#: type.c:633
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "indicator struct \"%s\" has too many members"
 msgstr "indikátor pro strukturu \"%s\" má příliš mnoho položek"
 
+<<<<<<< HEAD
 #: type.c:735
+=======
+#: type.c:744
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unrecognized descriptor item code %d"
 msgstr "nerozpoznaný kód deskriptoru položky %d"
@@ -664,19 +982,11 @@ msgstr "vícerozměrná pole nejsou podporována"
 
 #: variable.c:534
 #, c-format
-msgid ""
-"multilevel pointers (more than 2 levels) are not supported; found %d level"
-msgid_plural ""
-"multilevel pointers (more than 2 levels) are not supported; found %d levels"
-msgstr[0] ""
-"víceúrovňové ukazatele (více než 2 úrovně) nejsou podporovány; nalezena %d "
-"úroveň"
-msgstr[1] ""
-"víceúrovňové ukazatele (více než 2 úrovně) nejsou podporovány; nalezeny %d "
-"úrovně"
-msgstr[2] ""
-"víceúrovňové ukazatele (více než 2 úrovně) nejsou podporovány; nalezeny %d "
-"úrovně"
+msgid "multilevel pointers (more than 2 levels) are not supported; found %d level"
+msgid_plural "multilevel pointers (more than 2 levels) are not supported; found %d levels"
+msgstr[0] "víceúrovňové ukazatele (více než 2 úrovně) nejsou podporovány; nalezena %d úroveň"
+msgstr[1] "víceúrovňové ukazatele (více než 2 úrovně) nejsou podporovány; nalezeny %d úrovně"
+msgstr[2] "víceúrovňové ukazatele (více než 2 úrovně) nejsou podporovány; nalezeny %d úrovně"
 
 #: variable.c:539
 #, c-format
@@ -693,3 +1003,13 @@ msgstr "vícerozměrná pole pro struktury nejsou podporována"
 
 #~ msgid "COPY FROM STDOUT is not possible"
 #~ msgstr "příkaz COPY FROM STDOUT nelze použít"
+<<<<<<< HEAD
+=======
+
+#~ msgid ""
+#~ "\n"
+#~ "Report bugs to <pgsql-bugs@lists.postgresql.org>.\n"
+#~ msgstr ""
+#~ "\n"
+#~ "Chyby hlaste na adresu <pgsql-bugs@postgresql.org>.\n"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

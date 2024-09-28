@@ -4,7 +4,7 @@
  *	  WAL replay logic for inverted index.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -42,6 +42,7 @@ ginRedoClearIncompleteSplit(XLogReaderState *record, uint8 block_id)
 }
 
 static void
+<<<<<<< HEAD
 ginRedoCreateIndex(XLogReaderState *record)
 {
 	XLogRecPtr	lsn = record->EndRecPtr;
@@ -74,6 +75,8 @@ ginRedoCreateIndex(XLogReaderState *record)
 }
 
 static void
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 ginRedoCreatePTree(XLogReaderState *record)
 {
 	XLogRecPtr	lsn = record->EndRecPtr;
@@ -129,13 +132,13 @@ ginRedoInsertEntry(Buffer buffer, bool isLeaf, BlockNumber rightblkno, void *rda
 
 	if (PageAddItem(page, (Item) itup, IndexTupleSize(itup), offset, false, false) == InvalidOffsetNumber)
 	{
-		RelFileNode node;
+		RelFileLocator locator;
 		ForkNumber	forknum;
 		BlockNumber blknum;
 
-		BufferGetTag(buffer, &node, &forknum, &blknum);
+		BufferGetTag(buffer, &locator, &forknum, &blknum);
 		elog(ERROR, "failed to add item to index page in %u/%u/%u",
-			 node.spcNode, node.dbNode, node.relNode);
+			 locator.spcOid, locator.dbOid, locator.relNumber);
 	}
 }
 
@@ -147,7 +150,11 @@ ginRedoInsertEntry(Buffer buffer, bool isLeaf, BlockNumber rightblkno, void *rda
  * versions of segments.  Thanks to that we don't bother about moving page data
  * in-place.
  */
+<<<<<<< HEAD
 void
+=======
+static void
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 ginRedoRecompress(Page page, ginxlogRecompressDataLeaf *data)
 {
 	int			actionno;
@@ -239,8 +246,13 @@ ginRedoRecompress(Page page, ginxlogRecompressDataLeaf *data)
 		while (segno < a_segno)
 		{
 			/*
+<<<<<<< HEAD
 			 * Once modification is started and page tail is copied, we've
 			 * to copy unmodified segments.
+=======
+			 * Once modification is started and page tail is copied, we've to
+			 * copy unmodified segments.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 			 */
 			segsize = SizeOfGinPostingList(oldseg);
 			if (tailCopy)
@@ -291,12 +303,21 @@ ginRedoRecompress(Page page, ginxlogRecompressDataLeaf *data)
 		}
 
 		/*
+<<<<<<< HEAD
 		 * We're about to start modification of the page.  So, copy tail of the
 		 * page if it's not done already.
 		 */
 		if (!tailCopy && segptr != segmentend)
 		{
 			int tailSize = segmentend - segptr;
+=======
+		 * We're about to start modification of the page.  So, copy tail of
+		 * the page if it's not done already.
+		 */
+		if (!tailCopy && segptr != segmentend)
+		{
+			int			tailSize = segmentend - segptr;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 			tailCopy = (Pointer) palloc(tailSize);
 			memcpy(tailCopy, segptr, tailSize);
@@ -338,7 +359,11 @@ ginRedoRecompress(Page page, ginxlogRecompressDataLeaf *data)
 	segptr = (Pointer) oldseg;
 	if (segptr != segmentend && tailCopy)
 	{
+<<<<<<< HEAD
 		int restSize = segmentend - segptr;
+=======
+		int			restSize = segmentend - segptr;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 		Assert(writePtr + restSize <= PageGetSpecialPointer(page));
 		memcpy(writePtr, segptr, restSize);
@@ -533,7 +558,10 @@ ginRedoDeletePage(XLogReaderState *record)
 		GinPageGetOpaque(page)->rightlink = data->rightLink;
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(lbuffer);
+<<<<<<< HEAD
 		polar_redo_set_buffer_oldest_lsn(lbuffer, record->ReadRecPtr);
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
 	if (XLogReadBufferForRedo(record, 0, &dbuffer) == BLK_NEEDS_REDO)
@@ -541,6 +569,7 @@ ginRedoDeletePage(XLogReaderState *record)
 		page = BufferGetPage(dbuffer);
 		Assert(GinPageIsData(page));
 		GinPageSetDeleted(page);
+<<<<<<< HEAD
 
 		/*
 		 * deleteXid field of ginxlogDeletePage was added during backpatching.
@@ -559,6 +588,9 @@ ginRedoDeletePage(XLogReaderState *record)
 		if (XLogRecGetDataLen(record) == sizeof(ginxlogDeletePage))
 			GinPageSetDeleteXid(page, data->deleteXid);
 
+=======
+		GinPageSetDeleteXid(page, data->deleteXid);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(dbuffer);
 		polar_redo_set_buffer_oldest_lsn(dbuffer, record->ReadRecPtr);
@@ -572,7 +604,10 @@ ginRedoDeletePage(XLogReaderState *record)
 		GinPageDeletePostingItem(page, data->parentOffset);
 		PageSetLSN(page, lsn);
 		MarkBufferDirty(pbuffer);
+<<<<<<< HEAD
 		polar_redo_set_buffer_oldest_lsn(pbuffer, record->ReadRecPtr);
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
 	if (BufferIsValid(lbuffer))
@@ -802,9 +837,6 @@ gin_redo(XLogReaderState *record)
 	oldCtx = MemoryContextSwitchTo(opCtx);
 	switch (info)
 	{
-		case XLOG_GIN_CREATE_INDEX:
-			ginRedoCreateIndex(record);
-			break;
 		case XLOG_GIN_CREATE_PTREE:
 			ginRedoCreatePTree(record);
 			break;

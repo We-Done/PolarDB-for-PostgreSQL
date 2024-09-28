@@ -3,7 +3,7 @@
  * walsender.h
  *	  Exports from replication/walsender.c.
  *
- * Portions Copyright (c) 2010-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2010-2024, PostgreSQL Global Development Group
  *
  * src/include/replication/walsender.h
  *
@@ -12,9 +12,7 @@
 #ifndef _WALSENDER_H
 #define _WALSENDER_H
 
-#include <signal.h>
-
-#include "fmgr.h"
+#include "access/xlogdefs.h"
 
 /* POLAR */
 #include "access/xlogdefs.h"
@@ -33,7 +31,7 @@ typedef enum
 {
 	CRS_EXPORT_SNAPSHOT,
 	CRS_NOEXPORT_SNAPSHOT,
-	CRS_USE_SNAPSHOT
+	CRS_USE_SNAPSHOT,
 } CRSSnapshotAction;
 
 /* POLAR: customized replication mode */
@@ -49,15 +47,15 @@ typedef enum polar_repl_mode_t
 /* POLAR end */
 
 /* global state */
-extern bool am_walsender;
-extern bool am_cascading_walsender;
-extern bool am_db_walsender;
-extern bool wake_wal_senders;
+extern PGDLLIMPORT bool am_walsender;
+extern PGDLLIMPORT bool am_cascading_walsender;
+extern PGDLLIMPORT bool am_db_walsender;
+extern PGDLLIMPORT bool wake_wal_senders;
 
 /* user-settable parameters */
-extern int	max_wal_senders;
-extern int	wal_sender_timeout;
-extern bool log_replication_commands;
+extern PGDLLIMPORT int max_wal_senders;
+extern PGDLLIMPORT int wal_sender_timeout;
+extern PGDLLIMPORT bool log_replication_commands;
 
 /* POLAR */
 extern int polar_wal_snd_reserved_for_superuser;
@@ -73,12 +71,15 @@ extern bool polar_dma_consistent_replication;
 /* POLAR: end */
 
 extern void InitWalSender(void);
-extern bool exec_replication_command(const char *query_string);
+extern bool exec_replication_command(const char *cmd_string);
 extern void WalSndErrorCleanup(void);
+extern void WalSndResourceCleanup(bool isCommit);
+extern void PhysicalWakeupLogicalWalSnd(void);
+extern XLogRecPtr GetStandbyFlushRecPtr(TimeLineID *tli);
 extern void WalSndSignals(void);
 extern Size WalSndShmemSize(void);
 extern void WalSndShmemInit(void);
-extern void WalSndWakeup(void);
+extern void WalSndWakeup(bool physical, bool logical);
 extern void WalSndInitStopping(void);
 extern void WalSndWaitStopping(void);
 extern void HandleWalSndInitStopping(void);
@@ -106,15 +107,15 @@ extern void polar_clear_walsender_promote(void);
 /*
  * wakeup walsenders if there is work to be done
  */
-#define WalSndWakeupProcessRequests()		\
-	do										\
-	{										\
-		if (wake_wal_senders)				\
-		{									\
-			wake_wal_senders = false;		\
-			if (max_wal_senders > 0)		\
-				WalSndWakeup();				\
-		}									\
-	} while (0)
+static inline void
+WalSndWakeupProcessRequests(bool physical, bool logical)
+{
+	if (wake_wal_senders)
+	{
+		wake_wal_senders = false;
+		if (max_wal_senders > 0)
+			WalSndWakeup(physical, logical);
+	}
+}
 
 #endif							/* _WALSENDER_H */

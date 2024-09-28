@@ -6,10 +6,14 @@
  * On platforms compliant with modern POSIX, this just wraps strsignal(3).
  * Elsewhere, we do the best we can.
  *
+<<<<<<< HEAD
  * This file is not currently built in MSVC builds, since it's useless
  * on non-Unix platforms.
  *
  * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+=======
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION

@@ -22,14 +22,15 @@ PostgreSQL documentation
  <refsynopsisdiv>
 <synopsis>
 CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXISTS ] <replaceable class="parameter">table_name</replaceable> ( [
-  { <replaceable class="parameter">column_name</replaceable> <replaceable class="parameter">data_type</replaceable> [ COLLATE <replaceable>collation</replaceable> ] [ <replaceable class="parameter">column_constraint</replaceable> [ ... ] ]
+  { <replaceable class="parameter">column_name</replaceable> <replaceable class="parameter">data_type</replaceable> [ STORAGE { PLAIN | EXTERNAL | EXTENDED | MAIN | DEFAULT } ] [ COMPRESSION <replaceable>compression_method</replaceable> ] [ COLLATE <replaceable>collation</replaceable> ] [ <replaceable class="parameter">column_constraint</replaceable> [ ... ] ]
     | <replaceable>table_constraint</replaceable>
     | LIKE <replaceable>source_table</replaceable> [ <replaceable>like_option</replaceable> ... ] }
     [, ... ]
 ] )
 [ INHERITS ( <replaceable>parent_table</replaceable> [, ... ] ) ]
 [ PARTITION BY { RANGE | LIST | HASH } ( { <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ COLLATE <replaceable class="parameter">collation</replaceable> ] [ <replaceable class="parameter">opclass</replaceable> ] [, ... ] ) ]
-[ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
+[ USING <replaceable class="parameter">method</replaceable> ]
+[ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="parameter">tablespace_name</replaceable> ]
 
@@ -40,7 +41,8 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
     [, ... ]
 ) ]
 [ PARTITION BY { RANGE | LIST | HASH } ( { <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ COLLATE <replaceable class="parameter">collation</replaceable> ] [ <replaceable class="parameter">opclass</replaceable> ] [, ... ] ) ]
-[ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
+[ USING <replaceable class="parameter">method</replaceable> ]
+[ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="parameter">tablespace_name</replaceable> ]
 
@@ -51,7 +53,8 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
     [, ... ]
 ) ] { FOR VALUES <replaceable class="parameter">partition_bound_spec</replaceable> | DEFAULT }
 [ PARTITION BY { RANGE | LIST | HASH } ( { <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ COLLATE <replaceable class="parameter">collation</replaceable> ] [ <replaceable class="parameter">opclass</replaceable> ] [, ... ] ) ]
-[ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITH OIDS | WITHOUT OIDS ]
+[ USING <replaceable class="parameter">method</replaceable> ]
+[ WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] ) | WITHOUT OIDS ]
 [ ON COMMIT { PRESERVE ROWS | DELETE ROWS | DROP } ]
 [ TABLESPACE <replaceable class="parameter">tablespace_name</replaceable> ]
 
@@ -62,33 +65,35 @@ CREATE [ [ GLOBAL | LOCAL ] { TEMPORARY | TEMP } | UNLOGGED ] TABLE [ IF NOT EXI
   NULL |
   CHECK ( <replaceable class="parameter">expression</replaceable> ) [ NO INHERIT ] |
   DEFAULT <replaceable>default_expr</replaceable> |
+  GENERATED ALWAYS AS ( <replaceable>generation_expr</replaceable> ) STORED |
   GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY [ ( <replaceable>sequence_options</replaceable> ) ] |
-  UNIQUE <replaceable class="parameter">index_parameters</replaceable> |
+  UNIQUE [ NULLS [ NOT ] DISTINCT ] <replaceable class="parameter">index_parameters</replaceable> |
   PRIMARY KEY <replaceable class="parameter">index_parameters</replaceable> |
   REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> ) ] [ MATCH FULL | MATCH PARTIAL | MATCH SIMPLE ]
-    [ ON DELETE <replaceable class="parameter">action</replaceable> ] [ ON UPDATE <replaceable class="parameter">action</replaceable> ] }
+    [ ON DELETE <replaceable class="parameter">referential_action</replaceable> ] [ ON UPDATE <replaceable class="parameter">referential_action</replaceable> ] }
 [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ]
 
 <phrase>and <replaceable class="parameter">table_constraint</replaceable> is:</phrase>
 
 [ CONSTRAINT <replaceable class="parameter">constraint_name</replaceable> ]
 { CHECK ( <replaceable class="parameter">expression</replaceable> ) [ NO INHERIT ] |
-  UNIQUE ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) <replaceable class="parameter">index_parameters</replaceable> |
-  PRIMARY KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) <replaceable class="parameter">index_parameters</replaceable> |
+  UNIQUE [ NULLS [ NOT ] DISTINCT ] ( <replaceable class="parameter">column_name</replaceable> [, ... ] [, <replaceable class="parameter">column_name</replaceable> WITHOUT OVERLAPS ] ) <replaceable class="parameter">index_parameters</replaceable> |
+  PRIMARY KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] [, <replaceable class="parameter">column_name</replaceable> WITHOUT OVERLAPS ] ) <replaceable class="parameter">index_parameters</replaceable> |
   EXCLUDE [ USING <replaceable class="parameter">index_method</replaceable> ] ( <replaceable class="parameter">exclude_element</replaceable> WITH <replaceable class="parameter">operator</replaceable> [, ... ] ) <replaceable class="parameter">index_parameters</replaceable> [ WHERE ( <replaceable class="parameter">predicate</replaceable> ) ] |
-  FOREIGN KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> [, ... ] ) ]
-    [ MATCH FULL | MATCH PARTIAL | MATCH SIMPLE ] [ ON DELETE <replaceable class="parameter">action</replaceable> ] [ ON UPDATE <replaceable class="parameter">action</replaceable> ] }
+  FOREIGN KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] [, PERIOD <replaceable class="parameter">column_name</replaceable> ] ) REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> [, ... ] [, PERIOD <replaceable class="parameter">column_name</replaceable> ] ) ]
+    [ MATCH FULL | MATCH PARTIAL | MATCH SIMPLE ] [ ON DELETE <replaceable
+class="parameter">referential_action</replaceable> ] [ ON UPDATE <replaceable class="parameter">referential_action</replaceable> ] }
 [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ]
 
 <phrase>and <replaceable class="parameter">like_option</replaceable> is:</phrase>
 
-{ INCLUDING | EXCLUDING } { COMMENTS | CONSTRAINTS | DEFAULTS | IDENTITY | INDEXES | STATISTICS | STORAGE | ALL }
+{ INCLUDING | EXCLUDING } { COMMENTS | COMPRESSION | CONSTRAINTS | DEFAULTS | GENERATED | IDENTITY | INDEXES | STATISTICS | STORAGE | ALL }
 
 <phrase>and <replaceable class="parameter">partition_bound_spec</replaceable> is:</phrase>
 
-IN ( { <replaceable class="parameter">numeric_literal</replaceable> | <replaceable class="parameter">string_literal</replaceable> | TRUE | FALSE | NULL } [, ...] ) |
-FROM ( { <replaceable class="parameter">numeric_literal</replaceable> | <replaceable class="parameter">string_literal</replaceable> | TRUE | FALSE | MINVALUE | MAXVALUE } [, ...] )
-  TO ( { <replaceable class="parameter">numeric_literal</replaceable> | <replaceable class="parameter">string_literal</replaceable> | TRUE | FALSE | MINVALUE | MAXVALUE } [, ...] ) |
+IN ( <replaceable class="parameter">partition_bound_expr</replaceable> [, ...] ) |
+FROM ( { <replaceable class="parameter">partition_bound_expr</replaceable> | MINVALUE | MAXVALUE } [, ...] )
+  TO ( { <replaceable class="parameter">partition_bound_expr</replaceable> | MINVALUE | MAXVALUE } [, ...] ) |
 WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REMAINDER <replaceable class="parameter">numeric_literal</replaceable> )
 
 <phrase><replaceable class="parameter">index_parameters</replaceable> in <literal>UNIQUE</literal>, <literal>PRIMARY KEY</literal>, and <literal>EXCLUDE</literal> constraints are:</phrase>
@@ -99,7 +104,11 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
 
 <phrase><replaceable class="parameter">exclude_element</replaceable> in an <literal>EXCLUDE</literal> constraint is:</phrase>
 
-{ <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ <replaceable class="parameter">opclass</replaceable> ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ]
+{ <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ COLLATE <replaceable class="parameter">collation</replaceable> ] [ <replaceable class="parameter">opclass</replaceable> [ ( <replaceable class="parameter">opclass_parameter</replaceable> = <replaceable class="parameter">value</replaceable> [, ... ] ) ] ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ]
+
+<phrase><replaceable class="parameter">referential_action</replaceable> in a <literal>FOREIGN KEY</literal>/<literal>REFERENCES</literal> constraint is:</phrase>
+
+{ NO ACTION | RESTRICT | CASCADE | SET NULL [ ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) ] | SET DEFAULT [ ( <replaceable class="parameter">column_name</replaceable> [, ... ] ) ] }
 </synopsis>
 
  </refsynopsisdiv>
@@ -119,8 +128,8 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
    schema.  Otherwise it is created in the current schema.  Temporary
    tables exist in a special schema, so a schema name cannot be given
    when creating a temporary table.  The name of the table must be
-   distinct from the name of any other table, sequence, index, view,
-   or foreign table in the same schema.
+   distinct from the name of any other relation (table, sequence, index, view,
+   materialized view, or foreign table) in the same schema.
   </para>
 
   <para>
@@ -166,8 +175,9 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       If specified, the table is created as a temporary table.
       Temporary tables are automatically dropped at the end of a
       session, or optionally at the end of the current transaction
-      (see <literal>ON COMMIT</literal> below).  Existing permanent
-      tables with the same name are not visible to the current session
+      (see <literal>ON COMMIT</literal> below).  The default
+      search_path includes the temporary schema first and so identically
+      named existing permanent tables are not chosen for new plans
       while the temporary table exists, unless they are referenced
       with schema-qualified names. Any indexes created on a temporary
       table are automatically temporary as well.
@@ -187,8 +197,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       can be written before <literal>TEMPORARY</literal> or <literal>TEMP</literal>.
       This presently makes no difference in <productname>PostgreSQL</productname>
       and is deprecated; see
-      <xref linkend="sql-createtable-compatibility"
-      endterm="sql-createtable-compatibility-title"/>.
+      <xref linkend="sql-createtable-compatibility"/> below.
      </para>
     </listitem>
    </varlistentry>
@@ -206,10 +215,15 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       Any indexes created on an unlogged table are automatically unlogged as
       well.
      </para>
+
+     <para>
+      If this is specified, any sequences created together with the unlogged
+      table (for identity or serial columns) are also created as unlogged.
+     </para>
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-if-not-exists">
     <term><literal>IF NOT EXISTS</literal></term>
     <listitem>
      <para>
@@ -221,7 +235,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-table-name">
     <term><replaceable class="parameter">table_name</replaceable></term>
     <listitem>
      <para>
@@ -230,28 +244,32 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-type-name">
     <term><literal>OF <replaceable class="parameter">type_name</replaceable></literal></term>
     <listitem>
      <para>
       Creates a <firstterm>typed table</firstterm>, which takes its
-      structure from the specified composite type (name optionally
-      schema-qualified).  A typed table is tied to its type; for
-      example the table will be dropped if the type is dropped
-      (with <literal>DROP TYPE ... CASCADE</literal>).
+      structure from the specified stand-alone composite type (that is,
+      one created using <xref linkend="sql-createtype"/>) though it still
+      produces a new composite type as well.  The table will have a
+      dependency on the referenced type, meaning that cascaded alter and
+      drop actions on that type will propagate to the table.
      </para>
 
      <para>
-      When a typed table is created, then the data types of the
-      columns are determined by the underlying composite type and are
-      not specified by the <literal>CREATE TABLE</literal> command.
+      A typed table always has the same column names and data types as the
+      type it is derived from, so you cannot specify additional columns.
       But the <literal>CREATE TABLE</literal> command can add defaults
-      and constraints to the table and can specify storage parameters.
+      and constraints to the table, as well as specify storage parameters.
      </para>
     </listitem>
    </varlistentry>
 
+<<<<<<< HEAD
    <varlistentry>
+=======
+   <varlistentry id="sql-createtable-parms-column-name">
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     <term><replaceable class="parameter">column_name</replaceable></term>
     <listitem>
      <para>
@@ -260,7 +278,11 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
+<<<<<<< HEAD
    <varlistentry>
+=======
+   <varlistentry id="sql-createtable-parms-data-type">
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     <term><replaceable class="parameter">data_type</replaceable></term>
     <listitem>
      <para>
@@ -272,7 +294,11 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
+<<<<<<< HEAD
    <varlistentry>
+=======
+   <varlistentry id="sql-createtable-parms-collate">
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     <term><literal>COLLATE <replaceable>collation</replaceable></literal></term>
     <listitem>
      <para>
@@ -283,13 +309,73 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
+<<<<<<< HEAD
    <varlistentry>
+=======
+   <varlistentry id="sql-createtable-parms-storage">
+    <term>
+     <literal>STORAGE { PLAIN | EXTERNAL | EXTENDED | MAIN | DEFAULT }</literal>
+     <indexterm>
+      <primary>TOAST</primary>
+      <secondary>per-column storage settings</secondary>
+     </indexterm>
+    </term>
+    <listitem>
+     <para>
+      This form sets the storage mode for the column. This controls whether this
+      column is held inline or in a secondary <acronym>TOAST</acronym> table,
+      and whether the data should be compressed or not. <literal>PLAIN</literal>
+      must be used for fixed-length values such as <type>integer</type> and is
+      inline, uncompressed. <literal>MAIN</literal> is for inline, compressible
+      data. <literal>EXTERNAL</literal> is for external, uncompressed data, and
+      <literal>EXTENDED</literal> is for external, compressed data.
+      Writing <literal>DEFAULT</literal> sets the storage mode to the default
+      mode for the column's data type.  <literal>EXTENDED</literal> is the
+      default for most data types that support non-<literal>PLAIN</literal>
+      storage.
+      Use of <literal>EXTERNAL</literal> will make substring operations on
+      very large <type>text</type> and <type>bytea</type> values run faster,
+      at the penalty of increased storage space.
+      See <xref linkend="storage-toast"/> for more information.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="sql-createtable-parms-compression">
+    <term><literal>COMPRESSION <replaceable class="parameter">compression_method</replaceable></literal></term>
+    <listitem>
+     <para>
+      The <literal>COMPRESSION</literal> clause sets the compression method
+      for the column.  Compression is supported only for variable-width data
+      types, and is used only when the column's storage mode
+      is <literal>main</literal> or <literal>extended</literal>.
+      (See <xref linkend="sql-altertable"/> for information on
+      column storage modes.) Setting this property for a partitioned table
+      has no direct effect, because such tables have no storage of their own,
+      but the configured value will be inherited by newly-created partitions.
+      The supported compression methods are <literal>pglz</literal> and
+      <literal>lz4</literal>.  (<literal>lz4</literal> is available only if
+      <option>--with-lz4</option> was used when building
+      <productname>PostgreSQL</productname>.)  In addition,
+      <replaceable class="parameter">compression_method</replaceable>
+      can be <literal>default</literal> to explicitly specify the default
+      behavior, which is to consult the
+      <xref linkend="guc-default-toast-compression"/> setting at the time of
+      data insertion to determine the method to use.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="sql-createtable-parms-inherits">
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     <term><literal>INHERITS ( <replaceable>parent_table</replaceable> [, ... ] )</literal></term>
     <listitem>
      <para>
       The optional <literal>INHERITS</literal> clause specifies a list of
       tables from which the new table automatically inherits all
       columns.  Parent tables can be plain tables or foreign tables.
+<<<<<<< HEAD
+=======
      </para>
 
      <para>
@@ -340,7 +426,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-partition-by">
     <term><literal>PARTITION BY { RANGE | LIST | HASH } ( { <replaceable class="parameter">column_name</replaceable> | ( <replaceable class="parameter">expression</replaceable> ) } [ <replaceable class="parameter">opclass</replaceable> ] [, ...] ) </literal></term>
     <listitem>
      <para>
@@ -377,9 +463,193 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
      <para>
       Partitioned tables do not support <literal>EXCLUDE</literal> constraints;
       however, you can define these constraints on individual partitions.
-      Also, while it's possible to define <literal>PRIMARY KEY</literal>
-      constraints on partitioned tables, creating foreign keys that
-      reference a partitioned table is not yet supported.
+     </para>
+
+     <para>
+      See <xref linkend="ddl-partitioning"/> for more discussion on table
+      partitioning.
+     </para>
+
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="sql-createtable-partition">
+    <term><literal>PARTITION OF <replaceable class="parameter">parent_table</replaceable> { FOR VALUES <replaceable class="parameter">partition_bound_spec</replaceable> | DEFAULT }</literal></term>
+    <listitem>
+     <para>
+      Creates the table as a <firstterm>partition</firstterm> of the specified
+      parent table. The table can be created either as a partition for specific
+      values using <literal>FOR VALUES</literal> or as a default partition
+      using <literal>DEFAULT</literal>.  Any indexes, constraints and
+      user-defined row-level triggers that exist in the parent table are cloned
+      on the new partition.
+     </para>
+
+     <para>
+      The <replaceable class="parameter">partition_bound_spec</replaceable>
+      must correspond to the partitioning method and partition key of the
+      parent table, and must not overlap with any existing partition of that
+      parent.  The form with <literal>IN</literal> is used for list partitioning,
+      the form with <literal>FROM</literal> and <literal>TO</literal> is used
+      for range partitioning, and the form with <literal>WITH</literal> is used
+      for hash partitioning.
+     </para>
+
+     <para>
+      <replaceable class="parameter">partition_bound_expr</replaceable> is
+      any variable-free expression (subqueries, window functions, aggregate
+      functions, and set-returning functions are not allowed).  Its data type
+      must match the data type of the corresponding partition key column.
+      The expression is evaluated once at table creation time, so it can
+      even contain volatile expressions such as
+      <literal><function>CURRENT_TIMESTAMP</function></literal>.
+     </para>
+
+     <para>
+      When creating a list partition, <literal>NULL</literal> can be
+      specified to signify that the partition allows the partition key
+      column to be null.  However, there cannot be more than one such
+      list partition for a given parent table.  <literal>NULL</literal>
+      cannot be specified for range partitions.
+     </para>
+
+     <para>
+      When creating a range partition, the lower bound specified with
+      <literal>FROM</literal> is an inclusive bound, whereas the upper
+      bound specified with <literal>TO</literal> is an exclusive bound.
+      That is, the values specified in the <literal>FROM</literal> list
+      are valid values of the corresponding partition key columns for this
+      partition, whereas those in the <literal>TO</literal> list are
+      not.  Note that this statement must be understood according to the
+      rules of row-wise comparison (<xref linkend="row-wise-comparison"/>).
+      For example, given <literal>PARTITION BY RANGE (x,y)</literal>, a partition
+      bound <literal>FROM (1, 2) TO (3, 4)</literal>
+      allows <literal>x=1</literal> with any <literal>y&gt;=2</literal>,
+      <literal>x=2</literal> with any non-null <literal>y</literal>,
+      and <literal>x=3</literal> with any <literal>y&lt;4</literal>.
+     </para>
+
+     <para>
+      The special values <literal>MINVALUE</literal> and <literal>MAXVALUE</literal>
+      may be used when creating a range partition to indicate that there
+      is no lower or upper bound on the column's value. For example, a
+      partition defined using <literal>FROM (MINVALUE) TO (10)</literal> allows
+      any values less than 10, and a partition defined using
+      <literal>FROM (10) TO (MAXVALUE)</literal> allows any values greater than
+      or equal to 10.
+     </para>
+
+     <para>
+      When creating a range partition involving more than one column, it
+      can also make sense to use <literal>MAXVALUE</literal> as part of the lower
+      bound, and <literal>MINVALUE</literal> as part of the upper bound. For
+      example, a partition defined using
+      <literal>FROM (0, MAXVALUE) TO (10, MAXVALUE)</literal> allows any rows
+      where the first partition key column is greater than 0 and less than
+      or equal to 10. Similarly, a partition defined using
+      <literal>FROM ('a', MINVALUE) TO ('b', MINVALUE)</literal> allows any rows
+      where the first partition key column starts with "a".
+     </para>
+
+     <para>
+      Note that if <literal>MINVALUE</literal> or <literal>MAXVALUE</literal> is used for
+      one column of a partitioning bound, the same value must be used for all
+      subsequent columns.  For example, <literal>(10, MINVALUE, 0)</literal> is not
+      a valid bound; you should write <literal>(10, MINVALUE, MINVALUE)</literal>.
+     </para>
+
+     <para>
+      Also note that some element types, such as <literal>timestamp</literal>,
+      have a notion of "infinity", which is just another value that can
+      be stored. This is different from <literal>MINVALUE</literal> and
+      <literal>MAXVALUE</literal>, which are not real values that can be stored,
+      but rather they are ways of saying that the value is unbounded.
+      <literal>MAXVALUE</literal> can be thought of as being greater than any
+      other value, including "infinity" and <literal>MINVALUE</literal> as being
+      less than any other value, including "minus infinity". Thus the range
+      <literal>FROM ('infinity') TO (MAXVALUE)</literal> is not an empty range; it
+      allows precisely one value to be stored &mdash; "infinity".
+     </para>
+
+     <para>
+      If <literal>DEFAULT</literal> is specified, the table will be
+      created as the default partition of the parent table.  This option
+      is not available for hash-partitioned tables.  A partition key value
+      not fitting into any other partition of the given parent will be
+      routed to the default partition.
+     </para>
+
+     <para>
+      When a table has an existing <literal>DEFAULT</literal> partition and
+      a new partition is added to it, the default partition must
+      be scanned to verify that it does not contain any rows which properly
+      belong in the new partition.  If the default partition contains a
+      large number of rows, this may be slow.  The scan will be skipped if
+      the default partition is a foreign table or if it has a constraint which
+      proves that it cannot contain rows which should be placed in the new
+      partition.
+     </para>
+
+     <para>
+      When creating a hash partition, a modulus and remainder must be specified.
+      The modulus must be a positive integer, and the remainder must be a
+      non-negative integer less than the modulus.  Typically, when initially
+      setting up a hash-partitioned table, you should choose a modulus equal to
+      the number of partitions and assign every table the same modulus and a
+      different remainder (see examples, below).   However, it is not required
+      that every partition have the same modulus, only that every modulus which
+      occurs among the partitions of a hash-partitioned table is a factor of the
+      next larger modulus.  This allows the number of partitions to be increased
+      incrementally without needing to move all the data at once.  For example,
+      suppose you have a hash-partitioned table with 8 partitions, each of which
+      has modulus 8, but find it necessary to increase the number of partitions
+      to 16.  You can detach one of the modulus-8 partitions, create two new
+      modulus-16 partitions covering the same portion of the key space (one with
+      a remainder equal to the remainder of the detached partition, and the
+      other with a remainder equal to that value plus 8), and repopulate them
+      with data.  You can then repeat this -- perhaps at a later time -- for
+      each modulus-8 partition until none remain.  While this may still involve
+      a large amount of data movement at each step, it is still better than
+      having to create a whole new table and move all the data at once.
+     </para>
+
+     <para>
+      A partition must have the same column names and types as the partitioned
+      table to which it belongs. Modifications to the column names or types of
+      a partitioned table will automatically propagate to all partitions.
+      <literal>CHECK</literal> constraints will be inherited automatically by
+      every partition, but an individual partition may specify additional
+      <literal>CHECK</literal> constraints; additional constraints with the
+      same name and condition as in the parent will be merged with the parent
+      constraint.  Defaults may be specified separately for each partition.
+      But note that a partition's default value is not applied when inserting
+      a tuple through a partitioned table.
+     </para>
+
+     <para>
+      Rows inserted into a partitioned table will be automatically routed to
+      the correct partition.  If no suitable partition exists, an error will
+      occur.
+     </para>
+
+     <para>
+      Operations such as <command>TRUNCATE</command>
+      which normally affect a table and all of its
+      inheritance children will cascade to all partitions, but may also be
+      performed on an individual partition.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+     </para>
+
+     <para>
+      Note that creating a partition using <literal>PARTITION OF</literal>
+      requires taking an <literal>ACCESS EXCLUSIVE</literal> lock on the
+      parent partitioned table.  Likewise, dropping a partition
+      with <command>DROP TABLE</command> requires taking
+      an <literal>ACCESS EXCLUSIVE</literal> lock on the parent table.
+      It is possible to use <link linkend="sql-altertable"><command>ALTER
+      TABLE ATTACH/DETACH PARTITION</command></link> to perform these
+      operations with a weaker lock, thus reducing interference with
+      concurrent operations on the partitioned table.
      </para>
 
      <para>
@@ -561,7 +831,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-like">
     <term><literal>LIKE <replaceable>source_table</replaceable> [ <replaceable>like_option</replaceable> ... ]</literal></term>
     <listitem>
      <para>
@@ -576,66 +846,145 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       possible to include data of the new table in scans of the original
       table.
      </para>
-     <para>
-      Default expressions for the copied column definitions will be copied
-      only if <literal>INCLUDING DEFAULTS</literal> is specified.  The
-      default behavior is to exclude default expressions, resulting in the
-      copied columns in the new table having null defaults.
-      Note that copying defaults that call database-modification functions,
-      such as <function>nextval</function>, may create a functional linkage between
-      the original and new tables.
-     </para>
-     <para>
-      Any identity specifications of copied column definitions will only be
-      copied if <literal>INCLUDING IDENTITY</literal> is specified.  A new
-      sequence is created for each identity column of the new table, separate
-      from the sequences associated with the old table.
-     </para>
-     <para>
-      Not-null constraints are always copied to the new table.
-      <literal>CHECK</literal> constraints will be copied only if
-      <literal>INCLUDING CONSTRAINTS</literal> is specified.
-      No distinction is made between column constraints and table
-      constraints.
-     </para>
-     <para>
-      Extended statistics are copied to the new table if
-      <literal>INCLUDING STATISTICS</literal> is specified.
-     </para>
-     <para>
-      Indexes, <literal>PRIMARY KEY</literal>, <literal>UNIQUE</literal>,
-      and <literal>EXCLUDE</literal> constraints on the original table will be
-      created on the new table only if <literal>INCLUDING INDEXES</literal>
-      is specified.  Names for the new indexes and constraints are
-      chosen according to the default rules, regardless of how the originals
-      were named.  (This behavior avoids possible duplicate-name failures for
-      the new indexes.)
-     </para>
-     <para>
-      <literal>STORAGE</literal> settings for the copied column definitions will be
-      copied only if <literal>INCLUDING STORAGE</literal> is specified.  The
-      default behavior is to exclude <literal>STORAGE</literal> settings, resulting
-      in the copied columns in the new table having type-specific default
-      settings.  For more on <literal>STORAGE</literal> settings, see
-      <xref linkend="storage-toast"/>.
-     </para>
-     <para>
-      Comments for the copied columns, constraints, and indexes
-      will be copied only if <literal>INCLUDING COMMENTS</literal>
-      is specified. The default behavior is to exclude comments, resulting in
-      the copied columns and constraints in the new table having no comments.
-     </para>
-     <para>
-      <literal>INCLUDING ALL</literal> is an abbreviated form of
-      <literal>INCLUDING COMMENTS INCLUDING CONSTRAINTS INCLUDING DEFAULTS INCLUDING IDENTITY INCLUDING INDEXES INCLUDING STATISTICS INCLUDING STORAGE</literal>.
-     </para>
-     <para>
-      Note that unlike <literal>INHERITS</literal>, columns and
+      <para>
+      Also unlike <literal>INHERITS</literal>, columns and
       constraints copied by <literal>LIKE</literal> are not merged with similarly
       named columns and constraints.
       If the same name is specified explicitly or in another
       <literal>LIKE</literal> clause, an error is signaled.
      </para>
+     <para>
+      The optional <replaceable>like_option</replaceable> clauses specify
+      which additional properties of the original table to copy.  Specifying
+      <literal>INCLUDING</literal> copies the property, specifying
+      <literal>EXCLUDING</literal> omits the property.
+      <literal>EXCLUDING</literal> is the default.  If multiple specifications
+      are made for the same kind of object, the last one is used.  The
+      available options are:
+
+      <variablelist>
+       <varlistentry id="sql-createtable-parms-like-opt-comments">
+        <term><literal>INCLUDING COMMENTS</literal></term>
+        <listitem>
+         <para>
+          Comments for the copied columns, constraints, and indexes will be
+          copied.  The default behavior is to exclude comments, resulting in
+          the copied columns and constraints in the new table having no
+          comments.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-compression">
+        <term><literal>INCLUDING COMPRESSION</literal></term>
+        <listitem>
+         <para>
+          Compression method of the columns will be copied.  The default
+          behavior is to exclude compression methods, resulting in columns
+          having the default compression method.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-constraints">
+        <term><literal>INCLUDING CONSTRAINTS</literal></term>
+        <listitem>
+         <para>
+          <literal>CHECK</literal> constraints will be copied.  No distinction
+          is made between column constraints and table constraints.  Not-null
+          constraints are always copied to the new table.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-defaults">
+        <term><literal>INCLUDING DEFAULTS</literal></term>
+        <listitem>
+         <para>
+          Default expressions for the copied column definitions will be
+          copied.  Otherwise, default expressions are not copied, resulting in
+          the copied columns in the new table having null defaults.  Note that
+          copying defaults that call database-modification functions, such as
+          <function>nextval</function>, may create a functional linkage
+          between the original and new tables.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-generated">
+        <term><literal>INCLUDING GENERATED</literal></term>
+        <listitem>
+         <para>
+          Any generation expressions of copied column definitions will be
+          copied.  By default, new columns will be regular base columns.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-identity">
+        <term><literal>INCLUDING IDENTITY</literal></term>
+        <listitem>
+         <para>
+          Any identity specifications of copied column definitions will be
+          copied.  A new sequence is created for each identity column of the
+          new table, separate from the sequences associated with the old
+          table.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-indexes">
+        <term><literal>INCLUDING INDEXES</literal></term>
+        <listitem>
+         <para>
+          Indexes, <literal>PRIMARY KEY</literal>, <literal>UNIQUE</literal>,
+          and <literal>EXCLUDE</literal> constraints on the original table
+          will be created on the new table.  Names for the new indexes and
+          constraints are chosen according to the default rules, regardless of
+          how the originals were named.  (This behavior avoids possible
+          duplicate-name failures for the new indexes.)
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-statistics">
+        <term><literal>INCLUDING STATISTICS</literal></term>
+        <listitem>
+         <para>
+          Extended statistics are copied to the new table.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-storage">
+        <term><literal>INCLUDING STORAGE</literal></term>
+        <listitem>
+         <para>
+          <literal>STORAGE</literal> settings for the copied column
+          definitions will be copied.  The default behavior is to exclude
+          <literal>STORAGE</literal> settings, resulting in the copied columns
+          in the new table having type-specific default settings.  For more on
+          <literal>STORAGE</literal> settings, see <xref
+          linkend="storage-toast"/>.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-like-opt-all">
+        <term><literal>INCLUDING ALL</literal></term>
+        <listitem>
+         <para>
+          <literal>INCLUDING ALL</literal> is an abbreviated form selecting
+          all the available individual options.  (It could be useful to write
+          individual <literal>EXCLUDING</literal> clauses after
+          <literal>INCLUDING ALL</literal> to select all but some specific
+          options.)
+         </para>
+        </listitem>
+       </varlistentry>
+      </variablelist>
+     </para>
+
      <para>
       The <literal>LIKE</literal> clause can also be used to copy column
       definitions from views, foreign tables, or composite types.
@@ -645,7 +994,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-constraint">
     <term><literal>CONSTRAINT <replaceable class="parameter">constraint_name</replaceable></literal></term>
     <listitem>
      <para>
@@ -659,7 +1008,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-not-null">
     <term><literal>NOT NULL</literal></term>
     <listitem>
      <para>
@@ -668,7 +1017,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-null">
     <term><literal>NULL</literal></term>
     <listitem>
      <para>
@@ -683,7 +1032,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-check">
     <term><literal>CHECK ( <replaceable class="parameter">expression</replaceable> ) [ NO INHERIT ] </literal></term>
     <listitem>
      <para>
@@ -721,17 +1070,17 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-default">
     <term><literal>DEFAULT
     <replaceable>default_expr</replaceable></literal></term>
     <listitem>
      <para>
       The <literal>DEFAULT</literal> clause assigns a default data value for
       the column whose column definition it appears within.  The value
-      is any variable-free expression (subqueries and cross-references
-      to other columns in the current table are not allowed).  The
-      data type of the default expression must match the data type of the
-      column.
+      is any variable-free expression (in particular, cross-references
+      to other columns in the current table are not allowed).  Subqueries
+      are not allowed either.  The data type of the default expression must
+      match the data type of the column.
      </para>
 
      <para>
@@ -742,61 +1091,127 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-generated-stored">
+    <term><literal>GENERATED ALWAYS AS ( <replaceable>generation_expr</replaceable> ) STORED</literal><indexterm><primary>generated column</primary></indexterm></term>
+    <listitem>
+     <para>
+      This clause creates the column as a <firstterm>generated
+      column</firstterm>.  The column cannot be written to, and when read the
+      result of the specified expression will be returned.
+     </para>
+
+     <para>
+      The keyword <literal>STORED</literal> is required to signify that the
+      column will be computed on write and will be stored on disk.
+     </para>
+
+     <para>
+      The generation expression can refer to other columns in the table, but
+      not other generated columns.  Any functions and operators used must be
+      immutable.  References to other tables are not allowed.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="sql-createtable-parms-generated-identity">
     <term><literal>GENERATED { ALWAYS | BY DEFAULT } AS IDENTITY [ ( <replaceable>sequence_options</replaceable> ) ]</literal></term>
     <listitem>
      <para>
       This clause creates the column as an <firstterm>identity
       column</firstterm>.  It will have an implicit sequence attached to it
-      and the column in new rows will automatically have values from the
-      sequence assigned to it.
+      and in newly-inserted rows the column will automatically have values
+      from the sequence assigned to it.
+      Such a column is implicitly <literal>NOT NULL</literal>.
      </para>
 
      <para>
       The clauses <literal>ALWAYS</literal> and <literal>BY DEFAULT</literal>
-      determine how the sequence value is given precedence over a
-      user-specified value in an <command>INSERT</command> statement.
-      If <literal>ALWAYS</literal> is specified, a user-specified value is
-      only accepted if the <command>INSERT</command> statement
-      specifies <literal>OVERRIDING SYSTEM VALUE</literal>.  If <literal>BY
-      DEFAULT</literal> is specified, then the user-specified value takes
-      precedence.  See <xref linkend="sql-insert"/> for details.  (In
-      the <command>COPY</command> command, user-specified values are always
-      used regardless of this setting.)
+      determine how explicitly user-specified values are handled in
+      <command>INSERT</command> and <command>UPDATE</command> commands.
      </para>
 
      <para>
-      The optional <replaceable>sequence_options</replaceable> clause can be
-      used to override the options of the sequence.
-      See <xref linkend="sql-createsequence"/> for details.
+      In an <command>INSERT</command> command, if <literal>ALWAYS</literal> is
+      selected, a user-specified value is only accepted if the
+      <command>INSERT</command> statement specifies <literal>OVERRIDING SYSTEM
+      VALUE</literal>.  If <literal>BY DEFAULT</literal> is selected, then the
+      user-specified value takes precedence.  See <xref linkend="sql-insert"/>
+      for details.  (In the <command>COPY</command> command, user-specified
+      values are always used regardless of this setting.)
+     </para>
+
+     <para>
+      In an <command>UPDATE</command> command, if <literal>ALWAYS</literal> is
+      selected, any update of the column to any value other than
+      <literal>DEFAULT</literal> will be rejected.  If <literal>BY
+      DEFAULT</literal> is selected, the column can be updated normally.
+      (There is no <literal>OVERRIDING</literal> clause for the
+      <command>UPDATE</command> command.)
+     </para>
+
+     <para>
+      The optional <replaceable>sequence_options</replaceable> clause can
+      be used to override the parameters of the sequence.  The available
+      options include those shown for <xref linkend="sql-createsequence"/>,
+      plus <literal>SEQUENCE NAME <replaceable>name</replaceable></literal>,
+      <literal>LOGGED</literal>, and <literal>UNLOGGED</literal>, which
+      allow selection of the name and persistence level of the
+      sequence.  Without <literal>SEQUENCE NAME</literal>, the system
+      chooses an unused name for the sequence.
+      Without <literal>LOGGED</literal> or <literal>UNLOGGED</literal>,
+      the sequence will have the same persistence level as the table.
      </para>
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>UNIQUE</literal> (column constraint)</term>
-    <term><literal>UNIQUE ( <replaceable class="parameter">column_name</replaceable> [, ... ] )</literal>
-    <optional> INCLUDE ( <replaceable class="parameter">column_name</replaceable> [, ...]) </optional> (table constraint)</term>
+   <varlistentry id="sql-createtable-parms-unique">
+    <term><literal>UNIQUE [ NULLS [ NOT ] DISTINCT ]</literal> (column constraint)</term>
+    <term><literal>UNIQUE [ NULLS [ NOT ] DISTINCT ] ( <replaceable class="parameter">column_name</replaceable> [, ... ] [, <replaceable class="parameter">column_name</replaceable> WITHOUT OVERLAPS ] )</literal>
+    <optional> <literal>INCLUDE ( <replaceable class="parameter">column_name</replaceable> [, ...])</literal> </optional> (table constraint)</term>
 
     <listitem>
      <para>
       The <literal>UNIQUE</literal> constraint specifies that a
       group of one or more columns of a table can contain
-      only unique values. The behavior of the unique table constraint
-      is the same as that for column constraints, with the additional
-      capability to span multiple columns.
+      only unique values. The behavior of a unique table constraint
+      is the same as that of a unique column constraint, with the
+      additional capability to span multiple columns.  The constraint
+      therefore enforces that any two rows must differ in at least one
+      of these columns.
+     </para>
+
+     <para>
+      If the <literal>WITHOUT OVERLAPS</literal> option is specified for the
+      last column, then that column is checked for overlaps instead of
+      equality.  In that case, the other columns of the constraint will allow
+      duplicates so long as the duplicates don't overlap in the
+      <literal>WITHOUT OVERLAPS</literal> column.  (This is sometimes called a
+      temporal key, if the column is a range of dates or timestamps, but
+      <productname>PostgreSQL</productname> allows ranges over any base type.)
+      In effect, such a constraint is enforced with an <literal>EXCLUDE</literal>
+      constraint rather than a <literal>UNIQUE</literal> constraint.  So for
+      example <literal>UNIQUE (id, valid_at WITHOUT OVERLAPS)</literal> behaves
+      like <literal>EXCLUDE USING GIST (id WITH =, valid_at WITH
+      &amp;&amp;)</literal>.  The <literal>WITHOUT OVERLAPS</literal> column
+      must have a range or multirange type.  Empty ranges/multiranges are
+      not permitted.  The non-<literal>WITHOUT OVERLAPS</literal> columns of
+      the constraint can be any type that can be compared for equality in a
+      GiST index.  By default, only range types are supported, but you can use
+      other types by adding the <xref linkend="btree-gist"/> extension (which
+      is the expected way to use this feature).
      </para>
 
      <para>
       For the purpose of a unique constraint, null values are not
-      considered equal.
+      considered equal, unless <literal>NULLS NOT DISTINCT</literal> is
+      specified.
      </para>
 
      <para>
-      Each unique table constraint must name a set of columns that is
+      Each unique constraint should name a set of columns that is
       different from the set of columns named by any other unique or
-      primary key constraint defined for the table.  (Otherwise it
-      would just be the same constraint listed twice.)
+      primary key constraint defined for the table.  (Otherwise, redundant
+      unique constraints will be discarded.)
      </para>
 
      <para>
@@ -808,21 +1223,38 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
 
      <para>
       Adding a unique constraint will automatically create a unique btree
+<<<<<<< HEAD
       index on the column or group of columns used in the constraint.
       The optional clause <literal>INCLUDE</literal> adds to that index
       one or more columns on which the uniqueness is not enforced.
       Note that although the constraint is not enforced on the included columns,
       it still depends on them.  Consequently, some operations on these columns
       (e.g. <literal>DROP COLUMN</literal>) can cause cascaded constraint and
+=======
+      index on the column or group of columns used in the constraint.  But if
+      the constraint includes a <literal>WITHOUT OVERLAPS</literal> clause, it
+      will use a GiST index.  The created index has the same name as the
+      unique constraint.
+     </para>
+
+     <para>
+      The optional <literal>INCLUDE</literal> clause adds to that index
+      one or more columns that are simply <quote>payload</quote>: uniqueness
+      is not enforced on them, and the index cannot be searched on the basis
+      of those columns.  However they can be retrieved by an index-only scan.
+      Note that although the constraint is not enforced on included columns,
+      it still depends on them.  Consequently, some operations on such columns
+      (e.g., <literal>DROP COLUMN</literal>) can cause cascaded constraint and
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
       index deletion.
      </para>
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-primary-key">
     <term><literal>PRIMARY KEY</literal> (column constraint)</term>
-    <term><literal>PRIMARY KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] )</literal>
-    <optional> INCLUDE ( <replaceable class="parameter">column_name</replaceable> [, ...]) </optional> (table constraint)</term>
+    <term><literal>PRIMARY KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] [, <replaceable class="parameter">column_name</replaceable> WITHOUT OVERLAPS ] )</literal>
+    <optional> <literal>INCLUDE ( <replaceable class="parameter">column_name</replaceable> [, ...])</literal> </optional> (table constraint)</term>
     <listitem>
      <para>
       The <literal>PRIMARY KEY</literal> constraint specifies that a column or
@@ -840,20 +1272,22 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
 
      <para>
       <literal>PRIMARY KEY</literal> enforces the same data constraints as
-      a combination of <literal>UNIQUE</literal> and <literal>NOT NULL</literal>, but
+      a combination of <literal>UNIQUE</literal> and <literal>NOT
+      NULL</literal>.  However,
       identifying a set of columns as the primary key also provides metadata
       about the design of the schema, since a primary key implies that other
       tables can rely on this set of columns as a unique identifier for rows.
      </para>
 
      <para>
-      <literal>PRIMARY KEY</literal> constraints share the restrictions that
-      <literal>UNIQUE</literal> constraints have when placed on partitioned
-      tables.
+      When placed on a partitioned table, <literal>PRIMARY KEY</literal>
+      constraints share the restrictions previously described
+      for <literal>UNIQUE</literal> constraints.
      </para>
 
      <para>
       Adding a <literal>PRIMARY KEY</literal> constraint will automatically
+<<<<<<< HEAD
       create a unique btree index on the column or group of columns used in the
       constraint.  The optional <literal>INCLUDE</literal> clause allows a list
       of columns to be specified which will be included in the non-key portion
@@ -861,6 +1295,22 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       the constraint still depends on them. Consequently, some operations on the
       included columns (e.g. <literal>DROP COLUMN</literal>) can cause cascaded
       constraint and index deletion.
+=======
+      create a unique btree index on the column or group of columns used in
+      the constraint, or GiST if <literal>WITHOUT OVERLAPS</literal> was
+      specified.
+     </para>
+
+     <para>
+      The optional <literal>INCLUDE</literal> clause adds to that index
+      one or more columns that are simply <quote>payload</quote>: uniqueness
+      is not enforced on them, and the index cannot be searched on the basis
+      of those columns.  However they can be retrieved by an index-only scan.
+      Note that although the constraint is not enforced on included columns,
+      it still depends on them.  Consequently, some operations on such columns
+      (e.g., <literal>DROP COLUMN</literal>) can cause cascaded constraint and
+      index deletion.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
      </para>
     </listitem>
    </varlistentry>
@@ -882,19 +1332,19 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       no two rows in the table contain overlapping circles
       (see <xref linkend="datatype-geometric"/>) by using the
       <literal>&amp;&amp;</literal> operator.
+      The operator(s) are required to be commutative.
      </para>
 
      <para>
       Exclusion constraints are implemented using
-      an index, so each specified operator must be associated with an
-      appropriate operator class
+      an index that has the same name as the constraint, so each specified
+      operator must be associated with an appropriate operator class
       (see <xref linkend="indexes-opclass"/>) for the index access
       method <replaceable>index_method</replaceable>.
-      The operators are required to be commutative.
       Each <replaceable class="parameter">exclude_element</replaceable>
-      can optionally specify an operator class and/or ordering options;
-      these are described fully under
-      <xref linkend="sql-createindex"/>.
+      defines a column of the index, so it can optionally specify a collation,
+      an operator class, operator class parameters, and/or ordering options;
+      these are described fully under <xref linkend="sql-createindex"/>.
      </para>
 
      <para>
@@ -915,14 +1365,14 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> ) ] [ MATCH <replaceable class="parameter">matchtype</replaceable> ] [ ON DELETE <replaceable class="parameter">action</replaceable> ] [ ON UPDATE <replaceable class="parameter">action</replaceable> ]</literal> (column constraint)</term>
+   <varlistentry id="sql-createtable-parms-references">
+    <term><literal>REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> ) ] [ MATCH <replaceable class="parameter">matchtype</replaceable> ] [ ON DELETE <replaceable class="parameter">referential_action</replaceable> ] [ ON UPDATE <replaceable class="parameter">referential_action</replaceable> ]</literal> (column constraint)</term>
 
-   <term><literal>FOREIGN KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] )
-    REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> [, ... ] ) ]
+   <term><literal>FOREIGN KEY ( <replaceable class="parameter">column_name</replaceable> [, ... ] [, PERIOD <replaceable class="parameter">column_name</replaceable> ] )
+    REFERENCES <replaceable class="parameter">reftable</replaceable> [ ( <replaceable class="parameter">refcolumn</replaceable> [, ... ] [, PERIOD <replaceable class="parameter">column_name</replaceable> ] ) ]
     [ MATCH <replaceable class="parameter">matchtype</replaceable> ]
-    [ ON DELETE <replaceable class="parameter">action</replaceable> ]
-    [ ON UPDATE <replaceable class="parameter">action</replaceable> ]</literal>
+    [ ON DELETE <replaceable class="parameter">referential_action</replaceable> ]
+    [ ON UPDATE <replaceable class="parameter">referential_action</replaceable> ]</literal>
     (table constraint)</term>
 
     <listitem>
@@ -933,16 +1383,47 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       column(s) of some row of the referenced table.  If the <replaceable
       class="parameter">refcolumn</replaceable> list is omitted, the
       primary key of the <replaceable class="parameter">reftable</replaceable>
+<<<<<<< HEAD
       is used.  The referenced columns must be the columns of a non-deferrable
       unique or primary key constraint in the referenced table.  The user
       must have <literal>REFERENCES</literal> permission on the referenced table
       (either the whole table, or the specific referenced columns).  The
+=======
+      is used.  Otherwise, the <replaceable class="parameter">refcolumn</replaceable>
+      list must refer to the columns of a non-deferrable unique or primary key
+      constraint or be the columns of a non-partial unique index.
+     </para>
+
+     <para>
+      If the last column is marked with <literal>PERIOD</literal>, it is
+      treated in a special way.  While the non-<literal>PERIOD</literal>
+      columns are compared for equality (and there must be at least one of
+      them), the <literal>PERIOD</literal> column is not.  Instead, the
+      constraint is considered satisfied if the referenced table has matching
+      records (based on the non-<literal>PERIOD</literal> parts of the key)
+      whose combined <literal>PERIOD</literal> values completely cover the
+      referencing record's.  In other words, the reference must have a
+      referent for its entire duration.  This column must be a range or
+      multirange type.  In addition, the referenced table must have a primary
+      key or unique constraint declared with <literal>WITHOUT
+      OVERLAPS</literal>. Finally, if the foreign key has a PERIOD
+      <replaceable class="parameter">column_name</replaceable> specification
+      the corresponding <replaceable class="parameter">refcolumn</replaceable>,
+      if present, must also be marked <literal>PERIOD</literal>.  If the
+      <replaceable class="parameter">refcolumn</replaceable> clause is omitted,
+      and thus the reftable's primary key constraint chosen, the primary key
+      must have its final column marked <literal>WITHOUT OVERLAPS</literal>.
+     </para>
+
+     <para>
+      The user
+      must have <literal>REFERENCES</literal> permission on the referenced
+      table (either the whole table, or the specific referenced columns).  The
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
       addition of a foreign key constraint requires a
       <literal>SHARE ROW EXCLUSIVE</literal> lock on the referenced table.
       Note that foreign key constraints cannot be defined between temporary
-      tables and permanent tables.  Also note that while it is possible to
-      define a foreign key on a partitioned table, it is not possible to
-      declare a foreign key that references a partitioned table.
+      tables and permanent tables.
      </para>
 
      <para>
@@ -977,7 +1458,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       actions for each clause:
 
       <variablelist>
-       <varlistentry>
+       <varlistentry id="sql-createtable-parms-references-refact-no-action">
         <term><literal>NO ACTION</literal></term>
         <listitem>
          <para>
@@ -990,7 +1471,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
         </listitem>
        </varlistentry>
 
-       <varlistentry>
+       <varlistentry id="sql-createtable-parms-references-refact-restrict">
         <term><literal>RESTRICT</literal></term>
         <listitem>
          <para>
@@ -1002,7 +1483,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
         </listitem>
        </varlistentry>
 
-       <varlistentry>
+       <varlistentry id="sql-createtable-parms-references-refact-cascade">
         <term><literal>CASCADE</literal></term>
         <listitem>
          <para>
@@ -1010,25 +1491,41 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
           values of the referencing column(s) to the new values of the
           referenced columns, respectively.
          </para>
-        </listitem>
-       </varlistentry>
 
-       <varlistentry>
-        <term><literal>SET NULL</literal></term>
-        <listitem>
          <para>
-          Set the referencing column(s) to null.
+          In a temporal foreign key, this option is not supported.
          </para>
         </listitem>
        </varlistentry>
 
-       <varlistentry>
-        <term><literal>SET DEFAULT</literal></term>
+       <varlistentry id="sql-createtable-parms-references-refact-set-null">
+        <term><literal>SET NULL [ ( <replaceable>column_name</replaceable> [, ... ] ) ]</literal></term>
         <listitem>
          <para>
-          Set the referencing column(s) to their default values.
+          Set all of the referencing columns, or a specified subset of the
+          referencing columns, to null. A subset of columns can only be
+          specified for <literal>ON DELETE</literal> actions.
+         </para>
+
+         <para>
+          In a temporal foreign key, this option is not supported.
+         </para>
+        </listitem>
+       </varlistentry>
+
+       <varlistentry id="sql-createtable-parms-references-refact-set-default">
+        <term><literal>SET DEFAULT [ ( <replaceable>column_name</replaceable> [, ... ] ) ]</literal></term>
+        <listitem>
+         <para>
+          Set all of the referencing columns, or a specified subset of the
+          referencing columns, to their default values. A subset of columns
+          can only be specified for <literal>ON DELETE</literal> actions.
           (There must be a row in the referenced table matching the default
           values, if they are not null, or the operation will fail.)
+         </para>
+
+         <para>
+          In a temporal foreign key, this option is not supported.
          </para>
         </listitem>
        </varlistentry>
@@ -1044,7 +1541,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-deferrable">
     <term><literal>DEFERRABLE</literal></term>
     <term><literal>NOT DEFERRABLE</literal></term>
     <listitem>
@@ -1053,7 +1550,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       constraint that is not deferrable will be checked immediately
       after every command.  Checking of constraints that are
       deferrable can be postponed until the end of the transaction
-      (using the <xref linkend="sql-set-constraints"/> command).
+      (using the <link linkend="sql-set-constraints"><command>SET CONSTRAINTS</command></link> command).
       <literal>NOT DEFERRABLE</literal> is the default.
       Currently, only <literal>UNIQUE</literal>, <literal>PRIMARY KEY</literal>,
       <literal>EXCLUDE</literal>, and
@@ -1066,7 +1563,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-initially">
     <term><literal>INITIALLY IMMEDIATE</literal></term>
     <term><literal>INITIALLY DEFERRED</literal></term>
     <listitem>
@@ -1077,63 +1574,55 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       statement. This is the default.  If the constraint is
       <literal>INITIALLY DEFERRED</literal>, it is checked only at the
       end of the transaction.  The constraint check time can be
-      altered with the <xref linkend="sql-set-constraints"/> command.
+      altered with the <link linkend="sql-set-constraints"><command>SET CONSTRAINTS</command></link> command.
      </para>
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-method">
+    <term><literal>USING <replaceable class="parameter">method</replaceable></literal></term>
+    <listitem>
+     <para>
+      This optional clause specifies the table access method to use to store
+      the contents for the new table; the method needs be an access method of
+      type <literal>TABLE</literal>. See <xref linkend="tableam"/> for more
+      information.  If this option is not specified, the default table access
+      method is chosen for the new table. See <xref
+      linkend="guc-default-table-access-method"/> for more information.
+     </para>
+     <para>
+      When creating a partition, the table access method is the access method
+      of its partitioned table, if set.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="sql-createtable-parms-with">
     <term><literal>WITH ( <replaceable class="parameter">storage_parameter</replaceable> [= <replaceable class="parameter">value</replaceable>] [, ... ] )</literal></term>
     <listitem>
      <para>
       This clause specifies optional storage parameters for a table or index;
-      see <xref linkend="sql-createtable-storage-parameters"
-      endterm="sql-createtable-storage-parameters-title"/> for more
-      information.  The <literal>WITH</literal> clause for a
-      table can also include <literal>OIDS=TRUE</literal> (or just <literal>OIDS</literal>)
-      to specify that rows of the new table
-      should have OIDs (object identifiers) assigned to them, or
-      <literal>OIDS=FALSE</literal> to specify that the rows should not have OIDs.
-      If <literal>OIDS</literal> is not specified, the default setting depends upon
-      the <xref linkend="guc-default-with-oids"/> configuration parameter.
-      (If the new table inherits from any tables that have OIDs, then
-      <literal>OIDS=TRUE</literal> is forced even if the command says
-      <literal>OIDS=FALSE</literal>.)
-     </para>
-
-     <para>
-      If <literal>OIDS=FALSE</literal> is specified or implied, the new
-      table does not store OIDs and no OID will be assigned for a row inserted
-      into it. This is generally considered worthwhile, since it
-      will reduce OID consumption and thereby postpone the wraparound
-      of the 32-bit OID counter. Once the counter wraps around, OIDs
-      can no longer be assumed to be unique, which makes them
-      considerably less useful. In addition, excluding OIDs from a
-      table reduces the space required to store the table on disk by
-      4 bytes per row (on most machines), slightly improving performance.
-     </para>
-
-     <para>
-      To remove OIDs from a table after it has been created, use <xref
-      linkend="sql-altertable"/>.
+      see <xref linkend="sql-createtable-storage-parameters"/> below for more
+      information.  For backward-compatibility the <literal>WITH</literal>
+      clause for a table can also include <literal>OIDS=FALSE</literal> to
+      specify that rows of the new table should not contain OIDs (object
+      identifiers), <literal>OIDS=TRUE</literal> is not supported anymore.
      </para>
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>WITH OIDS</literal></term>
+   <varlistentry id="sql-createtable-parms-without-oids">
     <term><literal>WITHOUT OIDS</literal></term>
     <listitem>
      <para>
-      These are obsolescent syntaxes equivalent to <literal>WITH (OIDS)</literal>
-      and <literal>WITH (OIDS=FALSE)</literal>, respectively.  If you wish to give
-      both an <literal>OIDS</literal> setting and storage parameters, you must use
-      the <literal>WITH ( ... )</literal> syntax; see above.
+      This is backward-compatible syntax for declaring a table
+      <literal>WITHOUT OIDS</literal>, creating a table <literal>WITH
+      OIDS</literal> is not supported anymore.
      </para>
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-on-commit">
     <term><literal>ON COMMIT</literal></term>
     <listitem>
      <para>
@@ -1142,7 +1631,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       The three options are:
 
       <variablelist>
-       <varlistentry>
+       <varlistentry id="sql-createtable-parms-on-commit-preserve-rows">
         <term><literal>PRESERVE ROWS</literal></term>
         <listitem>
          <para>
@@ -1152,20 +1641,25 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
         </listitem>
        </varlistentry>
 
-       <varlistentry>
+       <varlistentry id="sql-createtable-parms-on-commit-delete-rows">
         <term><literal>DELETE ROWS</literal></term>
         <listitem>
          <para>
           All rows in the temporary table will be deleted at the end
+<<<<<<< HEAD
           of each transaction block.  Essentially, an automatic <xref
           linkend="sql-truncate"/> is done
+=======
+          of each transaction block.  Essentially, an automatic <link
+          linkend="sql-truncate"><command>TRUNCATE</command></link> is done
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
           at each commit.  When used on a partitioned table, this
           is not cascaded to its partitions.
          </para>
         </listitem>
        </varlistentry>
 
-       <varlistentry>
+       <varlistentry id="sql-createtable-parms-on-commit-drop">
         <term><literal>DROP</literal></term>
         <listitem>
          <para>
@@ -1180,7 +1674,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-tablespace">
     <term><literal>TABLESPACE <replaceable class="parameter">tablespace_name</replaceable></literal></term>
     <listitem>
      <para>
@@ -1188,12 +1682,16 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       of the tablespace in which the new table is to be created.
       If not specified,
       <xref linkend="guc-default-tablespace"/> is consulted, or
-      <xref linkend="guc-temp-tablespaces"/> if the table is temporary.
+      <xref linkend="guc-temp-tablespaces"/> if the table is temporary.  For
+      partitioned tables, since no storage is required for the table itself,
+      the tablespace specified overrides <literal>default_tablespace</literal>
+      as the default tablespace to use for any newly created partitions when no
+      other tablespace is explicitly specified.
      </para>
     </listitem>
    </varlistentry>
 
-   <varlistentry>
+   <varlistentry id="sql-createtable-parms-using-index-tablespace">
     <term><literal>USING INDEX TABLESPACE <replaceable class="parameter">tablespace_name</replaceable></literal></term>
     <listitem>
      <para>
@@ -1209,8 +1707,8 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
 
   </variablelist>
 
-  <refsect2 id="sql-createtable-storage-parameters">
-   <title id="sql-createtable-storage-parameters-title">Storage Parameters</title>
+  <refsect2 id="sql-createtable-storage-parameters" xreflabel="Storage Parameters">
+   <title>Storage Parameters</title>
 
  <indexterm zone="sql-createtable-storage-parameters">
   <primary>storage parameters</primary>
@@ -1237,8 +1735,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
 
    <variablelist>
 
-   <varlistentry>
-    <term><literal>fillfactor</literal> (<type>integer</type>)</term>
+    <varlistentry id="reloption-fillfactor" xreflabel="fillfactor">
+    <term><varname>fillfactor</varname> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>fillfactor</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       The fillfactor for a table is a percentage between 10 and 100.
@@ -1247,7 +1749,9 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       to the indicated percentage; the remaining space on each page is
       reserved for updating rows on that page.  This gives <command>UPDATE</command>
       a chance to place the updated copy of a row on the same page as the
-      original, which is more efficient than placing it on a different page.
+      original, which is more efficient than placing it on a different
+      page, and makes <link linkend="storage-hot">heap-only tuple
+      updates</link> more likely.
       For a table whose entries are never updated, complete packing is the
       best choice, but in heavily updated tables smaller fillfactors are
       appropriate.  This parameter cannot be set for TOAST tables.
@@ -1255,18 +1759,23 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>toast_tuple_target</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-toast-tuple-target" xreflabel="toast_tuple_target">
+    <term><literal>toast_tuple_target</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>toast_tuple_target</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       The toast_tuple_target specifies the minimum tuple length required before
-      we try to move long column values into TOAST tables, and is also the
-      target length we try to reduce the length below once toasting begins.
-      This only affects columns marked as either External or Extended
-      and applies only to new tuples - there is no effect on existing rows.
+      we try to compress and/or move long column values into TOAST tables, and
+      is also the target length we try to reduce the length below once toasting
+      begins. This affects columns marked as External (for move),
+      Main (for compression), or Extended (for both) and applies only to new
+      tuples. There is no effect on existing rows.
       By default this parameter is set to allow at least 4 tuples per block,
-      which with the default blocksize will be 2040 bytes. Valid values are
-      between 128 bytes and the (blocksize - header), by default 8160 bytes.
+      which with the default block size will be 2040 bytes. Valid values are
+      between 128 bytes and the (block size - header), by default 8160 bytes.
       Changing this value may not be useful for very short or very long rows.
       Note that the default setting is often close to optimal, and
       it is possible that setting this parameter could have negative
@@ -1276,8 +1785,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>parallel_workers</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-parallel-workers" xreflabel="parallel_workers">
+    <term><literal>parallel_workers</literal> (<type>integer</type>)
+     <indexterm>
+     <primary><varname>parallel_workers</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       This sets the number of workers that should be used to assist a parallel
@@ -1289,8 +1802,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_enabled</literal>, <literal>toast.autovacuum_enabled</literal> (<type>boolean</type>)</term>
+   <varlistentry id="reloption-autovacuum-enabled" xreflabel="autovacuum_enabled">
+    <term><literal>autovacuum_enabled</literal>, <literal>toast.autovacuum_enabled</literal> (<type>boolean</type>)
+    <indexterm>
+     <primary><varname>autovacuum_enabled</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
      Enables or disables the autovacuum daemon for a particular table.
@@ -1310,8 +1827,60 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_vacuum_threshold</literal>, <literal>toast.autovacuum_vacuum_threshold</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-vacuum-index-cleanup" xreflabel="vacuum_index_cleanup">
+    <term><literal>vacuum_index_cleanup</literal>, <literal>toast.vacuum_index_cleanup</literal> (<type>enum</type>)
+    <indexterm>
+     <primary><varname>vacuum_index_cleanup</varname> storage parameter</primary>
+    </indexterm>
+    </term>
+    <listitem>
+     <para>
+      Forces or disables index cleanup when <command>VACUUM</command>
+      is run on this table.  The default value is
+      <literal>AUTO</literal>.  With <literal>OFF</literal>, index
+      cleanup is disabled, with <literal>ON</literal> it is enabled,
+      and with <literal>AUTO</literal> a decision is made dynamically,
+      each time <command>VACUUM</command> runs.  The dynamic behavior
+      allows <command>VACUUM</command> to avoid needlessly scanning
+      indexes to remove very few dead tuples.  Forcibly disabling all
+      index cleanup can speed up <command>VACUUM</command> very
+      significantly, but may also lead to severely bloated indexes if
+      table modifications are frequent.  The
+      <literal>INDEX_CLEANUP</literal> parameter of <link
+       linkend="sql-vacuum"><command>VACUUM</command></link>, if
+      specified, overrides the value of this option.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="reloption-vacuum-truncate" xreflabel="vacuum_truncate">
+    <term><literal>vacuum_truncate</literal>, <literal>toast.vacuum_truncate</literal> (<type>boolean</type>)
+    <indexterm>
+     <primary><varname>vacuum_truncate</varname> storage parameter</primary>
+    </indexterm>
+    </term>
+    <listitem>
+     <para>
+      Enables or disables vacuum to try to truncate off any empty pages
+      at the end of this table. The default value is <literal>true</literal>.
+      If <literal>true</literal>, <command>VACUUM</command> and
+      autovacuum do the truncation and the disk space for
+      the truncated pages is returned to the operating system.
+      Note that the truncation requires <literal>ACCESS EXCLUSIVE</literal>
+      lock on the table. The <literal>TRUNCATE</literal> parameter
+      of <link linkend="sql-vacuum"><command>VACUUM</command></link>, if specified, overrides the value
+      of this option.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="reloption-autovacuum-vacuum-threshold" xreflabel="autovacuum_vacuum_threshold">
+    <term><literal>autovacuum_vacuum_threshold</literal>, <literal>toast.autovacuum_vacuum_threshold</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_vacuum_threshold</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-autovacuum-vacuum-threshold"/>
@@ -1320,8 +1889,18 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
+<<<<<<< HEAD
    <varlistentry>
     <term><literal>autovacuum_vacuum_scale_factor</literal>, <literal>toast.autovacuum_vacuum_scale_factor</literal> (<type>floating point</type>)</term>
+=======
+   <varlistentry id="reloption-autovacuum-vacuum-scale-factor" xreflabel="autovacuum_vacuum_scale_factor">
+    <term><literal>autovacuum_vacuum_scale_factor</literal>, <literal>toast.autovacuum_vacuum_scale_factor</literal> (<type>floating point</type>)
+    <indexterm>
+     <primary><varname>autovacuum_vacuum_scale_factor</varname> </primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-autovacuum-vacuum-scale-factor"/>
@@ -1330,8 +1909,43 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_analyze_threshold</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-vacuum-insert-threshold" xreflabel="autovacuum_vacuum_insert_threshold">
+    <term><literal>autovacuum_vacuum_insert_threshold</literal>, <literal>toast.autovacuum_vacuum_insert_threshold</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_vacuum_insert_threshold</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
+    <listitem>
+     <para>
+      Per-table value for <xref linkend="guc-autovacuum-vacuum-insert-threshold"/>
+      parameter.  The special value of -1 may be used to disable insert vacuums on the table.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="reloption-autovacuum-vacuum-insert-scale-factor" xreflabel="autovacuum_vacuum_insert_scale_factor">
+    <term><literal>autovacuum_vacuum_insert_scale_factor</literal>, <literal>toast.autovacuum_vacuum_insert_scale_factor</literal> (<type>floating point</type>)
+    <indexterm>
+     <primary><varname>autovacuum_vacuum_insert_scale_factor</varname> </primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
+    <listitem>
+     <para>
+      Per-table value for <xref linkend="guc-autovacuum-vacuum-insert-scale-factor"/>
+      parameter.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry id="reloption-autovacuum-analyze-threshold" xreflabel="autovacuum_analyze_threshold">
+    <term><literal>autovacuum_analyze_threshold</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_analyze_threshold</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-autovacuum-analyze-threshold"/>
@@ -1340,8 +1954,18 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
+<<<<<<< HEAD
    <varlistentry>
     <term><literal>autovacuum_analyze_scale_factor</literal> (<type>floating point</type>)</term>
+=======
+   <varlistentry id="reloption-autovacuum-analyze-scale-factor" xreflabel="autovacuum_analyze_scale_factor">
+    <term><literal>autovacuum_analyze_scale_factor</literal> (<type>floating point</type>)
+    <indexterm>
+     <primary><varname>autovacuum_analyze_scale_factor</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-autovacuum-analyze-scale-factor"/>
@@ -1350,8 +1974,13 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_vacuum_cost_delay</literal>, <literal>toast.autovacuum_vacuum_cost_delay</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-vacuum-cost-delay" xreflabel="autovacuum_vacuum_cost_delay">
+    <term><literal>autovacuum_vacuum_cost_delay</literal>, <literal>toast.autovacuum_vacuum_cost_delay</literal> (<type>floating point</type>)
+    <indexterm>
+     <primary><varname>autovacuum_vacuum_cost_delay</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-autovacuum-vacuum-cost-delay"/>
@@ -1360,8 +1989,13 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_vacuum_cost_limit</literal>, <literal>toast.autovacuum_vacuum_cost_limit</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-vacuum-cost-limit" xreflabel="autovacuum_vacuum_cost_limit">
+    <term><literal>autovacuum_vacuum_cost_limit</literal>, <literal>toast.autovacuum_vacuum_cost_limit</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_vacuum_cost_limit</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-autovacuum-vacuum-cost-limit"/>
@@ -1370,8 +2004,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_freeze_min_age</literal>, <literal>toast.autovacuum_freeze_min_age</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-freeze-min-age" xreflabel="autovacuum_freeze_min_age">
+    <term><literal>autovacuum_freeze_min_age</literal>, <literal>toast.autovacuum_freeze_min_age</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_freeze_min_age</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-vacuum-freeze-min-age"/>
@@ -1383,8 +2021,13 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_freeze_max_age</literal>, <literal>toast.autovacuum_freeze_max_age</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-freeze-max-age" xreflabel="autovacuum_freeze_max_age">
+    <term><literal>autovacuum_freeze_max_age</literal>, <literal>toast.autovacuum_freeze_max_age</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_freeze_max_age</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-autovacuum-freeze-max-age"/>
@@ -1395,8 +2038,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_freeze_table_age</literal>, <literal>toast.autovacuum_freeze_table_age</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-freeze-table-age" xreflabel="autovacuum_freeze_table_age">
+    <term><literal>autovacuum_freeze_table_age</literal>, <literal>toast.autovacuum_freeze_table_age</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_freeze_table_age</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-vacuum-freeze-table-age"/>
@@ -1405,8 +2052,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_multixact_freeze_min_age</literal>, <literal>toast.autovacuum_multixact_freeze_min_age</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-multixact-freeze-min-age" xreflabel="autovacuum_multixact_freeze_min_age">
+    <term><literal>autovacuum_multixact_freeze_min_age</literal>, <literal>toast.autovacuum_multixact_freeze_min_age</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_multixact_freeze_min_age</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-vacuum-multixact-freeze-min-age"/>
@@ -1419,8 +2070,13 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_multixact_freeze_max_age</literal>, <literal>toast.autovacuum_multixact_freeze_max_age</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-multixact-freeze-max-age" xreflabel="autovacuum_multixact_freeze_max_age">
+    <term><literal>autovacuum_multixact_freeze_max_age</literal>, <literal>toast.autovacuum_multixact_freeze_max_age</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_multixact_freeze_max_age</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value
@@ -1433,8 +2089,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>autovacuum_multixact_freeze_table_age</literal>, <literal>toast.autovacuum_multixact_freeze_table_age</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-autovacuum-multixact-freeze-table-age" xreflabel="autovacuum_multixact_freeze_table_age">
+    <term><literal>autovacuum_multixact_freeze_table_age</literal>, <literal>toast.autovacuum_multixact_freeze_table_age</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>autovacuum_multixact_freeze_table_age</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value
@@ -1443,8 +2103,13 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>log_autovacuum_min_duration</literal>, <literal>toast.log_autovacuum_min_duration</literal> (<type>integer</type>)</term>
+   <varlistentry id="reloption-log-autovacuum-min-duration" xreflabel="log_autovacuum_min_duration">
+    <term><literal>log_autovacuum_min_duration</literal>, <literal>toast.log_autovacuum_min_duration</literal> (<type>integer</type>)
+    <indexterm>
+     <primary><varname>log_autovacuum_min_duration</varname></primary>
+     <secondary>storage parameter</secondary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Per-table value for <xref linkend="guc-log-autovacuum-min-duration"/>
@@ -1453,8 +2118,12 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
     </listitem>
    </varlistentry>
 
-   <varlistentry>
-    <term><literal>user_catalog_table</literal> (<type>boolean</type>)</term>
+   <varlistentry id="reloption-user-catalog-table" xreflabel="user_catalog_table">
+    <term><literal>user_catalog_table</literal> (<type>boolean</type>)
+    <indexterm>
+     <primary><varname>user_catalog_table</varname> storage parameter</primary>
+    </indexterm>
+    </term>
     <listitem>
      <para>
       Declare the table as an additional catalog table for purposes of
@@ -1472,29 +2141,6 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
 
  <refsect1 id="sql-createtable-notes">
   <title>Notes</title>
-
-    <para>
-     Using OIDs in new applications is not recommended: where
-     possible, using an identity column or other sequence
-     generator as the table's primary key is preferred. However, if
-     your application does make use of OIDs to identify specific
-     rows of a table, it is recommended to create a unique constraint
-     on the <structfield>oid</structfield> column of that table, to ensure that
-     OIDs in the table will indeed uniquely identify rows even after
-     counter wraparound.  Avoid assuming that OIDs are unique across
-     tables; if you need a database-wide unique identifier, use the
-     combination of <structfield>tableoid</structfield> and row OID for the
-     purpose.
-    </para>
-
-    <tip>
-     <para>
-      The use of <literal>OIDS=FALSE</literal> is not recommended
-      for tables with no primary key, since without either an OID or a
-      unique data key, it is difficult to identify specific rows.
-     </para>
-    </tip>
-
     <para>
      <productname>PostgreSQL</productname> automatically creates an
      index for each unique constraint and primary key constraint to
@@ -1842,8 +2488,8 @@ CREATE TABLE cities_partdef
 </programlisting></para>
  </refsect1>
 
- <refsect1 id="sql-createtable-compatibility">
-  <title id="sql-createtable-compatibility-title">Compatibility</title>
+ <refsect1 id="sql-createtable-compatibility" xreflabel="Compatibility">
+  <title>Compatibility</title>
 
   <para>
    The <command>CREATE TABLE</command> command conforms to the
@@ -1903,7 +2549,7 @@ CREATE TABLE cities_partdef
   </refsect2>
 
   <refsect2>
-   <title>Non-deferred Uniqueness Constraints</title>
+   <title>Non-Deferred Uniqueness Constraints</title>
 
    <para>
     When a <literal>UNIQUE</literal> or <literal>PRIMARY KEY</literal> constraint is
@@ -1941,6 +2587,22 @@ CREATE TABLE cities_partdef
   </refsect2>
 
   <refsect2>
+   <title>Foreign Key Constraints</title>
+
+   <para>
+    The ability to specify column lists in the foreign key actions
+    <literal>SET DEFAULT</literal> and <literal>SET NULL</literal> is a
+    <productname>PostgreSQL</productname> extension.
+   </para>
+
+   <para>
+    It is a <productname>PostgreSQL</productname> extension that a
+    foreign key constraint may reference columns of a unique index instead of
+    columns of a primary key or unique constraint.
+   </para>
+  </refsect2>
+
+  <refsect2>
    <title><literal>NULL</literal> <quote>Constraint</quote></title>
 
    <para>
@@ -1971,7 +2633,11 @@ CREATE TABLE cities_partdef
 
    <para>
     Currently, <productname>PostgreSQL</productname> does not record names
+<<<<<<< HEAD
     for <literal>NOT NULL</literal> constraints at all, so they are not
+=======
+    for not-null constraints at all, so they are not
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     subject to the uniqueness restriction.  This might change in a future
     release.
    </para>
@@ -1991,7 +2657,7 @@ CREATE TABLE cities_partdef
   </refsect2>
 
   <refsect2>
-   <title>Zero-column Tables</title>
+   <title>Zero-Column Tables</title>
 
    <para>
     <productname>PostgreSQL</productname> allows a table of no columns
@@ -2018,6 +2684,16 @@ CREATE TABLE cities_partdef
   </refsect2>
 
   <refsect2>
+   <title>Generated Columns</title>
+
+   <para>
+    The option <literal>STORED</literal> is not standard but is also used by
+    other SQL implementations.  The SQL standard does not specify the storage
+    of generated columns.
+   </para>
+  </refsect2>
+
+  <refsect2>
    <title><literal>LIKE</literal> Clause</title>
 
    <para>
@@ -2033,7 +2709,7 @@ CREATE TABLE cities_partdef
 
    <para>
     The <literal>WITH</literal> clause is a <productname>PostgreSQL</productname>
-    extension; neither storage parameters nor OIDs are in the standard.
+    extension; storage parameters are not in the standard.
    </para>
   </refsect2>
 
@@ -2054,9 +2730,9 @@ CREATE TABLE cities_partdef
     Typed tables implement a subset of the SQL standard.  According to
     the standard, a typed table has columns corresponding to the
     underlying composite type as well as one other column that is
-    the <quote>self-referencing column</quote>.  PostgreSQL does not
-    support these self-referencing columns explicitly, but the same
-    effect can be had using the OID feature.
+    the <quote>self-referencing column</quote>.
+    <productname>PostgreSQL</productname> does not support self-referencing
+    columns explicitly.
    </para>
   </refsect2>
 

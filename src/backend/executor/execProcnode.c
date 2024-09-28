@@ -7,7 +7,7 @@
  *	 ExecProcNode, or ExecEndNode on its subnodes and do the appropriate
  *	 processing.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -88,11 +88,13 @@
 #include "executor/nodeGroup.h"
 #include "executor/nodeHash.h"
 #include "executor/nodeHashjoin.h"
+#include "executor/nodeIncrementalSort.h"
 #include "executor/nodeIndexonlyscan.h"
 #include "executor/nodeIndexscan.h"
 #include "executor/nodeLimit.h"
 #include "executor/nodeLockRows.h"
 #include "executor/nodeMaterial.h"
+#include "executor/nodeMemoize.h"
 #include "executor/nodeMergeAppend.h"
 #include "executor/nodeMergejoin.h"
 #include "executor/nodeModifyTable.h"
@@ -108,13 +110,14 @@
 #include "executor/nodeSubplan.h"
 #include "executor/nodeSubqueryscan.h"
 #include "executor/nodeTableFuncscan.h"
+#include "executor/nodeTidrangescan.h"
 #include "executor/nodeTidscan.h"
 #include "executor/nodeUnique.h"
 #include "executor/nodeValuesscan.h"
 #include "executor/nodeWindowAgg.h"
 #include "executor/nodeWorktablescan.h"
-#include "nodes/nodeFuncs.h"
 #include "miscadmin.h"
+<<<<<<< HEAD
 /* POLAR: include the head file */
 #include "executor/polar_exec_procnode.h"
 /* POLAR px */
@@ -124,9 +127,13 @@
 #include "executor/nodeShareInputScan.h"
 #include "executor/nodePartitionSelector.h"
 #include "executor/nodeSplitUpdate.h"
+=======
+#include "nodes/nodeFuncs.h"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 static TupleTableSlot *ExecProcNodeFirst(PlanState *node);
 static TupleTableSlot *ExecProcNodeInstr(PlanState *node);
+static bool ExecShutdownNode_walker(PlanState *node, void *context);
 
 
 /* ------------------------------------------------------------------------
@@ -271,6 +278,11 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 												   estate, eflags);
 			break;
 
+		case T_TidRangeScan:
+			result = (PlanState *) ExecInitTidRangeScan((TidRangeScan *) node,
+														estate, eflags);
+			break;
+
 		case T_SubqueryScan:
 			result = (PlanState *) ExecInitSubqueryScan((SubqueryScan *) node,
 														estate, eflags);
@@ -350,6 +362,16 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 		case T_Sort:
 			result = (PlanState *) ExecInitSort((Sort *) node,
 												estate, eflags);
+			break;
+
+		case T_IncrementalSort:
+			result = (PlanState *) ExecInitIncrementalSort((IncrementalSort *) node,
+														   estate, eflags);
+			break;
+
+		case T_Memoize:
+			result = (PlanState *) ExecInitMemoize((Memoize *) node, estate,
+												   eflags);
 			break;
 
 		case T_Group:
@@ -443,6 +465,10 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 	/*
 	 * Initialize any initPlans present in this node.  The planner put them in
 	 * a separate list for us.
+	 *
+	 * The defining characteristic of initplans is that they don't have
+	 * arguments, so we don't need to evaluate them (in contrast to
+	 * ExecInitSubPlanExpr()).
 	 */
 	subps = NIL;
 	foreach(l, node->initPlan)
@@ -456,6 +482,7 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 			estate->currentSliceId = estate->es_plannedstmt->subplan_sliceIds[subplan->plan_id - 1];
 
 		Assert(IsA(subplan, SubPlan));
+		Assert(subplan->args == NIL);
 		sstate = ExecInitSubPlan(subplan, result);
 		subps = lappend(subps, sstate);
 
@@ -467,8 +494,14 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 	result->plan_line_id = ++estate->max_plan_line_id;
 
 	/* Set up instrumentation for this node if requested */
+<<<<<<< HEAD
 	if (estate->es_instrument && polar_check_instrument_option(node, estate))
 		result->instrument = InstrAlloc(1, estate->es_instrument);
+=======
+	if (estate->es_instrument)
+		result->instrument = InstrAlloc(1, estate->es_instrument,
+										result->async_capable);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	return result;
 }
@@ -743,6 +776,10 @@ standard_ExecEndNode(PlanState *node)
 			ExecEndTidScan((TidScanState *) node);
 			break;
 
+		case T_TidRangeScanState:
+			ExecEndTidRangeScan((TidRangeScanState *) node);
+			break;
+
 		case T_SubqueryScanState:
 			ExecEndSubqueryScan((SubqueryScanState *) node);
 			break;
@@ -755,20 +792,8 @@ standard_ExecEndNode(PlanState *node)
 			ExecEndTableFuncScan((TableFuncScanState *) node);
 			break;
 
-		case T_ValuesScanState:
-			ExecEndValuesScan((ValuesScanState *) node);
-			break;
-
 		case T_CteScanState:
 			ExecEndCteScan((CteScanState *) node);
-			break;
-
-		case T_NamedTuplestoreScanState:
-			ExecEndNamedTuplestoreScan((NamedTuplestoreScanState *) node);
-			break;
-
-		case T_WorkTableScanState:
-			ExecEndWorkTableScan((WorkTableScanState *) node);
 			break;
 
 		case T_ForeignScanState:
@@ -810,6 +835,14 @@ standard_ExecEndNode(PlanState *node)
 			ExecEndSort((SortState *) node);
 			break;
 
+		case T_IncrementalSortState:
+			ExecEndIncrementalSort((IncrementalSortState *) node);
+			break;
+
+		case T_MemoizeState:
+			ExecEndMemoize((MemoizeState *) node);
+			break;
+
 		case T_GroupState:
 			ExecEndGroup((GroupState *) node);
 			break;
@@ -842,6 +875,7 @@ standard_ExecEndNode(PlanState *node)
 			ExecEndLimit((LimitState *) node);
 			break;
 
+<<<<<<< HEAD
 		/* POLAR px */
 		case T_MotionState:
 			ExecEndMotion((MotionState *) node);
@@ -859,6 +893,14 @@ standard_ExecEndNode(PlanState *node)
 			break;
 		/* POLAR end */
 
+=======
+			/* No clean up actions for these nodes. */
+		case T_ValuesScanState:
+		case T_NamedTuplestoreScanState:
+		case T_WorkTableScanState:
+			break;
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			break;
@@ -871,8 +913,14 @@ standard_ExecEndNode(PlanState *node)
  * Give execution nodes a chance to stop asynchronous resource consumption
  * and release any resources still held.
  */
-bool
+void
 ExecShutdownNode(PlanState *node)
+{
+	(void) ExecShutdownNode_walker(node, NULL);
+}
+
+static bool
+ExecShutdownNode_walker(PlanState *node, void *context)
 {
 	if (node == NULL)
 		return false;
@@ -892,7 +940,11 @@ ExecShutdownNode(PlanState *node)
 	if (node->instrument && node->instrument->running)
 		InstrStartNode(node->instrument);
 
+<<<<<<< HEAD
 	planstate_tree_walker(node, ExecShutdownNode, NULL);
+=======
+	planstate_tree_walker(node, ExecShutdownNode_walker, context);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	switch (nodeTag(node))
 	{
@@ -972,6 +1024,43 @@ ExecSetTupleBound(int64 tuples_needed, PlanState *child_node)
 			sortState->bounded = true;
 			sortState->bound = tuples_needed;
 		}
+	}
+	else if (IsA(child_node, IncrementalSortState))
+	{
+		/*
+		 * If it is an IncrementalSort node, notify it that it can use bounded
+		 * sort.
+		 *
+		 * Note: it is the responsibility of nodeIncrementalSort.c to react
+		 * properly to changes of these parameters.  If we ever redesign this,
+		 * it'd be a good idea to integrate this signaling with the
+		 * parameter-change mechanism.
+		 */
+		IncrementalSortState *sortState = (IncrementalSortState *) child_node;
+
+		if (tuples_needed < 0)
+		{
+			/* make sure flag gets reset if needed upon rescan */
+			sortState->bounded = false;
+		}
+		else
+		{
+			sortState->bounded = true;
+			sortState->bound = tuples_needed;
+		}
+	}
+	else if (IsA(child_node, AppendState))
+	{
+		/*
+		 * If it is an Append, we can apply the bound to any nodes that are
+		 * children of the Append, since the Append surely need read no more
+		 * than that many tuples from any one input.
+		 */
+		AppendState *aState = (AppendState *) child_node;
+		int			i;
+
+		for (i = 0; i < aState->as_nplans; i++)
+			ExecSetTupleBound(tuples_needed, aState->appendplans[i]);
 	}
 	else if (IsA(child_node, MergeAppendState))
 	{

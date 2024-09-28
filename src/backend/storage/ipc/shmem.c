@@ -3,7 +3,7 @@
  * shmem.c
  *	  create shared memory and initialize shared memory data structures.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -65,18 +65,24 @@
 
 #include "postgres.h"
 
-#include "access/transam.h"
+#include "fmgr.h"
+#include "funcapi.h"
 #include "miscadmin.h"
 #include "storage/lwlock.h"
 #include "storage/pg_shmem.h"
 #include "storage/shmem.h"
 #include "storage/spin.h"
+#include "utils/builtins.h"
 
+<<<<<<< HEAD
 /* POLAR */
 #include "storage/polar_shmem.h"
 /* POLAR csn */
 #include "access/polar_csn_mvcc_vars.h"
 /* POLAR end */
+=======
+static void *ShmemAllocRaw(Size size, Size *allocated_size);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /* shared memory global variables */
 
@@ -141,6 +147,7 @@ InitShmemAllocation(void)
 	/* ShmemIndex can't be set up yet (need LWLocks first) */
 	shmhdr->index = NULL;
 	ShmemIndex = (HTAB *) NULL;
+<<<<<<< HEAD
 
 	/*
 	 * Initialize ShmemVariableCache for transaction manager. (This doesn't
@@ -152,6 +159,8 @@ InitShmemAllocation(void)
 
 	/* POLAR csn */
 	polar_csn_mvcc_var_cache_shmem_init();
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
@@ -165,8 +174,9 @@ void *
 ShmemAlloc(Size size)
 {
 	void	   *newSpace;
+	Size		allocated_size;
 
-	newSpace = ShmemAllocNoError(size);
+	newSpace = ShmemAllocRaw(size, &allocated_size);
 	if (!newSpace)
 		ereport(ERROR,
 				(errcode(ERRCODE_OUT_OF_MEMORY),
@@ -182,6 +192,20 @@ ShmemAlloc(Size size)
  */
 void *
 ShmemAllocNoError(Size size)
+{
+	Size		allocated_size;
+
+	return ShmemAllocRaw(size, &allocated_size);
+}
+
+/*
+ * ShmemAllocRaw -- allocate align chunk and return allocated size
+ *
+ * Also sets *allocated_size to the number of bytes allocated, which will
+ * be equal to the number requested plus any padding we choose to add.
+ */
+static void *
+ShmemAllocRaw(Size size, Size *allocated_size)
 {
 	Size		newStart;
 	Size		newFree;
@@ -199,6 +223,7 @@ ShmemAllocNoError(Size size)
 	 * won't be sufficient.
 	 */
 	size = CACHELINEALIGN(size);
+	*allocated_size = size;
 
 	Assert(ShmemSegHdr != NULL);
 
@@ -280,7 +305,6 @@ void
 InitShmemIndex(void)
 {
 	HASHCTL		info;
-	int			hash_flags;
 
 	/*
 	 * Create the shared memory shmem index.
@@ -292,11 +316,11 @@ InitShmemIndex(void)
 	 */
 	info.keysize = SHMEM_INDEX_KEYSIZE;
 	info.entrysize = sizeof(ShmemIndexEnt);
-	hash_flags = HASH_ELEM;
 
 	ShmemIndex = ShmemInitHash("ShmemIndex",
 							   SHMEM_INDEX_SIZE, SHMEM_INDEX_SIZE,
-							   &info, hash_flags);
+							   &info,
+							   HASH_ELEM | HASH_STRINGS);
 }
 
 /*
@@ -316,6 +340,11 @@ InitShmemIndex(void)
  * init_size is the number of hashtable entries to preallocate.  For a table
  * whose maximum size is certain, this should be equal to max_size; that
  * ensures that no run-time out-of-shared-memory failures can occur.
+ *
+ * *infoP and hash_flags must specify at least the entry sizes and key
+ * comparison semantics (see hash_create()).  Flag bits and values specific
+ * to shared-memory hash tables are added here, except that callers may
+ * choose to specify HASH_PARTITION and/or HASH_FIXED_SIZE.
  *
  * Note: before Postgres 9.0, this function returned NULL for some failure
  * cases.  Now, it always throws error instead, so callers need not check
@@ -452,8 +481,10 @@ ShmemInitStruct(const char *name, Size size, bool *foundPtr)
 	}
 	else
 	{
+		Size		allocated_size;
+
 		/* It isn't in the table yet. allocate and initialize it */
-		structPtr = ShmemAllocNoError(size);
+		structPtr = ShmemAllocRaw(size, &allocated_size);
 		if (structPtr == NULL)
 		{
 			/* out of memory; remove the failed ShmemIndex entry */
@@ -466,6 +497,7 @@ ShmemInitStruct(const char *name, Size size, bool *foundPtr)
 							name, size)));
 		}
 		result->size = size;
+		result->allocated_size = allocated_size;
 		result->location = structPtr;
 	}
 
@@ -515,6 +547,7 @@ mul_size(Size s1, Size s2)
 	return result;
 }
 
+<<<<<<< HEAD
 /* POLAR */
 HTAB*
 polar_get_shmem_index(void)
@@ -528,3 +561,56 @@ polar_get_shmem_seg_hdr(void)
 	return ShmemSegHdr;
 }
 /* POLAR end*/
+=======
+/* SQL SRF showing allocated shared memory */
+Datum
+pg_get_shmem_allocations(PG_FUNCTION_ARGS)
+{
+#define PG_GET_SHMEM_SIZES_COLS 4
+	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+	HASH_SEQ_STATUS hstat;
+	ShmemIndexEnt *ent;
+	Size		named_allocated = 0;
+	Datum		values[PG_GET_SHMEM_SIZES_COLS];
+	bool		nulls[PG_GET_SHMEM_SIZES_COLS];
+
+	InitMaterializedSRF(fcinfo, 0);
+
+	LWLockAcquire(ShmemIndexLock, LW_SHARED);
+
+	hash_seq_init(&hstat, ShmemIndex);
+
+	/* output all allocated entries */
+	memset(nulls, 0, sizeof(nulls));
+	while ((ent = (ShmemIndexEnt *) hash_seq_search(&hstat)) != NULL)
+	{
+		values[0] = CStringGetTextDatum(ent->key);
+		values[1] = Int64GetDatum((char *) ent->location - (char *) ShmemSegHdr);
+		values[2] = Int64GetDatum(ent->size);
+		values[3] = Int64GetDatum(ent->allocated_size);
+		named_allocated += ent->allocated_size;
+
+		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc,
+							 values, nulls);
+	}
+
+	/* output shared memory allocated but not counted via the shmem index */
+	values[0] = CStringGetTextDatum("<anonymous>");
+	nulls[1] = true;
+	values[2] = Int64GetDatum(ShmemSegHdr->freeoffset - named_allocated);
+	values[3] = values[2];
+	tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
+
+	/* output as-of-yet unused shared memory */
+	nulls[0] = true;
+	values[1] = Int64GetDatum(ShmemSegHdr->freeoffset);
+	nulls[1] = false;
+	values[2] = Int64GetDatum(ShmemSegHdr->totalsize - ShmemSegHdr->freeoffset);
+	values[3] = values[2];
+	tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
+
+	LWLockRelease(ShmemIndexLock);
+
+	return (Datum) 0;
+}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

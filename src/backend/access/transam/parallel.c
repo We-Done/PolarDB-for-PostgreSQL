@@ -3,7 +3,7 @@
  * parallel.c
  *	  Infrastructure for launching parallel workers
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -14,6 +14,7 @@
 
 #include "postgres.h"
 
+#include "access/brin.h"
 #include "access/nbtree.h"
 #include "access/parallel.h"
 #include "access/session.h"
@@ -21,26 +22,27 @@
 #include "access/xlog.h"
 #include "catalog/index.h"
 #include "catalog/namespace.h"
+#include "catalog/pg_enum.h"
+#include "catalog/storage.h"
 #include "commands/async.h"
+#include "commands/vacuum.h"
 #include "executor/execParallel.h"
 #include "libpq/libpq.h"
 #include "libpq/pqformat.h"
 #include "libpq/pqmq.h"
 #include "miscadmin.h"
-#include "optimizer/planmain.h"
+#include "optimizer/optimizer.h"
 #include "pgstat.h"
 #include "storage/ipc.h"
-#include "storage/sinval.h"
+#include "storage/predicate.h"
 #include "storage/spin.h"
 #include "tcop/tcopprot.h"
 #include "utils/combocid.h"
 #include "utils/guc.h"
 #include "utils/inval.h"
 #include "utils/memutils.h"
-#include "utils/resowner.h"
+#include "utils/relmapper.h"
 #include "utils/snapmgr.h"
-#include "utils/typcache.h"
-
 
 /* POLAR px */
 #include "access/px_btbuild.h"
@@ -75,7 +77,11 @@
 #define PARALLEL_KEY_TRANSACTION_STATE		UINT64CONST(0xFFFFFFFFFFFF0008)
 #define PARALLEL_KEY_ENTRYPOINT				UINT64CONST(0xFFFFFFFFFFFF0009)
 #define PARALLEL_KEY_SESSION_DSM			UINT64CONST(0xFFFFFFFFFFFF000A)
-#define PARALLEL_KEY_REINDEX_STATE			UINT64CONST(0xFFFFFFFFFFFF000B)
+#define PARALLEL_KEY_PENDING_SYNCS			UINT64CONST(0xFFFFFFFFFFFF000B)
+#define PARALLEL_KEY_REINDEX_STATE			UINT64CONST(0xFFFFFFFFFFFF000C)
+#define PARALLEL_KEY_RELMAPPER_STATE		UINT64CONST(0xFFFFFFFFFFFF000D)
+#define PARALLEL_KEY_UNCOMMITTEDENUMS		UINT64CONST(0xFFFFFFFFFFFF000E)
+#define PARALLEL_KEY_CLIENTCONNINFO			UINT64CONST(0xFFFFFFFFFFFF000F)
 
 /* Fixed-size parallel state. */
 typedef struct FixedParallelState
@@ -89,11 +95,20 @@ typedef struct FixedParallelState
 	Oid			temp_toast_namespace_id;
 	int			sec_context;
 	bool		is_superuser;
+<<<<<<< HEAD
 	PGPROC	   *parallel_master_pgproc;
 	pid_t		parallel_master_pid;
 	BackendId	parallel_master_backend_id;
 	TimestampTz xact_ts;
 	TimestampTz stmt_ts;
+=======
+	PGPROC	   *parallel_leader_pgproc;
+	pid_t		parallel_leader_pid;
+	ProcNumber	parallel_leader_proc_number;
+	TimestampTz xact_ts;
+	TimestampTz stmt_ts;
+	SerializableXactHandle serializable_xact_handle;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/* Mutex protects remaining fields. */
 	slock_t		mutex;
@@ -111,7 +126,7 @@ typedef struct FixedParallelState
 int			ParallelWorkerNumber = -1;
 
 /* Is there a parallel message pending which we need to receive? */
-volatile bool ParallelMessagePending = false;
+volatile sig_atomic_t ParallelMessagePending = false;
 
 /* Are we initializing a parallel worker? */
 bool		InitializingParallelWorker = false;
@@ -123,7 +138,7 @@ static FixedParallelState *MyFixedParallelState;
 static dlist_head pcxt_list = DLIST_STATIC_INIT(pcxt_list);
 
 /* Backend-local copy of data from FixedParallelState. */
-static pid_t ParallelMasterPid;
+static pid_t ParallelLeaderPid;
 
 /*
  * List of internal parallel worker entry points.  We need this for
@@ -142,12 +157,20 @@ static const struct
 	{
 		"_bt_parallel_build_main", _bt_parallel_build_main
 	},
+<<<<<<< HEAD
 	/* POLAR px */
 	{
 		"polar_px_bt_build_main", polar_px_bt_build_main
 	},
 	{
 		"polar_flashback_pages_woker_main", polar_flashback_pages_woker_main
+=======
+	{
+		"_brin_parallel_build_main", _brin_parallel_build_main
+	},
+	{
+		"parallel_vacuum_main", parallel_vacuum_main
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 	/* POLAR End*/
 };
@@ -166,7 +189,7 @@ static void ParallelWorkerShutdown(int code, Datum arg);
  */
 ParallelContext *
 CreateParallelContext(const char *library_name, const char *function_name,
-					  int nworkers, bool serializable_okay)
+					  int nworkers)
 {
 	MemoryContext oldcontext;
 	ParallelContext *pcxt;
@@ -177,23 +200,6 @@ CreateParallelContext(const char *library_name, const char *function_name,
 	/* Number of workers should be non-negative. */
 	Assert(nworkers >= 0);
 
-	/*
-	 * If dynamic shared memory is not available, we won't be able to use
-	 * background workers.
-	 */
-	if (dynamic_shared_memory_type == DSM_IMPL_NONE)
-		nworkers = 0;
-
-	/*
-	 * If we are running under serializable isolation, we can't use parallel
-	 * workers, at least not until somebody enhances that mechanism to be
-	 * parallel-aware.  Utility statement callers may ask us to ignore this
-	 * restriction because they're always able to safely ignore the fact that
-	 * SIREAD locks do not work with parallelism.
-	 */
-	if (IsolationIsSerializable() && !serializable_okay)
-		nworkers = 0;
-
 	/* We might be running in a short-lived memory context. */
 	oldcontext = MemoryContextSwitchTo(TopTransactionContext);
 
@@ -201,6 +207,7 @@ CreateParallelContext(const char *library_name, const char *function_name,
 	pcxt = palloc0(sizeof(ParallelContext));
 	pcxt->subid = GetCurrentSubTransactionId();
 	pcxt->nworkers = nworkers;
+	pcxt->nworkers_to_launch = nworkers;
 	pcxt->library_name = pstrdup(library_name);
 	pcxt->function_name = pstrdup(function_name);
 	pcxt->error_context_stack = error_context_stack;
@@ -228,7 +235,11 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	Size		tsnaplen = 0;
 	Size		asnaplen = 0;
 	Size		tstatelen = 0;
+	Size		pendingsyncslen = 0;
 	Size		reindexlen = 0;
+	Size		relmapperlen = 0;
+	Size		uncommittedenumslen = 0;
+	Size		clientconninfolen = 0;
 	Size		segsize = 0;
 	int			i;
 	FixedParallelState *fps;
@@ -271,17 +282,28 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		shm_toc_estimate_chunk(&pcxt->estimator, guc_len);
 		combocidlen = EstimateComboCIDStateSpace();
 		shm_toc_estimate_chunk(&pcxt->estimator, combocidlen);
-		tsnaplen = EstimateSnapshotSpace(transaction_snapshot);
-		shm_toc_estimate_chunk(&pcxt->estimator, tsnaplen);
+		if (IsolationUsesXactSnapshot())
+		{
+			tsnaplen = EstimateSnapshotSpace(transaction_snapshot);
+			shm_toc_estimate_chunk(&pcxt->estimator, tsnaplen);
+		}
 		asnaplen = EstimateSnapshotSpace(active_snapshot);
 		shm_toc_estimate_chunk(&pcxt->estimator, asnaplen);
 		tstatelen = EstimateTransactionStateSpace();
 		shm_toc_estimate_chunk(&pcxt->estimator, tstatelen);
 		shm_toc_estimate_chunk(&pcxt->estimator, sizeof(dsm_handle));
+		pendingsyncslen = EstimatePendingSyncsSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, pendingsyncslen);
 		reindexlen = EstimateReindexStateSpace();
 		shm_toc_estimate_chunk(&pcxt->estimator, reindexlen);
+		relmapperlen = EstimateRelationMapSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, relmapperlen);
+		uncommittedenumslen = EstimateUncommittedEnumsSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, uncommittedenumslen);
+		clientconninfolen = EstimateClientConnectionInfoSpace();
+		shm_toc_estimate_chunk(&pcxt->estimator, clientconninfolen);
 		/* If you add more chunks here, you probably need to add keys. */
-		shm_toc_estimate_keys(&pcxt->estimator, 8);
+		shm_toc_estimate_keys(&pcxt->estimator, 12);
 
 		/* Estimate space need for error queues. */
 		StaticAssertStmt(BUFFERALIGN(PARALLEL_ERROR_QUEUE_SIZE) ==
@@ -330,15 +352,24 @@ InitializeParallelDSM(ParallelContext *pcxt)
 	fps->database_id = MyDatabaseId;
 	fps->authenticated_user_id = GetAuthenticatedUserId();
 	fps->outer_user_id = GetCurrentRoleId();
-	fps->is_superuser = session_auth_is_superuser;
+	fps->is_superuser = current_role_is_superuser;
 	GetUserIdAndSecContext(&fps->current_user_id, &fps->sec_context);
 	GetTempNamespaceState(&fps->temp_namespace_id,
 						  &fps->temp_toast_namespace_id);
+<<<<<<< HEAD
 	fps->parallel_master_pgproc = MyProc;
 	fps->parallel_master_pid = MyProcPid;
 	fps->parallel_master_backend_id = MyBackendId;
 	fps->xact_ts = GetCurrentTransactionStartTimestamp();
 	fps->stmt_ts = GetCurrentStatementStartTimestamp();
+=======
+	fps->parallel_leader_pgproc = MyProc;
+	fps->parallel_leader_pid = MyProcPid;
+	fps->parallel_leader_proc_number = MyProcNumber;
+	fps->xact_ts = GetCurrentTransactionStartTimestamp();
+	fps->stmt_ts = GetCurrentStatementStartTimestamp();
+	fps->serializable_xact_handle = ShareSerializableXact();
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	SpinLockInit(&fps->mutex);
 	fps->last_xlog_end = 0;
 	shm_toc_insert(pcxt->toc, PARALLEL_KEY_FIXED, fps);
@@ -352,10 +383,14 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		char	   *tsnapspace;
 		char	   *asnapspace;
 		char	   *tstatespace;
+		char	   *pendingsyncsspace;
 		char	   *reindexspace;
+		char	   *relmapperspace;
 		char	   *error_queue_space;
 		char	   *session_dsm_handle_space;
 		char	   *entrypointstate;
+		char	   *uncommittedenumsspace;
+		char	   *clientconninfospace;
 		Size		lnamelen;
 
 		/* Serialize shared libraries we have loaded. */
@@ -373,11 +408,19 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		SerializeComboCIDState(combocidlen, combocidspace);
 		shm_toc_insert(pcxt->toc, PARALLEL_KEY_COMBO_CID, combocidspace);
 
-		/* Serialize transaction snapshot and active snapshot. */
-		tsnapspace = shm_toc_allocate(pcxt->toc, tsnaplen);
-		SerializeSnapshot(transaction_snapshot, tsnapspace);
-		shm_toc_insert(pcxt->toc, PARALLEL_KEY_TRANSACTION_SNAPSHOT,
-					   tsnapspace);
+		/*
+		 * Serialize the transaction snapshot if the transaction isolation
+		 * level uses a transaction snapshot.
+		 */
+		if (IsolationUsesXactSnapshot())
+		{
+			tsnapspace = shm_toc_allocate(pcxt->toc, tsnaplen);
+			SerializeSnapshot(transaction_snapshot, tsnapspace);
+			shm_toc_insert(pcxt->toc, PARALLEL_KEY_TRANSACTION_SNAPSHOT,
+						   tsnapspace);
+		}
+
+		/* Serialize the active snapshot. */
 		asnapspace = shm_toc_allocate(pcxt->toc, asnaplen);
 		SerializeSnapshot(active_snapshot, asnapspace);
 		shm_toc_insert(pcxt->toc, PARALLEL_KEY_ACTIVE_SNAPSHOT, asnapspace);
@@ -394,10 +437,35 @@ InitializeParallelDSM(ParallelContext *pcxt)
 		SerializeTransactionState(tstatelen, tstatespace);
 		shm_toc_insert(pcxt->toc, PARALLEL_KEY_TRANSACTION_STATE, tstatespace);
 
+		/* Serialize pending syncs. */
+		pendingsyncsspace = shm_toc_allocate(pcxt->toc, pendingsyncslen);
+		SerializePendingSyncs(pendingsyncslen, pendingsyncsspace);
+		shm_toc_insert(pcxt->toc, PARALLEL_KEY_PENDING_SYNCS,
+					   pendingsyncsspace);
+
 		/* Serialize reindex state. */
 		reindexspace = shm_toc_allocate(pcxt->toc, reindexlen);
 		SerializeReindexState(reindexlen, reindexspace);
 		shm_toc_insert(pcxt->toc, PARALLEL_KEY_REINDEX_STATE, reindexspace);
+
+		/* Serialize relmapper state. */
+		relmapperspace = shm_toc_allocate(pcxt->toc, relmapperlen);
+		SerializeRelationMap(relmapperlen, relmapperspace);
+		shm_toc_insert(pcxt->toc, PARALLEL_KEY_RELMAPPER_STATE,
+					   relmapperspace);
+
+		/* Serialize uncommitted enum state. */
+		uncommittedenumsspace = shm_toc_allocate(pcxt->toc,
+												 uncommittedenumslen);
+		SerializeUncommittedEnums(uncommittedenumsspace, uncommittedenumslen);
+		shm_toc_insert(pcxt->toc, PARALLEL_KEY_UNCOMMITTEDENUMS,
+					   uncommittedenumsspace);
+
+		/* Serialize our ClientConnectionInfo. */
+		clientconninfospace = shm_toc_allocate(pcxt->toc, clientconninfolen);
+		SerializeClientConnectionInfo(clientconninfolen, clientconninfospace);
+		shm_toc_insert(pcxt->toc, PARALLEL_KEY_CLIENTCONNINFO,
+					   clientconninfospace);
 
 		/* Allocate space for worker information. */
 		pcxt->worker = palloc0(sizeof(ParallelWorkerInfo) * pcxt->nworkers);
@@ -493,6 +561,23 @@ ReinitializeParallelDSM(ParallelContext *pcxt)
 }
 
 /*
+ * Reinitialize parallel workers for a parallel context such that we could
+ * launch a different number of workers.  This is required for cases where
+ * we need to reuse the same DSM segment, but the number of workers can
+ * vary from run-to-run.
+ */
+void
+ReinitializeParallelWorkers(ParallelContext *pcxt, int nworkers_to_launch)
+{
+	/*
+	 * The number of workers that need to be launched must be less than the
+	 * number of workers with which the parallel context is initialized.
+	 */
+	Assert(pcxt->nworkers >= nworkers_to_launch);
+	pcxt->nworkers_to_launch = nworkers_to_launch;
+}
+
+/*
  * Launch parallel workers.
  */
 void
@@ -504,7 +589,7 @@ LaunchParallelWorkers(ParallelContext *pcxt)
 	bool		any_registrations_failed = false;
 
 	/* Skip this if we have no workers. */
-	if (pcxt->nworkers == 0)
+	if (pcxt->nworkers == 0 || pcxt->nworkers_to_launch == 0)
 		return;
 
 	/* We need to be a lock group leader. */
@@ -539,7 +624,7 @@ LaunchParallelWorkers(ParallelContext *pcxt)
 	 * fails.  It wouldn't help much anyway, because registering the worker in
 	 * no way guarantees that it will start up and initialize successfully.
 	 */
-	for (i = 0; i < pcxt->nworkers; ++i)
+	for (i = 0; i < pcxt->nworkers_to_launch; ++i)
 	{
 		memcpy(worker.bgw_extra, &i, sizeof(int));
 		if (!any_registrations_failed &&
@@ -690,12 +775,8 @@ WaitForParallelWorkersToAttach(ParallelContext *pcxt)
 				 * just end up waiting for the same worker again.
 				 */
 				rc = WaitLatch(MyLatch,
-							   WL_LATCH_SET | WL_POSTMASTER_DEATH,
+							   WL_LATCH_SET | WL_EXIT_ON_PM_DEATH,
 							   -1, WAIT_EVENT_BGWORKER_STARTUP);
-
-				/* emergency bailout if postmaster has died */
-				if (rc & WL_POSTMASTER_DEATH)
-					proc_exit(1);
 
 				if (rc & WL_LATCH_SET)
 					ResetLatch(MyLatch);
@@ -813,8 +894,8 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
 			}
 		}
 
-		WaitLatch(MyLatch, WL_LATCH_SET, -1,
-				  WAIT_EVENT_PARALLEL_FINISH);
+		(void) WaitLatch(MyLatch, WL_LATCH_SET | WL_EXIT_ON_PM_DEATH, -1,
+						 WAIT_EVENT_PARALLEL_FINISH);
 		ResetLatch(MyLatch);
 	}
 
@@ -833,8 +914,8 @@ WaitForParallelWorkersToFinish(ParallelContext *pcxt)
  *
  * This function ensures that workers have been completely shutdown.  The
  * difference between WaitForParallelWorkersToFinish and this function is
- * that former just ensures that last message sent by worker backend is
- * received by master backend whereas this ensures the complete shutdown.
+ * that the former just ensures that last message sent by a worker backend is
+ * received by the leader backend whereas this ensures the complete shutdown.
  */
 static void
 WaitForParallelWorkersToExit(ParallelContext *pcxt)
@@ -1079,18 +1160,8 @@ HandleParallelMessage(ParallelContext *pcxt, int i, StringInfo msg)
 
 	switch (msgtype)
 	{
-		case 'K':				/* BackendKeyData */
-			{
-				int32		pid = pq_getmsgint(msg, 4);
-
-				(void) pq_getmsgint(msg, 4);	/* discard cancel key */
-				(void) pq_getmsgend(msg);
-				pcxt->worker[i].pid = pid;
-				break;
-			}
-
-		case 'E':				/* ErrorResponse */
-		case 'N':				/* NoticeResponse */
+		case PqMsg_ErrorResponse:
+		case PqMsg_NoticeResponse:
 			{
 				ErrorData	edata;
 				ErrorContextCallback *save_error_context_stack;
@@ -1105,11 +1176,11 @@ HandleParallelMessage(ParallelContext *pcxt, int i, StringInfo msg)
 				 * If desired, add a context line to show that this is a
 				 * message propagated from a parallel worker.  Otherwise, it
 				 * can sometimes be confusing to understand what actually
-				 * happened.  (We don't do this in FORCE_PARALLEL_REGRESS mode
+				 * happened.  (We don't do this in DEBUG_PARALLEL_REGRESS mode
 				 * because it causes test-result instability depending on
 				 * whether a parallel worker is actually used or not.)
 				 */
-				if (force_parallel_mode != FORCE_PARALLEL_REGRESS)
+				if (debug_parallel_query != DEBUG_PARALLEL_REGRESS)
 				{
 					if (edata.context)
 						edata.context = psprintf("%s\n%s", edata.context,
@@ -1135,7 +1206,7 @@ HandleParallelMessage(ParallelContext *pcxt, int i, StringInfo msg)
 				break;
 			}
 
-		case 'A':				/* NotifyResponse */
+		case PqMsg_NotificationResponse:
 			{
 				/* Propagate NotifyResponse. */
 				int32		pid;
@@ -1152,7 +1223,24 @@ HandleParallelMessage(ParallelContext *pcxt, int i, StringInfo msg)
 				break;
 			}
 
-		case 'X':				/* Terminate, indicating clean exit */
+		case 'P':				/* Parallel progress reporting */
+			{
+				/*
+				 * Only incremental progress reporting is currently supported.
+				 * However, it's possible to add more fields to the message to
+				 * allow for handling of other backend progress APIs.
+				 */
+				int			index = pq_getmsgint(msg, 4);
+				int64		incr = pq_getmsgint64(msg);
+
+				pq_getmsgend(msg);
+
+				pgstat_progress_incr_param(index, incr);
+
+				break;
+			}
+
+		case PqMsg_Terminate:
 			{
 				shm_mq_detach(pcxt->worker[i].error_mqh);
 				pcxt->worker[i].error_mqh = NULL;
@@ -1170,10 +1258,8 @@ HandleParallelMessage(ParallelContext *pcxt, int i, StringInfo msg)
 /*
  * End-of-subtransaction cleanup for parallel contexts.
  *
- * Currently, it's forbidden to enter or leave a subtransaction while
- * parallel mode is in effect, so we could just blow away everything.  But
- * we may want to relax that restriction in the future, so this code
- * contemplates that there may be multiple subtransaction IDs in pcxt_list.
+ * Here we remove only parallel contexts initiated within the current
+ * subtransaction.
  */
 void
 AtEOSubXact_Parallel(bool isCommit, SubTransactionId mySubId)
@@ -1193,6 +1279,8 @@ AtEOSubXact_Parallel(bool isCommit, SubTransactionId mySubId)
 
 /*
  * End-of-transaction cleanup for parallel contexts.
+ *
+ * We nuke all remaining parallel contexts.
  */
 void
 AtEOXact_Parallel(bool isCommit)
@@ -1230,9 +1318,14 @@ ParallelWorkerMain(Datum main_arg)
 	char	   *tsnapspace;
 	char	   *asnapspace;
 	char	   *tstatespace;
+	char	   *pendingsyncsspace;
 	char	   *reindexspace;
-	StringInfoData msgbuf;
+	char	   *relmapperspace;
+	char	   *uncommittedenumsspace;
+	char	   *clientconninfospace;
 	char	   *session_dsm_handle_space;
+	Snapshot	tsnapshot;
+	Snapshot	asnapshot;
 
 	/* Set flag to indicate that we're initializing a parallel worker. */
 	InitializingParallelWorker = true;
@@ -1245,16 +1338,19 @@ ParallelWorkerMain(Datum main_arg)
 	Assert(ParallelWorkerNumber == -1);
 	memcpy(&ParallelWorkerNumber, MyBgworkerEntry->bgw_extra, sizeof(int));
 
-	/* Set up a memory context and resource owner. */
-	Assert(CurrentResourceOwner == NULL);
-	CurrentResourceOwner = ResourceOwnerCreate(NULL, "parallel toplevel");
+	/* Set up a memory context to work in, just for cleanliness. */
 	CurrentMemoryContext = AllocSetContextCreate(TopMemoryContext,
 												 "Parallel worker",
 												 ALLOCSET_DEFAULT_SIZES);
 
 	/*
-	 * Now that we have a resource owner, we can attach to the dynamic shared
-	 * memory segment and read the table of contents.
+	 * Attach to the dynamic shared memory segment for the parallel query, and
+	 * find its table of contents.
+	 *
+	 * Note: at this point, we have not created any ResourceOwner in this
+	 * process.  This will result in our DSM mapping surviving until process
+	 * exit, which is fine.  If there were a ResourceOwner, it would acquire
+	 * ownership of the mapping, but we have no need for that.
 	 */
 	seg = dsm_attach(DatumGetUInt32(main_arg));
 	if (seg == NULL)
@@ -1272,9 +1368,9 @@ ParallelWorkerMain(Datum main_arg)
 	MyFixedParallelState = fps;
 
 	/* Arrange to signal the leader if we exit. */
-	ParallelMasterPid = fps->parallel_master_pid;
-	ParallelMasterBackendId = fps->parallel_master_backend_id;
-	on_shmem_exit(ParallelWorkerShutdown, (Datum) 0);
+	ParallelLeaderPid = fps->parallel_leader_pid;
+	ParallelLeaderProcNumber = fps->parallel_leader_proc_number;
+	before_shmem_exit(ParallelWorkerShutdown, PointerGetDatum(seg));
 
 	/*
 	 * Now we can find and attach to the error queue provided for us.  That's
@@ -1288,20 +1384,8 @@ ParallelWorkerMain(Datum main_arg)
 	shm_mq_set_sender(mq, MyProc);
 	mqh = shm_mq_attach(mq, seg, NULL);
 	pq_redirect_to_shm_mq(seg, mqh);
-	pq_set_parallel_master(fps->parallel_master_pid,
-						   fps->parallel_master_backend_id);
-
-	/*
-	 * Send a BackendKeyData message to the process that initiated parallelism
-	 * so that it has access to our PID before it receives any other messages
-	 * from us.  Our cancel key is sent, too, since that's the way the
-	 * protocol message is defined, but it won't actually be used for anything
-	 * in this case.
-	 */
-	pq_beginmessage(&msgbuf, 'K');
-	pq_sendint32(&msgbuf, (int32) MyProcPid);
-	pq_sendint32(&msgbuf, (int32) MyCancelKey);
-	pq_endmessage(&msgbuf);
+	pq_set_parallel_leader(fps->parallel_leader_pid,
+						   fps->parallel_leader_proc_number);
 
 	/*
 	 * Hooray! Primary initialization is complete.  Now, we need to set up our
@@ -1317,8 +1401,8 @@ ParallelWorkerMain(Datum main_arg)
 	 * deadlock.  (If we can't join the lock group, the leader has gone away,
 	 * so just exit quietly.)
 	 */
-	if (!BecomeLockGroupMember(fps->parallel_master_pgproc,
-							   fps->parallel_master_pid))
+	if (!BecomeLockGroupMember(fps->parallel_leader_pgproc,
+							   fps->parallel_leader_pid))
 		return;
 
 	/*
@@ -1346,9 +1430,13 @@ ParallelWorkerMain(Datum main_arg)
 
 	/*
 	 * Set the client encoding to the database encoding, since that is what
-	 * the leader will expect.
+	 * the leader will expect.  (We're cheating a bit by not calling
+	 * PrepareClientEncoding first.  It's okay because this call will always
+	 * result in installing a no-op conversion.  No error should be possible,
+	 * but check anyway.)
 	 */
-	SetClientEncoding(GetDatabaseEncoding());
+	if (SetClientEncoding(GetDatabaseEncoding()) < 0)
+		elog(ERROR, "SetClientEncoding(%d) failed", GetDatabaseEncoding());
 
 	/*
 	 * Load libraries that were loaded by original backend.  We want to do
@@ -1358,15 +1446,29 @@ ParallelWorkerMain(Datum main_arg)
 	libraryspace = shm_toc_lookup(toc, PARALLEL_KEY_LIBRARY, false);
 	StartTransactionCommand();
 	RestoreLibraryState(libraryspace);
+<<<<<<< HEAD
 
 	/* Restore GUC values from launching backend. */
 	gucspace = shm_toc_lookup(toc, PARALLEL_KEY_GUC, false);
 	RestoreGUCState(gucspace);
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	CommitTransactionCommand();
 
 	/* Crank up a transaction state appropriate to a parallel worker. */
 	tstatespace = shm_toc_lookup(toc, PARALLEL_KEY_TRANSACTION_STATE, false);
 	StartParallelWorkerTransaction(tstatespace);
+
+	/*
+	 * Restore relmapper and reindex state early, since these affect catalog
+	 * access.  Ideally we'd do this even before calling InitPostgres, but
+	 * that has order-of-initialization problems, and also the relmapper would
+	 * get confused during the CommitTransactionCommand call above.
+	 */
+	relmapperspace = shm_toc_lookup(toc, PARALLEL_KEY_RELMAPPER_STATE, false);
+	RestoreRelationMap(relmapperspace);
+	reindexspace = shm_toc_lookup(toc, PARALLEL_KEY_REINDEX_STATE, false);
+	RestoreReindexState(reindexspace);
 
 	/* Restore combo CID state. */
 	combocidspace = shm_toc_lookup(toc, PARALLEL_KEY_COMBO_CID, false);
@@ -1377,20 +1479,39 @@ ParallelWorkerMain(Datum main_arg)
 		shm_toc_lookup(toc, PARALLEL_KEY_SESSION_DSM, false);
 	AttachSession(*(dsm_handle *) session_dsm_handle_space);
 
-	/* Restore transaction snapshot. */
-	tsnapspace = shm_toc_lookup(toc, PARALLEL_KEY_TRANSACTION_SNAPSHOT, false);
-	RestoreTransactionSnapshot(RestoreSnapshot(tsnapspace),
-							   fps->parallel_master_pgproc);
-
-	/* Restore active snapshot. */
+	/*
+	 * If the transaction isolation level is REPEATABLE READ or SERIALIZABLE,
+	 * the leader has serialized the transaction snapshot and we must restore
+	 * it. At lower isolation levels, there is no transaction-lifetime
+	 * snapshot, but we need TransactionXmin to get set to a value which is
+	 * less than or equal to the xmin of every snapshot that will be used by
+	 * this worker. The easiest way to accomplish that is to install the
+	 * active snapshot as the transaction snapshot. Code running in this
+	 * parallel worker might take new snapshots via GetTransactionSnapshot()
+	 * or GetLatestSnapshot(), but it shouldn't have any way of acquiring a
+	 * snapshot older than the active snapshot.
+	 */
 	asnapspace = shm_toc_lookup(toc, PARALLEL_KEY_ACTIVE_SNAPSHOT, false);
-	PushActiveSnapshot(RestoreSnapshot(asnapspace));
+	tsnapspace = shm_toc_lookup(toc, PARALLEL_KEY_TRANSACTION_SNAPSHOT, true);
+	asnapshot = RestoreSnapshot(asnapspace);
+	tsnapshot = tsnapspace ? RestoreSnapshot(tsnapspace) : asnapshot;
+	RestoreTransactionSnapshot(tsnapshot,
+							   fps->parallel_leader_pgproc);
+	PushActiveSnapshot(asnapshot);
 
 	/*
 	 * We've changed which tuples we can see, and must therefore invalidate
 	 * system caches.
 	 */
 	InvalidateSystemCaches();
+
+	/*
+	 * Restore GUC values from launching backend.  We can't do this earlier,
+	 * because GUC check hooks that do catalog lookups need to see the same
+	 * database state as the leader.
+	 */
+	gucspace = shm_toc_lookup(toc, PARALLEL_KEY_GUC, false);
+	RestoreGUCState(gucspace);
 
 	/*
 	 * Restore current role id.  Skip verifying whether session user is
@@ -1406,9 +1527,31 @@ ParallelWorkerMain(Datum main_arg)
 	SetTempNamespaceState(fps->temp_namespace_id,
 						  fps->temp_toast_namespace_id);
 
-	/* Restore reindex state. */
-	reindexspace = shm_toc_lookup(toc, PARALLEL_KEY_REINDEX_STATE, false);
-	RestoreReindexState(reindexspace);
+	/* Restore pending syncs. */
+	pendingsyncsspace = shm_toc_lookup(toc, PARALLEL_KEY_PENDING_SYNCS,
+									   false);
+	RestorePendingSyncs(pendingsyncsspace);
+
+	/* Restore uncommitted enums. */
+	uncommittedenumsspace = shm_toc_lookup(toc, PARALLEL_KEY_UNCOMMITTEDENUMS,
+										   false);
+	RestoreUncommittedEnums(uncommittedenumsspace);
+
+	/* Restore the ClientConnectionInfo. */
+	clientconninfospace = shm_toc_lookup(toc, PARALLEL_KEY_CLIENTCONNINFO,
+										 false);
+	RestoreClientConnectionInfo(clientconninfospace);
+
+	/*
+	 * Initialize SystemUser now that MyClientConnectionInfo is restored. Also
+	 * ensure that auth_method is actually valid, aka authn_id is not NULL.
+	 */
+	if (MyClientConnectionInfo.authn_id)
+		InitializeSystemUser(MyClientConnectionInfo.authn_id,
+							 hba_authname(MyClientConnectionInfo.auth_method));
+
+	/* Attach to the leader's serializable transaction, if SERIALIZABLE. */
+	AttachSerializableXact(fps->serializable_xact_handle);
 
 	/*
 	 * We've initialized all of our state now; nothing should change
@@ -1425,7 +1568,7 @@ ParallelWorkerMain(Datum main_arg)
 	/* Must exit parallel mode to pop active snapshot. */
 	ExitParallelMode();
 
-	/* Must pop active snapshot so resowner.c doesn't complain. */
+	/* Must pop active snapshot so snapmgr.c doesn't complain. */
 	PopActiveSnapshot();
 
 	/* Shut down the parallel-worker transaction. */
@@ -1435,7 +1578,7 @@ ParallelWorkerMain(Datum main_arg)
 	DetachSession();
 
 	/* Report success. */
-	pq_putmessage('X', NULL, 0);
+	pq_putmessage(PqMsg_Terminate, NULL, 0);
 }
 
 /*
@@ -1459,13 +1602,25 @@ ParallelWorkerReportLastRecEnd(XLogRecPtr last_xlog_end)
  * This guards against the case where we exit uncleanly without sending an
  * ErrorResponse to the leader, for example because some code calls proc_exit
  * directly.
+ *
+ * Also explicitly detach from dsm segment so that subsystems using
+ * on_dsm_detach() have a chance to send stats before the stats subsystem is
+ * shut down as part of a before_shmem_exit() hook.
+ *
+ * One might think this could instead be solved by carefully ordering the
+ * attaching to dsm segments, so that the pgstats segments get detached from
+ * later than the parallel query one. That turns out to not work because the
+ * stats hash might need to grow which can cause new segments to be allocated,
+ * which then will be detached from earlier.
  */
 static void
 ParallelWorkerShutdown(int code, Datum arg)
 {
-	SendProcSignal(ParallelMasterPid,
+	SendProcSignal(ParallelLeaderPid,
 				   PROCSIG_PARALLEL_MESSAGE,
-				   ParallelMasterBackendId);
+				   ParallelLeaderProcNumber);
+
+	dsm_detach((dsm_segment *) DatumGetPointer(arg));
 }
 
 /*

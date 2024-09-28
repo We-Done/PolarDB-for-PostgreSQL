@@ -8,7 +8,7 @@
  * pager open/close functions, all that stuff came with it.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/fe_utils/print.c
@@ -19,7 +19,6 @@
 
 #include <limits.h>
 #include <math.h>
-#include <signal.h>
 #include <unistd.h>
 
 #ifndef WIN32
@@ -30,12 +29,15 @@
 #include <termios.h>
 #endif
 
+<<<<<<< HEAD
 #include "libpq-int.h"
 #include "fe_utils/print.h"
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #include "catalog/pg_type_d.h"
 #include "fe_utils/mbprint.h"
-
+#include "fe_utils/print.h"
 
 /*
  * If the calling program doesn't have any mechanism for setting
@@ -44,7 +46,7 @@
  * Note: print.c's general strategy for when to check cancel_pressed is to do
  * so at completion of each row of output.
  */
-volatile bool cancel_pressed = false;
+volatile sig_atomic_t cancel_pressed = false;
 
 static bool always_ignore_sigpipe = false;
 
@@ -144,56 +146,126 @@ typedef struct unicodeStyleFormat
 static const unicodeStyleFormat unicode_style = {
 	{
 		{
-			/* ─ */
+			/* U+2500 Box Drawings Light Horizontal */
 			"\342\224\200",
-			/* ├╟ */
+
+			/*--
+			 * U+251C Box Drawings Light Vertical and Right,
+			 * U+255F Box Drawings Vertical Double and Right Single
+			 *--
+			 */
 			{"\342\224\234", "\342\225\237"},
-			/* ┤╢ */
+
+			/*--
+			 * U+2524 Box Drawings Light Vertical and Left,
+			 * U+2562 Box Drawings Vertical Double and Left Single
+			 *--
+			 */
 			{"\342\224\244", "\342\225\242"},
 		},
 		{
-			/* ═ */
+			/* U+2550 Box Drawings Double Horizontal */
 			"\342\225\220",
-			/* ╞╠ */
+
+			/*--
+			 * U+255E Box Drawings Vertical Single and Right Double,
+			 * U+2560 Box Drawings Double Vertical and Right
+			 *--
+			 */
 			{"\342\225\236", "\342\225\240"},
-			/* ╡╣ */
+
+			/*--
+			 * U+2561 Box Drawings Vertical Single and Left Double,
+			 * U+2563 Box Drawings Double Vertical and Left
+			 *--
+			 */
 			{"\342\225\241", "\342\225\243"},
 		},
 	},
 	{
 		{
-			/* │ */
+			/* U+2502 Box Drawings Light Vertical */
 			"\342\224\202",
-			/* ┼╪ */
+
+			/*--
+			 * U+253C Box Drawings Light Vertical and Horizontal,
+			 * U+256A Box Drawings Vertical Single and Horizontal Double
+			 *--
+			 */
 			{"\342\224\274", "\342\225\252"},
-			/* ┴╧ */
+
+			/*--
+			 * U+2534 Box Drawings Light Up and Horizontal,
+			 * U+2567 Box Drawings Up Single and Horizontal Double
+			 *--
+			 */
 			{"\342\224\264", "\342\225\247"},
-			/* ┬╤ */
+
+			/*--
+			 * U+252C Box Drawings Light Down and Horizontal,
+			 * U+2564 Box Drawings Down Single and Horizontal Double
+			 *--
+			 */
 			{"\342\224\254", "\342\225\244"},
 		},
 		{
-			/* ║ */
+			/* U+2551 Box Drawings Double Vertical */
 			"\342\225\221",
-			/* ╫╬ */
+
+			/*--
+			 * U+256B Box Drawings Vertical Double and Horizontal Single,
+			 * U+256C Box Drawings Double Vertical and Horizontal
+			 *--
+			 */
 			{"\342\225\253", "\342\225\254"},
-			/* ╨╩ */
+
+			/*--
+			 * U+2568 Box Drawings Up Double and Horizontal Single,
+			 * U+2569 Box Drawings Double Up and Horizontal
+			 *--
+			 */
 			{"\342\225\250", "\342\225\251"},
-			/* ╥╦ */
+
+			/*--
+			 * U+2565 Box Drawings Down Double and Horizontal Single,
+			 * U+2566 Box Drawings Double Down and Horizontal
+			 *--
+			 */
 			{"\342\225\245", "\342\225\246"},
 		},
 	},
 	{
-		/* └│┌─┐┘ */
+		/*--
+		 * U+2514 Box Drawings Light Up and Right,
+		 * U+2502 Box Drawings Light Vertical,
+		 * U+250C Box Drawings Light Down and Right,
+		 * U+2500 Box Drawings Light Horizontal,
+		 * U+2510 Box Drawings Light Down and Left,
+		 * U+2518 Box Drawings Light Up and Left
+		 *--
+		 */
 		{"\342\224\224", "\342\224\202", "\342\224\214", "\342\224\200", "\342\224\220", "\342\224\230"},
-		/* ╚║╔═╗╝ */
+
+		/*--
+		 * U+255A Box Drawings Double Up and Right,
+		 * U+2551 Box Drawings Double Vertical,
+		 * U+2554 Box Drawings Double Down and Right,
+		 * U+2550 Box Drawings Double Horizontal,
+		 * U+2557 Box Drawings Double Down and Left,
+		 * U+255D Box Drawings Double Up and Left
+		 *--
+		 */
 		{"\342\225\232", "\342\225\221", "\342\225\224", "\342\225\220", "\342\225\227", "\342\225\235"},
 	},
 	" ",
-	"\342\206\265",				/* ↵ */
+	/* U+21B5 Downwards Arrow with Corner Leftwards */
+	"\342\206\265",
 	" ",
-	"\342\206\265",				/* ↵ */
-	"\342\200\246",				/* … */
-	"\342\200\246",				/* … */
+	/* U+21B5 Downwards Arrow with Corner Leftwards */
+	"\342\206\265",
+	/* U+2026 Horizontal Ellipsis */
+	"\342\200\246",
+	"\342\200\246",
 	true
 };
 
@@ -201,10 +273,10 @@ static const unicodeStyleFormat unicode_style = {
 /* Local functions */
 static int	strlen_max_width(unsigned char *str, int *target_width, int encoding);
 static void IsPagerNeeded(const printTableContent *cont, int extra_lines, bool expanded,
-			  FILE **fout, bool *is_pager);
+						  FILE **fout, bool *is_pager);
 
 static void print_aligned_vertical(const printTableContent *cont,
-					   FILE *fout, bool is_pager);
+								   FILE *fout, bool is_pager);
 
 
 /* Count number of digits in integral part of number */
@@ -306,20 +378,6 @@ format_numeric_locale(const char *my_str)
 	Assert(strlen(new_str) <= new_len);
 
 	return new_str;
-}
-
-
-/*
- * fputnbytes: print exactly N bytes to a file
- *
- * We avoid using %.*s here because it can misbehave if the data
- * is not valid in what libc thinks is the prevailing encoding.
- */
-static void
-fputnbytes(FILE *f, const char *str, size_t n)
-{
-	while (n-- > 0)
-		fputc(*str++, f);
 }
 
 
@@ -914,7 +972,8 @@ print_aligned_text(const printTableContent *cont, FILE *fout, bool is_pager)
 
 			more_col_wrapping = col_count;
 			curr_nl_line = 0;
-			memset(header_done, false, col_count * sizeof(bool));
+			if (col_count > 0)
+				memset(header_done, false, col_count * sizeof(bool));
 			while (more_col_wrapping)
 			{
 				if (opt_border == 2)
@@ -1046,16 +1105,14 @@ print_aligned_text(const printTableContent *cont, FILE *fout, bool is_pager)
 					{
 						/* spaces first */
 						fprintf(fout, "%*s", width_wrap[j] - chars_to_output, "");
-						fputnbytes(fout,
-								   (char *) (this_line->ptr + bytes_output[j]),
-								   bytes_to_output);
+						fwrite((char *) (this_line->ptr + bytes_output[j]),
+							   1, bytes_to_output, fout);
 					}
 					else		/* Left aligned cell */
 					{
 						/* spaces second */
-						fputnbytes(fout,
-								   (char *) (this_line->ptr + bytes_output[j]),
-								   bytes_to_output);
+						fwrite((char *) (this_line->ptr + bytes_output[j]),
+							   1, bytes_to_output, fout);
 					}
 
 					bytes_output[j] += bytes_to_output;
@@ -1122,7 +1179,6 @@ print_aligned_text(const printTableContent *cont, FILE *fout, bool is_pager)
 			if (opt_border == 2)
 				fputs(dformat->rightvrule, fout);
 			fputc('\n', fout);
-
 		} while (more_lines);
 	}
 
@@ -1172,15 +1228,16 @@ cleanup:
 
 
 static void
-print_aligned_vertical_line(const printTextFormat *format,
-							const unsigned short opt_border,
+print_aligned_vertical_line(const printTableOpt *topt,
 							unsigned long record,
 							unsigned int hwidth,
 							unsigned int dwidth,
+							int output_columns,
 							printTextRule pos,
 							FILE *fout)
 {
-	const printTextLineFormat *lformat = &format->lrule[pos];
+	const printTextLineFormat *lformat = &get_line_style(topt)->lrule[pos];
+	const unsigned short opt_border = topt->border;
 	unsigned int i;
 	int			reclen = 0;
 
@@ -1209,8 +1266,18 @@ print_aligned_vertical_line(const printTextFormat *format,
 		if (reclen-- <= 0)
 			fputs(lformat->hrule, fout);
 		if (reclen-- <= 0)
-			fputs(lformat->midvrule, fout);
-		if (reclen-- <= 0)
+		{
+			if (topt->expanded_header_width_type == PRINT_XHEADER_COLUMN)
+			{
+				fputs(lformat->rightvrule, fout);
+			}
+			else
+			{
+				fputs(lformat->midvrule, fout);
+			}
+		}
+		if (reclen-- <= 0
+			&& topt->expanded_header_width_type != PRINT_XHEADER_COLUMN)
 			fputs(lformat->hrule, fout);
 	}
 	else
@@ -1218,12 +1285,44 @@ print_aligned_vertical_line(const printTextFormat *format,
 		if (reclen-- <= 0)
 			fputc(' ', fout);
 	}
-	if (reclen < 0)
-		reclen = 0;
-	for (i = reclen; i < dwidth; i++)
-		fputs(opt_border > 0 ? lformat->hrule : " ", fout);
-	if (opt_border == 2)
-		fprintf(fout, "%s%s", lformat->hrule, lformat->rightvrule);
+
+	if (topt->expanded_header_width_type != PRINT_XHEADER_COLUMN)
+	{
+		if (topt->expanded_header_width_type == PRINT_XHEADER_PAGE
+			|| topt->expanded_header_width_type == PRINT_XHEADER_EXACT_WIDTH)
+		{
+			if (topt->expanded_header_width_type == PRINT_XHEADER_EXACT_WIDTH)
+			{
+				output_columns = topt->expanded_header_exact_width;
+			}
+			if (output_columns > 0)
+			{
+				if (opt_border == 0)
+					dwidth = Min(dwidth, Max(0, (int) (output_columns - hwidth)));
+				if (opt_border == 1)
+					dwidth = Min(dwidth, Max(0, (int) (output_columns - hwidth - 3)));
+
+				/*
+				 * Handling the xheader width for border=2 doesn't make much
+				 * sense because this format has an additional right border,
+				 * but keep this for consistency.
+				 */
+				if (opt_border == 2)
+					dwidth = Min(dwidth, Max(0, (int) (output_columns - hwidth - 7)));
+			}
+		}
+
+		if (reclen < 0)
+			reclen = 0;
+		if (dwidth < reclen)
+			dwidth = reclen;
+
+		for (i = reclen; i < dwidth; i++)
+			fputs(opt_border > 0 ? lformat->hrule : " ", fout);
+		if (opt_border == 2)
+			fprintf(fout, "%s%s", lformat->hrule, lformat->rightvrule);
+	}
+
 	fputc('\n', fout);
 }
 
@@ -1308,7 +1407,7 @@ print_aligned_vertical(const printTableContent *cont,
 	}
 
 	/* find longest data cell */
-	for (i = 0, ptr = cont->cells; *ptr; ptr++, i++)
+	for (ptr = cont->cells; *ptr; ptr++)
 	{
 		int			width,
 					height,
@@ -1520,11 +1619,12 @@ print_aligned_vertical(const printTableContent *cont,
 				lhwidth++;		/* for newline indicators */
 
 			if (!opt_tuples_only)
-				print_aligned_vertical_line(format, opt_border, record++,
-											lhwidth, dwidth, pos, fout);
+				print_aligned_vertical_line(cont->opt, record++,
+											lhwidth, dwidth, output_columns,
+											pos, fout);
 			else if (i != 0 || !cont->opt->start_table || opt_border == 2)
-				print_aligned_vertical_line(format, opt_border, 0, lhwidth,
-											dwidth, pos, fout);
+				print_aligned_vertical_line(cont->opt, 0, lhwidth,
+											dwidth, output_columns, pos, fout);
 		}
 
 		/* Format the header */
@@ -1641,8 +1741,8 @@ print_aligned_vertical(const printTableContent *cont,
 				 */
 				bytes_to_output = strlen_max_width(dlineptr[dline].ptr + offset,
 												   &target_width, encoding);
-				fputnbytes(fout, (char *) (dlineptr[dline].ptr + offset),
-						   bytes_to_output);
+				fwrite((char *) (dlineptr[dline].ptr + offset),
+					   1, bytes_to_output, fout);
 
 				chars_to_output -= target_width;
 				offset += bytes_to_output;
@@ -1710,8 +1810,8 @@ print_aligned_vertical(const printTableContent *cont,
 	if (cont->opt->stop_table)
 	{
 		if (opt_border == 2 && !cancel_pressed)
-			print_aligned_vertical_line(format, opt_border, 0, hwidth, dwidth,
-										PRINT_RULE_BOTTOM, fout);
+			print_aligned_vertical_line(cont->opt, 0, hwidth, dwidth,
+										output_columns, PRINT_RULE_BOTTOM, fout);
 
 		/* print footers */
 		if (!opt_tuples_only && cont->footers != NULL && !cancel_pressed)
@@ -1738,7 +1838,119 @@ print_aligned_vertical(const printTableContent *cont,
 
 
 /**********************/
-/* HTML printing ******/
+/* CSV format		  */
+/**********************/
+
+
+static void
+csv_escaped_print(const char *str, FILE *fout)
+{
+	const char *p;
+
+	fputc('"', fout);
+	for (p = str; *p; p++)
+	{
+		if (*p == '"')
+			fputc('"', fout);	/* double quotes are doubled */
+		fputc(*p, fout);
+	}
+	fputc('"', fout);
+}
+
+static void
+csv_print_field(const char *str, FILE *fout, char sep)
+{
+	/*----------------
+	 * Enclose and escape field contents when one of these conditions is met:
+	 * - the field separator is found in the contents.
+	 * - the field contains a CR or LF.
+	 * - the field contains a double quote.
+	 * - the field is exactly "\.".
+	 * - the field separator is either "\" or ".".
+	 * The last two cases prevent producing a line that the server's COPY
+	 * command would interpret as an end-of-data marker.  We only really
+	 * need to ensure that the complete line isn't exactly "\.", but for
+	 * simplicity we apply stronger restrictions here.
+	 *----------------
+	 */
+	if (strchr(str, sep) != NULL ||
+		strcspn(str, "\r\n\"") != strlen(str) ||
+		strcmp(str, "\\.") == 0 ||
+		sep == '\\' || sep == '.')
+		csv_escaped_print(str, fout);
+	else
+		fputs(str, fout);
+}
+
+static void
+print_csv_text(const printTableContent *cont, FILE *fout)
+{
+	const char *const *ptr;
+	int			i;
+
+	if (cancel_pressed)
+		return;
+
+	/*
+	 * The title and footer are never printed in csv format. The header is
+	 * printed if opt_tuples_only is false.
+	 *
+	 * Despite RFC 4180 saying that end of lines are CRLF, terminate lines
+	 * with '\n', which prints out as the system-dependent EOL string in text
+	 * mode (typically LF on Unix and CRLF on Windows).
+	 */
+	if (cont->opt->start_table && !cont->opt->tuples_only)
+	{
+		/* print headers */
+		for (ptr = cont->headers; *ptr; ptr++)
+		{
+			if (ptr != cont->headers)
+				fputc(cont->opt->csvFieldSep[0], fout);
+			csv_print_field(*ptr, fout, cont->opt->csvFieldSep[0]);
+		}
+		fputc('\n', fout);
+	}
+
+	/* print cells */
+	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
+	{
+		csv_print_field(*ptr, fout, cont->opt->csvFieldSep[0]);
+		if ((i + 1) % cont->ncolumns)
+			fputc(cont->opt->csvFieldSep[0], fout);
+		else
+			fputc('\n', fout);
+	}
+}
+
+static void
+print_csv_vertical(const printTableContent *cont, FILE *fout)
+{
+	const char *const *ptr;
+	int			i;
+
+	/* print records */
+	for (i = 0, ptr = cont->cells; *ptr; i++, ptr++)
+	{
+		if (cancel_pressed)
+			return;
+
+		/* print name of column */
+		csv_print_field(cont->headers[i % cont->ncolumns], fout,
+						cont->opt->csvFieldSep[0]);
+
+		/* print field separator */
+		fputc(cont->opt->csvFieldSep[0], fout);
+
+		/* print field value */
+		csv_print_field(*ptr, fout, cont->opt->csvFieldSep[0]);
+
+		fputc('\n', fout);
+	}
+}
+
+
+/**********************/
+/* HTML				  */
 /**********************/
 
 
@@ -1954,8 +2166,9 @@ print_html_vertical(const printTableContent *cont, FILE *fout)
 
 
 /*************************/
-/* ASCIIDOC		 */
+/* ASCIIDOC				 */
 /*************************/
+
 
 static void
 asciidoc_escaped_print(const char *in, FILE *fout)
@@ -2175,6 +2388,7 @@ print_asciidoc_vertical(const printTableContent *cont, FILE *fout)
 	}
 }
 
+
 /*************************/
 /* LaTeX				 */
 /*************************/
@@ -2342,6 +2556,11 @@ print_latex_text(const printTableContent *cont, FILE *fout)
 		fputc('\n', fout);
 	}
 }
+
+
+/*************************/
+/* LaTeX longtable		 */
+/*************************/
 
 
 static void
@@ -2589,7 +2808,7 @@ print_latex_vertical(const printTableContent *cont, FILE *fout)
 
 
 /*************************/
-/* Troff -ms		 */
+/* Troff -ms			 */
 /*************************/
 
 
@@ -2906,6 +3125,7 @@ PageOutput(int lines, const printTableOpt *topt)
 				if (strspn(pagerprog, " \t\r\n") == strlen(pagerprog))
 					return stdout;
 			}
+			fflush(NULL);
 			disable_sigpipe_trap();
 			pagerpipe = popen(pagerprog, "w");
 			if (pagerpipe)
@@ -2958,6 +3178,8 @@ void
 printTableInit(printTableContent *const content, const printTableOpt *opt,
 			   const char *title, const int ncolumns, const int nrows)
 {
+	uint64		total_cells;
+
 	content->opt = opt;
 	content->title = title;
 	content->ncolumns = ncolumns;
@@ -2965,7 +3187,16 @@ printTableInit(printTableContent *const content, const printTableOpt *opt,
 
 	content->headers = pg_malloc0((ncolumns + 1) * sizeof(*content->headers));
 
-	content->cells = pg_malloc0((ncolumns * nrows + 1) * sizeof(*content->cells));
+	total_cells = (uint64) ncolumns * nrows;
+	/* Catch possible overflow.  Using >= here allows adding 1 below */
+	if (total_cells >= SIZE_MAX / sizeof(*content->cells))
+	{
+		fprintf(stderr, _("Cannot print table contents: number of cells %lld is equal to or exceeds maximum %lld.\n"),
+				(long long int) total_cells,
+				(long long int) (SIZE_MAX / sizeof(*content->cells)));
+		exit(EXIT_FAILURE);
+	}
+	content->cells = pg_malloc0((total_cells + 1) * sizeof(*content->cells));
 
 	content->cellmustfree = NULL;
 	content->footers = NULL;
@@ -3035,15 +3266,17 @@ void
 printTableAddCell(printTableContent *const content, char *cell,
 				  const bool translate, const bool mustfree)
 {
+	uint64		total_cells;
+
 #ifndef ENABLE_NLS
 	(void) translate;			/* unused parameter */
 #endif
 
-	if (content->cellsadded >= content->ncolumns * content->nrows)
+	total_cells = (uint64) content->ncolumns * content->nrows;
+	if (content->cellsadded >= total_cells)
 	{
-		fprintf(stderr, _("Cannot add cell to table content: "
-						  "total cell count of %d exceeded.\n"),
-				content->ncolumns * content->nrows);
+		fprintf(stderr, _("Cannot add cell to table content: total cell count of %lld exceeded.\n"),
+				(long long int) total_cells);
 		exit(EXIT_FAILURE);
 	}
 
@@ -3059,7 +3292,7 @@ printTableAddCell(printTableContent *const content, char *cell,
 	{
 		if (content->cellmustfree == NULL)
 			content->cellmustfree =
-				pg_malloc0((content->ncolumns * content->nrows + 1) * sizeof(bool));
+				pg_malloc0((total_cells + 1) * sizeof(bool));
 
 		content->cellmustfree[content->cellsadded] = true;
 	}
@@ -3127,12 +3360,13 @@ printTableCleanup(printTableContent *const content)
 {
 	if (content->cellmustfree)
 	{
-		int			i;
+		uint64		total_cells;
 
-		for (i = 0; i < content->nrows * content->ncolumns; i++)
+		total_cells = (uint64) content->ncolumns * content->nrows;
+		for (uint64 i = 0; i < total_cells; i++)
 		{
 			if (content->cellmustfree[i])
-				free((char *) content->cells[i]);
+				free(unconstify(char *, content->cells[i]));
 		}
 		free(content->cellmustfree);
 		content->cellmustfree = NULL;
@@ -3232,6 +3466,9 @@ printTable(const printTableContent *cont,
 		is_local_pager = is_pager;
 	}
 
+	/* clear any pre-existing error indication on the output stream */
+	clearerr(fout);
+
 	/* print the stuff */
 
 	if (flog)
@@ -3258,6 +3495,12 @@ printTable(const printTableContent *cont,
 				print_aligned_vertical(cont, fout, is_pager);
 			else
 				print_aligned_text(cont, fout, is_pager);
+			break;
+		case PRINT_CSV:
+			if (cont->opt->expanded == 1)
+				print_csv_vertical(cont, fout);
+			else
+				print_csv_text(cont, fout);
 			break;
 		case PRINT_HTML:
 			if (cont->opt->expanded == 1)
@@ -3452,8 +3695,9 @@ column_type_alignment(Oid ftype)
 		case NUMERICOID:
 		case OIDOID:
 		case XIDOID:
+		case XID8OID:
 		case CIDOID:
-		case CASHOID:
+		case MONEYOID:
 			align = 'r';
 			break;
 		default:
@@ -3561,8 +3805,6 @@ refresh_utf8format(const printTableOpt *opt)
 	popt->wrap_left = unicode_style.wrap_left;
 	popt->wrap_right = unicode_style.wrap_right;
 	popt->wrap_right_border = unicode_style.wrap_right_border;
-
-	return;
 }
 
 /*
@@ -3593,6 +3835,9 @@ strlen_max_width(unsigned char *str, int *target_width, int encoding)
 		curr_width += char_width;
 
 		str += PQmblen((char *) str, encoding);
+
+		if (str > end)			/* Don't overrun invalid string */
+			str = end;
 	}
 
 	*target_width = curr_width;

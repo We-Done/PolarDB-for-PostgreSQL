@@ -14,7 +14,9 @@ include $(top_builddir)/src/Makefile.global
 
 override CPPFLAGS := -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
 
-OBJS = libpqwalreceiver.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	libpqwalreceiver.o
 SHLIB_LINK_INTERNAL = $(libpq)
 SHLIB_LINK = $(filter -lintl, $(LIBS))
 SHLIB_PREREQS = submake-libpq
@@ -31,5 +33,5 @@ installdirs: installdirs-lib
 
 uninstall: uninstall-lib
 
-clean distclean maintainer-clean: clean-lib
+clean distclean: clean-lib
 	rm -f $(OBJS)

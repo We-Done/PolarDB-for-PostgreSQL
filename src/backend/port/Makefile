@@ -21,7 +21,11 @@ subdir = src/backend/port
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = atomics.o dynloader.o pg_sema.o pg_shmem.o $(TAS)
+OBJS = \
+	$(TAS) \
+	atomics.o \
+	pg_sema.o \
+	pg_shmem.o
 
 # POLAR
 OBJS += polar_sock.o
@@ -42,6 +46,6 @@ else
 	$(CC) $(CFLAGS) -c $<
 endif
 
-distclean clean:
+clean:
 	rm -f tas_cpp.s
 	$(MAKE) -C win32 clean

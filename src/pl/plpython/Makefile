@@ -20,6 +20,7 @@ PGFILEDESC = "PL/Python - procedural language"
 NAME = plpython$(python_majorversion)
 
 OBJS = \
+	$(WIN32RES) \
 	plpy_cursorobject.o \
 	plpy_elog.o \
 	plpy_exec.o \
@@ -31,17 +32,17 @@ OBJS = \
 	plpy_spi.o \
 	plpy_subxactobject.o \
 	plpy_typeio.o \
-	plpy_util.o \
-	$(WIN32RES)
+	plpy_util.o
 
-DATA = $(NAME)u.control $(NAME)u--1.0.sql $(NAME)u--unpackaged--1.0.sql
-ifeq ($(python_majorversion),2)
-DATA += plpythonu.control plpythonu--1.0.sql plpythonu--unpackaged--1.0.sql
-endif
+DATA = $(NAME)u.control $(NAME)u--1.0.sql
 
 # header files to install - it's not clear which of these might be needed
 # so install them all.
 INCS = 	plpython.h \
+<<<<<<< HEAD
+=======
+	plpython_system.h \
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	plpy_cursorobject.h \
 	plpy_elog.h \
 	plpy_exec.h \
@@ -69,7 +70,7 @@ libpython${pytverstr}.a: python${pytverstr}.def
 	dlltool --dllname python${pytverstr}.dll --def python${pytverstr}.def --output-lib libpython${pytverstr}.a
 
 python${pytverstr}.def:
-	pexports $(PYTHONDLL) > $@
+	gendef - $(PYTHONDLL) > $@
 
 endif # win32
 
@@ -77,11 +78,6 @@ endif # win32
 SHLIB_LINK = $(python_libspec) $(python_additional_libs) $(filter -lintl,$(LIBS))
 
 REGRESS_OPTS = --dbname=$(PL_TESTDB)
-# Only load plpythonu with Python 2.  The test files themselves load
-# the versioned language plpython(2|3)u.
-ifeq ($(python_majorversion),2)
-REGRESS_OPTS += --load-extension=plpythonu
-endif
 
 REGRESS = \
 	plpython_schema \
@@ -108,8 +104,6 @@ REGRESS = \
 	plpython_transaction \
 	plpython_drop
 
-REGRESS_PLPYTHON3_MANGLE := $(REGRESS)
-
 include $(top_srcdir)/src/Makefile.shlib
 
 all: all-lib
@@ -127,16 +121,16 @@ uninstall: uninstall-lib uninstall-data
 install-data: installdirs
 	$(INSTALL_DATA) $(addprefix $(srcdir)/, $(DATA)) '$(DESTDIR)$(datadir)/extension/'
 	$(INSTALL_DATA) $(addprefix $(srcdir)/, $(INCS)) '$(DESTDIR)$(includedir_server)'
+<<<<<<< HEAD
 	$(INSTALL_DATA) $(srcdir)/regress-python3-mangle.mk '$(DESTDIR)$(pgxsdir)/src/pl/plpython'
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 uninstall-data:
 	rm -f $(addprefix '$(DESTDIR)$(datadir)/extension'/, $(notdir $(DATA)))
-	rm -f $(addprefix '$(DESTDIR)$(includedir_server)'/, plpython.h plpy_util.h)
+	rm -f $(addprefix '$(DESTDIR)$(includedir_server)'/, $(INCS))
 
 .PHONY: install-data uninstall-data
-
-
-include $(srcdir)/regress-python3-mangle.mk
 
 
 check: submake-pg-regress
@@ -156,6 +150,7 @@ clean distclean: clean-lib
 ifeq ($(PORTNAME), win32)
 	rm -f python${pytverstr}.def
 endif
+	rm -f spiexceptions.h
 
 
 # Force this dependency to be known even without dependency info built:
@@ -163,8 +158,3 @@ plpy_plpymodule.o: spiexceptions.h
 
 spiexceptions.h: $(top_srcdir)/src/backend/utils/errcodes.txt generate-spiexceptions.pl
 	$(PERL) $(srcdir)/generate-spiexceptions.pl $< > $@
-
-distprep: spiexceptions.h
-
-maintainer-clean: distclean
-	rm -f spiexceptions.h

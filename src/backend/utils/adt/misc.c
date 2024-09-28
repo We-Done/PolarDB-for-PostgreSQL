@@ -3,7 +3,7 @@
  * misc.c
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,36 +15,55 @@
 #include "postgres.h"
 
 #include <sys/file.h>
-#include <signal.h>
+#include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <math.h>
 #include <unistd.h>
 
 #include "access/sysattr.h"
-#include "catalog/pg_authid.h"
-#include "catalog/catalog.h"
+#include "access/table.h"
 #include "catalog/pg_tablespace.h"
 #include "catalog/pg_type.h"
+#include "catalog/system_fk_info.h"
 #include "commands/dbcommands.h"
 #include "commands/tablespace.h"
 #include "common/keywords.h"
 #include "funcapi.h"
 #include "miscadmin.h"
-#include "pgstat.h"
+#include "nodes/miscnodes.h"
+#include "parser/parse_type.h"
 #include "parser/scansup.h"
+#include "pgstat.h"
 #include "postmaster/syslogger.h"
 #include "rewrite/rewriteHandler.h"
 #include "storage/fd.h"
-#include "storage/pmsignal.h"
-#include "storage/proc.h"
-#include "storage/procarray.h"
+#include "storage/latch.h"
+#include "tcop/tcopprot.h"
+#include "utils/builtins.h"
+#include "utils/fmgroids.h"
 #include "utils/lsyscache.h"
 #include "utils/ruleutils.h"
-#include "tcop/tcopprot.h"
-#include "utils/acl.h"
-#include "utils/builtins.h"
+#include "utils/syscache.h"
 #include "utils/timestamp.h"
+
+
+/*
+ * structure to cache metadata needed in pg_input_is_valid_common
+ */
+typedef struct ValidIOData
+{
+	Oid			typoid;
+	int32		typmod;
+	bool		typname_constant;
+	Oid			typiofunc;
+	Oid			typioparam;
+	FmgrInfo	inputproc;
+} ValidIOData;
+
+static bool pg_input_is_valid_common(FunctionCallInfo fcinfo,
+									 text *txt, text *typname,
+									 ErrorSaveContext *escontext);
 
 
 /*
@@ -199,6 +218,7 @@ current_query(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 }
 
+<<<<<<< HEAD
 /*
  * Send a signal to another backend.
  *
@@ -435,6 +455,8 @@ pg_rotate_logfile_v2(PG_FUNCTION_ARGS)
 	PG_RETURN_BOOL(true);
 }
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 /* Function to find out which databases make use of a tablespace */
 
 Datum
@@ -442,6 +464,7 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 {
 	Oid			tablespaceOid = PG_GETARG_OID(0);
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
+<<<<<<< HEAD
 	bool		randomAccess;
 	TupleDesc	tupdesc;
 	Tuplestorestate *tupstore;
@@ -475,6 +498,13 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 	rsinfo->setDesc = tupdesc;
 
 	MemoryContextSwitchTo(oldcontext);
+=======
+	char	   *location;
+	DIR		   *dirdesc;
+	struct dirent *de;
+
+	InitMaterializedSRF(fcinfo, MAT_SRF_USE_EXPECTED_DESC);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	if (tablespaceOid == GLOBALTABLESPACE_OID)
 	{
@@ -485,12 +515,21 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 	}
 
 	if (tablespaceOid == DEFAULTTABLESPACE_OID)
+<<<<<<< HEAD
 		location = psprintf("base");
 	else
 		location = psprintf("pg_tblspc/%u/%s", tablespaceOid,
 							TABLESPACE_VERSION_DIRECTORY);
 
 	dirdesc = polar_allocate_dir(location);
+=======
+		location = "base";
+	else
+		location = psprintf("%s/%u/%s", PG_TBLSPC_DIR, tablespaceOid,
+							TABLESPACE_VERSION_DIRECTORY);
+
+	dirdesc = AllocateDir(location);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	if (!dirdesc)
 	{
@@ -530,7 +569,12 @@ pg_tablespace_databases(PG_FUNCTION_ARGS)
 		values[0] = ObjectIdGetDatum(datOid);
 		nulls[0] = false;
 
+<<<<<<< HEAD
 		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+=======
+		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc,
+							 values, nulls);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
 	FreeDir(dirdesc);
@@ -548,6 +592,7 @@ pg_tablespace_location(PG_FUNCTION_ARGS)
 	char		sourcepath[MAXPGPATH];
 	char		targetpath[MAXPGPATH];
 	int			rllen;
+	struct stat st;
 
 	/*
 	 * POLAR: The user defined tablespace is not really created,
@@ -571,14 +616,32 @@ pg_tablespace_location(PG_FUNCTION_ARGS)
 		tablespaceOid == GLOBALTABLESPACE_OID)
 		PG_RETURN_TEXT_P(cstring_to_text(""));
 
-#if defined(HAVE_READLINK) || defined(WIN32)
-
 	/*
 	 * Find the location of the tablespace by reading the symbolic link that
 	 * is in pg_tblspc/<oid>.
 	 */
-	snprintf(sourcepath, sizeof(sourcepath), "pg_tblspc/%u", tablespaceOid);
+	snprintf(sourcepath, sizeof(sourcepath), "%s/%u", PG_TBLSPC_DIR, tablespaceOid);
 
+	/*
+	 * Before reading the link, check if the source path is a link or a
+	 * junction point.  Note that a directory is possible for a tablespace
+	 * created with allow_in_place_tablespaces enabled.  If a directory is
+	 * found, a relative path to the data directory is returned.
+	 */
+	if (lstat(sourcepath, &st) < 0)
+	{
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not stat file \"%s\": %m",
+						sourcepath)));
+	}
+
+	if (!S_ISLNK(st.st_mode))
+		PG_RETURN_TEXT_P(cstring_to_text(sourcepath));
+
+	/*
+	 * In presence of a link or a junction point, return the path pointing to.
+	 */
 	rllen = readlink(sourcepath, targetpath, sizeof(targetpath));
 	if (rllen < 0)
 		ereport(ERROR,
@@ -593,12 +656,6 @@ pg_tablespace_location(PG_FUNCTION_ARGS)
 	targetpath[rllen] = '\0';
 
 	PG_RETURN_TEXT_P(cstring_to_text(targetpath));
-#else
-	ereport(ERROR,
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-			 errmsg("tablespaces are not supported on this platform")));
-	PG_RETURN_NULL();
-#endif
 }
 
 /*
@@ -642,7 +699,7 @@ pg_sleep(PG_FUNCTION_ARGS)
 			break;
 
 		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | WL_TIMEOUT,
+						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 						 delay_ms,
 						 WAIT_EVENT_PG_SLEEP);
 		ResetLatch(MyLatch);
@@ -665,14 +722,9 @@ pg_get_keywords(PG_FUNCTION_ARGS)
 		funcctx = SRF_FIRSTCALL_INIT();
 		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
 
-		tupdesc = CreateTemplateTupleDesc(3, false);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 1, "word",
-						   TEXTOID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 2, "catcode",
-						   CHAROID, -1, 0);
-		TupleDescInitEntry(tupdesc, (AttrNumber) 3, "catdesc",
-						   TEXTOID, -1, 0);
-
+		if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+			elog(ERROR, "return type must be a row type");
+		funcctx->tuple_desc = tupdesc;
 		funcctx->attinmeta = TupleDescGetAttInMetadata(tupdesc);
 
 		MemoryContextSwitchTo(oldcontext);
@@ -680,39 +732,118 @@ pg_get_keywords(PG_FUNCTION_ARGS)
 
 	funcctx = SRF_PERCALL_SETUP();
 
-	if (funcctx->call_cntr < NumScanKeywords)
+	if (funcctx->call_cntr < ScanKeywords.num_keywords)
 	{
-		char	   *values[3];
+		char	   *values[5];
 		HeapTuple	tuple;
 
 		/* cast-away-const is ugly but alternatives aren't much better */
-		values[0] = (char *) ScanKeywords[funcctx->call_cntr].name;
+		values[0] = unconstify(char *,
+							   GetScanKeyword(funcctx->call_cntr,
+											  &ScanKeywords));
 
-		switch (ScanKeywords[funcctx->call_cntr].category)
+		switch (ScanKeywordCategories[funcctx->call_cntr])
 		{
 			case UNRESERVED_KEYWORD:
 				values[1] = "U";
-				values[2] = _("unreserved");
+				values[3] = _("unreserved");
 				break;
 			case COL_NAME_KEYWORD:
 				values[1] = "C";
-				values[2] = _("unreserved (cannot be function or type name)");
+				values[3] = _("unreserved (cannot be function or type name)");
 				break;
 			case TYPE_FUNC_NAME_KEYWORD:
 				values[1] = "T";
-				values[2] = _("reserved (can be function or type name)");
+				values[3] = _("reserved (can be function or type name)");
 				break;
 			case RESERVED_KEYWORD:
 				values[1] = "R";
-				values[2] = _("reserved");
+				values[3] = _("reserved");
 				break;
 			default:			/* shouldn't be possible */
 				values[1] = NULL;
-				values[2] = NULL;
+				values[3] = NULL;
 				break;
 		}
 
+		if (ScanKeywordBareLabel[funcctx->call_cntr])
+		{
+			values[2] = "true";
+			values[4] = _("can be bare label");
+		}
+		else
+		{
+			values[2] = "false";
+			values[4] = _("requires AS");
+		}
+
 		tuple = BuildTupleFromCStrings(funcctx->attinmeta, values);
+
+		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
+	}
+
+	SRF_RETURN_DONE(funcctx);
+}
+
+
+/* Function to return the list of catalog foreign key relationships */
+Datum
+pg_get_catalog_foreign_keys(PG_FUNCTION_ARGS)
+{
+	FuncCallContext *funcctx;
+	FmgrInfo   *arrayinp;
+
+	if (SRF_IS_FIRSTCALL())
+	{
+		MemoryContext oldcontext;
+		TupleDesc	tupdesc;
+
+		funcctx = SRF_FIRSTCALL_INIT();
+		oldcontext = MemoryContextSwitchTo(funcctx->multi_call_memory_ctx);
+
+		if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+			elog(ERROR, "return type must be a row type");
+		funcctx->tuple_desc = BlessTupleDesc(tupdesc);
+
+		/*
+		 * We use array_in to convert the C strings in sys_fk_relationships[]
+		 * to text arrays.  But we cannot use DirectFunctionCallN to call
+		 * array_in, and it wouldn't be very efficient if we could.  Fill an
+		 * FmgrInfo to use for the call.
+		 */
+		arrayinp = (FmgrInfo *) palloc(sizeof(FmgrInfo));
+		fmgr_info(F_ARRAY_IN, arrayinp);
+		funcctx->user_fctx = arrayinp;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
+
+	funcctx = SRF_PERCALL_SETUP();
+	arrayinp = (FmgrInfo *) funcctx->user_fctx;
+
+	if (funcctx->call_cntr < lengthof(sys_fk_relationships))
+	{
+		const SysFKRelationship *fkrel = &sys_fk_relationships[funcctx->call_cntr];
+		Datum		values[6];
+		bool		nulls[6];
+		HeapTuple	tuple;
+
+		memset(nulls, false, sizeof(nulls));
+
+		values[0] = ObjectIdGetDatum(fkrel->fk_table);
+		values[1] = FunctionCall3(arrayinp,
+								  CStringGetDatum(fkrel->fk_columns),
+								  ObjectIdGetDatum(TEXTOID),
+								  Int32GetDatum(-1));
+		values[2] = ObjectIdGetDatum(fkrel->pk_table);
+		values[3] = FunctionCall3(arrayinp,
+								  CStringGetDatum(fkrel->pk_columns),
+								  ObjectIdGetDatum(TEXTOID),
+								  Int32GetDatum(-1));
+		values[4] = BoolGetDatum(fkrel->is_array);
+		values[5] = BoolGetDatum(fkrel->is_opt);
+
+		tuple = heap_form_tuple(funcctx->tuple_desc, values, nulls);
 
 		SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));
 	}
@@ -728,6 +859,50 @@ Datum
 pg_typeof(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_OID(get_fn_expr_argtype(fcinfo->flinfo, 0));
+}
+
+
+/*
+ * Return the base type of the argument.
+ *		If the given type is a domain, return its base type;
+ *		otherwise return the type's own OID.
+ *		Return NULL if the type OID doesn't exist or points to a
+ *		non-existent base type.
+ *
+ * This is a SQL-callable version of getBaseType().  Unlike that function,
+ * we don't want to fail for a bogus type OID; this is helpful to keep race
+ * conditions from turning into query failures when scanning the catalogs.
+ * Hence we need our own implementation.
+ */
+Datum
+pg_basetype(PG_FUNCTION_ARGS)
+{
+	Oid			typid = PG_GETARG_OID(0);
+
+	/*
+	 * We loop to find the bottom base type in a stack of domains.
+	 */
+	for (;;)
+	{
+		HeapTuple	tup;
+		Form_pg_type typTup;
+
+		tup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));
+		if (!HeapTupleIsValid(tup))
+			PG_RETURN_NULL();	/* return NULL for bogus OID */
+		typTup = (Form_pg_type) GETSTRUCT(tup);
+		if (typTup->typtype != TYPTYPE_DOMAIN)
+		{
+			/* Not a domain, so done */
+			ReleaseSysCache(tup);
+			break;
+		}
+
+		typid = typTup->typbasetype;
+		ReleaseSysCache(tup);
+	}
+
+	PG_RETURN_OID(typid);
 }
 
 
@@ -801,6 +976,142 @@ pg_column_is_updatable(PG_FUNCTION_ARGS)
 #define REQ_EVENTS ((1 << CMD_UPDATE) | (1 << CMD_DELETE))
 
 	PG_RETURN_BOOL((events & REQ_EVENTS) == REQ_EVENTS);
+}
+
+
+/*
+ * pg_input_is_valid - test whether string is valid input for datatype.
+ *
+ * Returns true if OK, false if not.
+ *
+ * This will only work usefully if the datatype's input function has been
+ * updated to return "soft" errors via errsave/ereturn.
+ */
+Datum
+pg_input_is_valid(PG_FUNCTION_ARGS)
+{
+	text	   *txt = PG_GETARG_TEXT_PP(0);
+	text	   *typname = PG_GETARG_TEXT_PP(1);
+	ErrorSaveContext escontext = {T_ErrorSaveContext};
+
+	PG_RETURN_BOOL(pg_input_is_valid_common(fcinfo, txt, typname,
+											&escontext));
+}
+
+/*
+ * pg_input_error_info - test whether string is valid input for datatype.
+ *
+ * Returns NULL if OK, else the primary message, detail message, hint message
+ * and sql error code from the error.
+ *
+ * This will only work usefully if the datatype's input function has been
+ * updated to return "soft" errors via errsave/ereturn.
+ */
+Datum
+pg_input_error_info(PG_FUNCTION_ARGS)
+{
+	text	   *txt = PG_GETARG_TEXT_PP(0);
+	text	   *typname = PG_GETARG_TEXT_PP(1);
+	ErrorSaveContext escontext = {T_ErrorSaveContext};
+	TupleDesc	tupdesc;
+	Datum		values[4];
+	bool		isnull[4];
+
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		elog(ERROR, "return type must be a row type");
+
+	/* Enable details_wanted */
+	escontext.details_wanted = true;
+
+	if (pg_input_is_valid_common(fcinfo, txt, typname,
+								 &escontext))
+		memset(isnull, true, sizeof(isnull));
+	else
+	{
+		char	   *sqlstate;
+
+		Assert(escontext.error_occurred);
+		Assert(escontext.error_data != NULL);
+		Assert(escontext.error_data->message != NULL);
+
+		memset(isnull, false, sizeof(isnull));
+
+		values[0] = CStringGetTextDatum(escontext.error_data->message);
+
+		if (escontext.error_data->detail != NULL)
+			values[1] = CStringGetTextDatum(escontext.error_data->detail);
+		else
+			isnull[1] = true;
+
+		if (escontext.error_data->hint != NULL)
+			values[2] = CStringGetTextDatum(escontext.error_data->hint);
+		else
+			isnull[2] = true;
+
+		sqlstate = unpack_sql_state(escontext.error_data->sqlerrcode);
+		values[3] = CStringGetTextDatum(sqlstate);
+	}
+
+	return HeapTupleGetDatum(heap_form_tuple(tupdesc, values, isnull));
+}
+
+/* Common subroutine for the above */
+static bool
+pg_input_is_valid_common(FunctionCallInfo fcinfo,
+						 text *txt, text *typname,
+						 ErrorSaveContext *escontext)
+{
+	char	   *str = text_to_cstring(txt);
+	ValidIOData *my_extra;
+	Datum		converted;
+
+	/*
+	 * We arrange to look up the needed I/O info just once per series of
+	 * calls, assuming the data type doesn't change underneath us.
+	 */
+	my_extra = (ValidIOData *) fcinfo->flinfo->fn_extra;
+	if (my_extra == NULL)
+	{
+		fcinfo->flinfo->fn_extra =
+			MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
+							   sizeof(ValidIOData));
+		my_extra = (ValidIOData *) fcinfo->flinfo->fn_extra;
+		my_extra->typoid = InvalidOid;
+		/* Detect whether typname argument is constant. */
+		my_extra->typname_constant = get_fn_expr_arg_stable(fcinfo->flinfo, 1);
+	}
+
+	/*
+	 * If the typname argument is constant, we only need to parse it the first
+	 * time through.
+	 */
+	if (my_extra->typoid == InvalidOid || !my_extra->typname_constant)
+	{
+		char	   *typnamestr = text_to_cstring(typname);
+		Oid			typoid;
+
+		/* Parse type-name argument to obtain type OID and encoded typmod. */
+		(void) parseTypeString(typnamestr, &typoid, &my_extra->typmod, NULL);
+
+		/* Update type-specific info if typoid changed. */
+		if (my_extra->typoid != typoid)
+		{
+			getTypeInputInfo(typoid,
+							 &my_extra->typiofunc,
+							 &my_extra->typioparam);
+			fmgr_info_cxt(my_extra->typiofunc, &my_extra->inputproc,
+						  fcinfo->flinfo->fn_mcxt);
+			my_extra->typoid = typoid;
+		}
+	}
+
+	/* Now we can try to perform the conversion. */
+	return InputFunctionCallSafe(&my_extra->inputproc,
+								 str,
+								 my_extra->typioparam,
+								 my_extra->typmod,
+								 (Node *) escontext,
+								 &converted);
 }
 
 
@@ -994,11 +1305,13 @@ pg_current_logfile(PG_FUNCTION_ARGS)
 	{
 		logfmt = text_to_cstring(PG_GETARG_TEXT_PP(0));
 
-		if (strcmp(logfmt, "stderr") != 0 && strcmp(logfmt, "csvlog") != 0)
+		if (strcmp(logfmt, "stderr") != 0 &&
+			strcmp(logfmt, "csvlog") != 0 &&
+			strcmp(logfmt, "jsonlog") != 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("log format \"%s\" is not supported", logfmt),
-					 errhint("The supported log formats are \"stderr\" and \"csvlog\".")));
+					 errhint("The supported log formats are \"stderr\", \"csvlog\", and \"jsonlog\".")));
 	}
 
 	fd = AllocateFile(LOG_METAINFO_DATAFILE, "r");
@@ -1086,12 +1399,21 @@ pg_get_replica_identity_index(PG_FUNCTION_ARGS)
 	Oid			idxoid;
 	Relation	rel;
 
-	rel = heap_open(reloid, AccessShareLock);
+	rel = table_open(reloid, AccessShareLock);
 	idxoid = RelationGetReplicaIndex(rel);
-	heap_close(rel, AccessShareLock);
+	table_close(rel, AccessShareLock);
 
 	if (OidIsValid(idxoid))
 		PG_RETURN_OID(idxoid);
 	else
 		PG_RETURN_NULL();
+}
+
+/*
+ * Transition function for the ANY_VALUE aggregate
+ */
+Datum
+any_value_transfn(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_DATUM(PG_GETARG_DATUM(0));
 }

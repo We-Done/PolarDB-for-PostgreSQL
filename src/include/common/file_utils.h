@@ -1,11 +1,9 @@
 /*-------------------------------------------------------------------------
  *
- * File-processing utility routines for frontend code
- *
  * Assorted utility functions to work on files.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/common/file_utils.h
@@ -15,6 +13,7 @@
 #ifndef FILE_UTILS_H
 #define FILE_UTILS_H
 
+<<<<<<< HEAD
 extern int fsync_fname(const char *fname, bool isdir,
 			const char *progname);
 extern void fsync_pgdata(const char *pg_data, const char *progname,
@@ -25,5 +24,55 @@ extern void fsync_dir_recurse(const char *dir, const char *progname);
 extern int durable_rename(const char *oldfile, const char *newfile,
 			   const char *progname);
 extern int	fsync_parent_path(const char *fname, const char *progname);
+=======
+#include <dirent.h>
+
+typedef enum PGFileType
+{
+	PGFILETYPE_ERROR,
+	PGFILETYPE_UNKNOWN,
+	PGFILETYPE_REG,
+	PGFILETYPE_DIR,
+	PGFILETYPE_LNK,
+} PGFileType;
+
+typedef enum DataDirSyncMethod
+{
+	DATA_DIR_SYNC_METHOD_FSYNC,
+	DATA_DIR_SYNC_METHOD_SYNCFS,
+} DataDirSyncMethod;
+
+struct iovec;					/* avoid including port/pg_iovec.h here */
+
+#ifdef FRONTEND
+extern int	fsync_fname(const char *fname, bool isdir);
+extern void sync_pgdata(const char *pg_data, int serverVersion,
+						DataDirSyncMethod sync_method);
+extern void sync_dir_recurse(const char *dir, DataDirSyncMethod sync_method);
+extern int	durable_rename(const char *oldfile, const char *newfile);
+extern int	fsync_parent_path(const char *fname);
+#endif
+
+extern PGFileType get_dirent_type(const char *path,
+								  const struct dirent *de,
+								  bool look_through_symlinks,
+								  int elevel);
+
+extern int	compute_remaining_iovec(struct iovec *destination,
+									const struct iovec *source,
+									int iovcnt,
+									size_t transferred);
+
+extern ssize_t pg_pwritev_with_retry(int fd,
+									 const struct iovec *iov,
+									 int iovcnt,
+									 off_t offset);
+
+extern ssize_t pg_pwrite_zeros(int fd, size_t size, off_t offset);
+
+/* Filename components */
+#define PG_TEMP_FILES_DIR "pgsql_tmp"
+#define PG_TEMP_FILE_PREFIX "pgsql_tmp"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #endif							/* FILE_UTILS_H */

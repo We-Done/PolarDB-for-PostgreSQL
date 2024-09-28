@@ -3,7 +3,7 @@
  * ts_typanalyze.c
  *	  functions for gathering statistics from tsvector columns
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -13,11 +13,13 @@
  */
 #include "postgres.h"
 
-#include "access/hash.h"
+#include "catalog/pg_collation.h"
 #include "catalog/pg_operator.h"
 #include "commands/vacuum.h"
+#include "common/hashfn.h"
 #include "tsearch/ts_type.h"
 #include "utils/builtins.h"
+#include "varatt.h"
 
 
 /* A hash key for lexemes */
@@ -36,15 +38,17 @@ typedef struct
 } TrackItem;
 
 static void compute_tsvector_stats(VacAttrStats *stats,
-					   AnalyzeAttrFetchFunc fetchfunc,
-					   int samplerows,
-					   double totalrows);
+								   AnalyzeAttrFetchFunc fetchfunc,
+								   int samplerows,
+								   double totalrows);
 static void prune_lexemes_hashtable(HTAB *lexemes_tab, int b_current);
 static uint32 lexeme_hash(const void *key, Size keysize);
 static int	lexeme_match(const void *key1, const void *key2, Size keysize);
 static int	lexeme_compare(const void *key1, const void *key2);
-static int	trackitem_compare_frequencies_desc(const void *e1, const void *e2);
-static int	trackitem_compare_lexemes(const void *e1, const void *e2);
+static int	trackitem_compare_frequencies_desc(const void *e1, const void *e2,
+											   void *arg);
+static int	trackitem_compare_lexemes(const void *e1, const void *e2,
+									  void *arg);
 
 
 /*
@@ -54,16 +58,14 @@ Datum
 ts_typanalyze(PG_FUNCTION_ARGS)
 {
 	VacAttrStats *stats = (VacAttrStats *) PG_GETARG_POINTER(0);
-	Form_pg_attribute attr = stats->attr;
 
 	/* If the attstattarget column is negative, use the default value */
-	/* NB: it is okay to scribble on stats->attr since it's a copy */
-	if (attr->attstattarget < 0)
-		attr->attstattarget = default_statistics_target;
+	if (stats->attstattarget < 0)
+		stats->attstattarget = default_statistics_target;
 
 	stats->compute_stats = compute_tsvector_stats;
 	/* see comment about the choice of minrows in commands/analyze.c */
-	stats->minrows = 300 * attr->attstattarget;
+	stats->minrows = 300 * stats->attstattarget;
 
 	PG_RETURN_BOOL(true);
 }
@@ -158,7 +160,6 @@ compute_tsvector_stats(VacAttrStats *stats,
 	int			vector_no,
 				lexeme_no;
 	LexemeHashKey hash_key;
-	TrackItem  *item;
 
 	/*
 	 * We want statistics_target * 10 lexemes in the MCELEM array.  This
@@ -166,7 +167,7 @@ compute_tsvector_stats(VacAttrStats *stats,
 	 * the number of individual lexeme values tracked in pg_statistic ought to
 	 * be more than the number of values for a simple scalar column.
 	 */
-	num_mcelem = stats->attr->attstattarget * 10;
+	num_mcelem = stats->attstattarget * 10;
 
 	/*
 	 * We set bucket width equal to (num_mcelem + 10) / 0.007 as per the
@@ -179,7 +180,6 @@ compute_tsvector_stats(VacAttrStats *stats,
 	 * worry about overflowing the initial size. Also we don't need to pay any
 	 * attention to locking and memory management.
 	 */
-	MemSet(&hash_ctl, 0, sizeof(hash_ctl));
 	hash_ctl.keysize = sizeof(LexemeHashKey);
 	hash_ctl.entrysize = sizeof(TrackItem);
 	hash_ctl.hash = lexeme_hash;
@@ -238,6 +238,7 @@ compute_tsvector_stats(VacAttrStats *stats,
 		curentryptr = ARRPTR(vector);
 		for (j = 0; j < vector->size; j++)
 		{
+			TrackItem  *item;
 			bool		found;
 
 			/*
@@ -251,7 +252,7 @@ compute_tsvector_stats(VacAttrStats *stats,
 
 			/* Lookup current lexeme in hashtable, adding it if new */
 			item = (TrackItem *) hash_search(lexemes_tab,
-											 (const void *) &hash_key,
+											 &hash_key,
 											 HASH_ENTER, &found);
 
 			if (found)
@@ -294,6 +295,7 @@ compute_tsvector_stats(VacAttrStats *stats,
 		int			nonnull_cnt = samplerows - null_cnt;
 		int			i;
 		TrackItem **sort_table;
+		TrackItem  *item;
 		int			track_len;
 		int			cutoff_freq;
 		int			minfreq,
@@ -347,8 +349,8 @@ compute_tsvector_stats(VacAttrStats *stats,
 		 */
 		if (num_mcelem < track_len)
 		{
-			qsort(sort_table, track_len, sizeof(TrackItem *),
-				  trackitem_compare_frequencies_desc);
+			qsort_interruptible(sort_table, track_len, sizeof(TrackItem *),
+								trackitem_compare_frequencies_desc, NULL);
 			/* reset minfreq to the smallest frequency we're keeping */
 			minfreq = sort_table[num_mcelem - 1]->frequency;
 		}
@@ -376,8 +378,8 @@ compute_tsvector_stats(VacAttrStats *stats,
 			 * presorted we can employ binary search for that.  See
 			 * ts_selfuncs.c for a real usage scenario.
 			 */
-			qsort(sort_table, num_mcelem, sizeof(TrackItem *),
-				  trackitem_compare_lexemes);
+			qsort_interruptible(sort_table, num_mcelem, sizeof(TrackItem *),
+								trackitem_compare_lexemes, NULL);
 
 			/* Must copy the target values into anl_context */
 			old_context = MemoryContextSwitchTo(stats->anl_context);
@@ -402,12 +404,12 @@ compute_tsvector_stats(VacAttrStats *stats,
 			 */
 			for (i = 0; i < num_mcelem; i++)
 			{
-				TrackItem  *item = sort_table[i];
+				TrackItem  *titem = sort_table[i];
 
 				mcelem_values[i] =
-					PointerGetDatum(cstring_to_text_with_len(item->key.lexeme,
-															 item->key.length));
-				mcelem_freqs[i] = (double) item->frequency / (double) nonnull_cnt;
+					PointerGetDatum(cstring_to_text_with_len(titem->key.lexeme,
+															 titem->key.length));
+				mcelem_freqs[i] = (double) titem->frequency / (double) nonnull_cnt;
 			}
 			mcelem_freqs[i++] = (double) minfreq / (double) nonnull_cnt;
 			mcelem_freqs[i] = (double) maxfreq / (double) nonnull_cnt;
@@ -415,6 +417,7 @@ compute_tsvector_stats(VacAttrStats *stats,
 
 			stats->stakind[0] = STATISTIC_KIND_MCELEM;
 			stats->staop[0] = TextEqualOperator;
+			stats->stacoll[0] = DEFAULT_COLLATION_OID;
 			stats->stanumbers[0] = mcelem_freqs;
 			/* See above comment about two extra frequency fields */
 			stats->numnumbers[0] = num_mcelem + 2;
@@ -459,7 +462,7 @@ prune_lexemes_hashtable(HTAB *lexemes_tab, int b_current)
 		{
 			char	   *lexeme = item->key.lexeme;
 
-			if (hash_search(lexemes_tab, (const void *) &item->key,
+			if (hash_search(lexemes_tab, &item->key,
 							HASH_REMOVE, NULL) == NULL)
 				elog(ERROR, "hash table corrupted");
 			pfree(lexeme);
@@ -509,10 +512,10 @@ lexeme_compare(const void *key1, const void *key2)
 }
 
 /*
- *	qsort() comparator for sorting TrackItems on frequencies (descending sort)
+ *	Comparator for sorting TrackItems on frequencies (descending sort)
  */
 static int
-trackitem_compare_frequencies_desc(const void *e1, const void *e2)
+trackitem_compare_frequencies_desc(const void *e1, const void *e2, void *arg)
 {
 	const TrackItem *const *t1 = (const TrackItem *const *) e1;
 	const TrackItem *const *t2 = (const TrackItem *const *) e2;
@@ -521,10 +524,10 @@ trackitem_compare_frequencies_desc(const void *e1, const void *e2)
 }
 
 /*
- *	qsort() comparator for sorting TrackItems on lexemes
+ *	Comparator for sorting TrackItems on lexemes
  */
 static int
-trackitem_compare_lexemes(const void *e1, const void *e2)
+trackitem_compare_lexemes(const void *e1, const void *e2, void *arg)
 {
 	const TrackItem *const *t1 = (const TrackItem *const *) e1;
 	const TrackItem *const *t2 = (const TrackItem *const *) e2;

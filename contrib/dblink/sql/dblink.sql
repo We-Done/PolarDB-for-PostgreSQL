@@ -1,8 +1,33 @@
 CREATE EXTENSION dblink;
 
+<<<<<<< HEAD
 alter system set dblink.polar_auto_port_mapping=off;
 alter system set dblink.polar_connection_check=off;
 select pg_reload_conf();
+=======
+-- directory paths and dlsuffix are passed to us in environment variables
+\getenv abs_srcdir PG_ABS_SRCDIR
+\getenv libdir PG_LIBDIR
+\getenv dlsuffix PG_DLSUFFIX
+
+\set regresslib :libdir '/regress' :dlsuffix
+
+-- create some functions needed for tests
+CREATE FUNCTION setenv(text, text)
+   RETURNS void
+   AS :'regresslib', 'regress_setenv'
+   LANGUAGE C STRICT;
+
+CREATE FUNCTION wait_pid(int)
+   RETURNS void
+   AS :'regresslib'
+   LANGUAGE C STRICT;
+
+\set path :abs_srcdir '/'
+\set fnbody 'SELECT setenv(''PGSERVICEFILE'', ' :'path' ' || $1)'
+CREATE FUNCTION set_pgservicefile(text) RETURNS void LANGUAGE SQL
+    AS :'fnbody';
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 -- want context for notices
 \set SHOW_CONTEXT always
@@ -466,6 +491,14 @@ REVOKE EXECUTE ON FUNCTION dblink_connect_u(text, text) FROM regress_dblink_user
 DROP USER regress_dblink_user;
 DROP USER MAPPING FOR public SERVER fdtest;
 DROP SERVER fdtest;
+
+-- should fail
+ALTER FOREIGN DATA WRAPPER dblink_fdw OPTIONS (nonexistent 'fdw');
+
+-- test repeated calls to dblink_connect
+SELECT dblink_connect(connection_parameters());
+SELECT dblink_connect(connection_parameters());
+SELECT dblink_disconnect();
 
 -- test asynchronous notifications
 SELECT dblink_connect(connection_parameters());

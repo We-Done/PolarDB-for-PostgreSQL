@@ -2,7 +2,7 @@
  * ginblock.h
  *	  details of structures stored in GIN index blocks
  *
- *	Copyright (c) 2006-2018, PostgreSQL Global Development Group
+ *	Copyright (c) 2006-2024, PostgreSQL Global Development Group
  *
  *	src/include/access/ginblock.h
  *--------------------------------------------------------------------------
@@ -12,6 +12,7 @@
 
 #include "access/transam.h"
 #include "storage/block.h"
+#include "storage/bufpage.h"
 #include "storage/itemptr.h"
 #include "storage/off.h"
 
@@ -134,8 +135,12 @@ typedef struct GinMetaPageData
  */
 #define GinPageGetDeleteXid(page) ( ((PageHeader) (page))->pd_prune_xid )
 #define GinPageSetDeleteXid(page, xid) ( ((PageHeader) (page))->pd_prune_xid = xid)
+<<<<<<< HEAD
 #define GinPageIsRecyclable(page) ( PageIsNew(page) || (GinPageIsDeleted(page) \
 	&& TransactionIdPrecedes(GinPageGetDeleteXid(page), RecentGlobalXmin)))
+=======
+extern bool GinPageIsRecyclable(Page page);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /*
  * We use our own ItemPointerGet(BlockNumber|OffsetNumber)
@@ -171,9 +176,6 @@ typedef struct GinMetaPageData
 	 GinItemPointerGetBlockNumber(p) == (BlockNumber)0)
 #define ItemPointerSetMax(p)  \
 	ItemPointerSet((p), InvalidBlockNumber, (OffsetNumber)0xffff)
-#define ItemPointerIsMax(p)  \
-	(GinItemPointerGetOffsetNumber(p) == (OffsetNumber)0xffff && \
-	 GinItemPointerGetBlockNumber(p) == InvalidBlockNumber)
 #define ItemPointerSetLossyPage(p, b)  \
 	ItemPointerSet((p), (b), (OffsetNumber)0xffff)
 #define ItemPointerIsLossyPage(p)  \

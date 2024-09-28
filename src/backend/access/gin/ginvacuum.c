@@ -4,7 +4,7 @@
  *	  delete & vacuum routines for the postgres GIN
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -189,7 +189,11 @@ ginDeletePage(GinVacuumState *gvs, BlockNumber deleteBlkno, BlockNumber leftBlkn
 	 * address.
 	 */
 	GinPageSetDeleted(page);
+<<<<<<< HEAD
 	GinPageSetDeleteXid(page, ReadNewTransactionId());
+=======
+	GinPageSetDeleteXid(page, ReadNextTransactionId());
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	MarkBufferDirty(pBuffer);
 	MarkBufferDirty(lBuffer);
@@ -231,6 +235,7 @@ ginDeletePage(GinVacuumState *gvs, BlockNumber deleteBlkno, BlockNumber leftBlkn
 
 	END_CRIT_SECTION();
 
+	gvs->result->pages_newly_deleted++;
 	gvs->result->pages_deleted++;
 }
 
@@ -413,17 +418,29 @@ ginVacuumPostingTree(GinVacuumState *gvs, BlockNumber rootBlkno)
 		 * There is at least one empty page.  So we have to rescan the tree
 		 * deleting empty pages.
 		 */
+<<<<<<< HEAD
 		Buffer				buffer;
 		DataPageDeleteStack root,
 						   *ptr,
 						   *tmp;
+=======
+		Buffer		buffer;
+		DataPageDeleteStack root,
+				   *ptr,
+				   *tmp;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 		buffer = ReadBufferExtended(gvs->index, MAIN_FORKNUM, rootBlkno,
 									RBM_NORMAL, gvs->strategy);
 
 		/*
+<<<<<<< HEAD
 		 * Lock posting tree root for cleanup to ensure there are no concurrent
 		 * inserts.
+=======
+		 * Lock posting tree root for cleanup to ensure there are no
+		 * concurrent inserts.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		 */
 		LockBufferForCleanup(buffer);
 
@@ -589,7 +606,7 @@ ginbulkdelete(IndexVacuumInfo *info, IndexBulkDeleteResult *stats,
 		/*
 		 * and cleanup any pending inserts
 		 */
-		ginInsertCleanup(&gvs.ginstate, !IsAutoVacuumWorkerProcess(),
+		ginInsertCleanup(&gvs.ginstate, !AmAutoVacuumWorkerProcess(),
 						 false, true, stats);
 	}
 
@@ -700,7 +717,7 @@ ginvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 	 */
 	if (info->analyze_only)
 	{
-		if (IsAutoVacuumWorkerProcess())
+		if (AmAutoVacuumWorkerProcess())
 		{
 			initGinState(&ginstate, index);
 			ginInsertCleanup(&ginstate, false, true, true, stats);
@@ -716,7 +733,7 @@ ginvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 	{
 		stats = (IndexBulkDeleteResult *) palloc0(sizeof(IndexBulkDeleteResult));
 		initGinState(&ginstate, index);
-		ginInsertCleanup(&ginstate, !IsAutoVacuumWorkerProcess(),
+		ginInsertCleanup(&ginstate, !AmAutoVacuumWorkerProcess(),
 						 false, true, stats);
 	}
 
@@ -727,7 +744,7 @@ ginvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 	 * entries.  This is bogus if the index is partial, but it's real hard to
 	 * tell how many distinct heap entries are referenced by a GIN index.
 	 */
-	stats->num_index_tuples = info->num_heap_tuples;
+	stats->num_index_tuples = Max(info->num_heap_tuples, 0);
 	stats->estimated_count = info->estimated_count;
 
 	/*
@@ -778,7 +795,7 @@ ginvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 
 	/* Update the metapage with accurate page and entry counts */
 	idxStat.nTotalPages = npages;
-	ginUpdateStats(info->index, &idxStat);
+	ginUpdateStats(info->index, &idxStat, false);
 
 	/* Finally, vacuum the FSM */
 	IndexFreeSpaceMapVacuum(info->index);
@@ -792,4 +809,30 @@ ginvacuumcleanup(IndexVacuumInfo *info, IndexBulkDeleteResult *stats)
 		UnlockRelationForExtension(index, ExclusiveLock);
 
 	return stats;
+}
+
+/*
+ * Return whether Page can safely be recycled.
+ */
+bool
+GinPageIsRecyclable(Page page)
+{
+	TransactionId delete_xid;
+
+	if (PageIsNew(page))
+		return true;
+
+	if (!GinPageIsDeleted(page))
+		return false;
+
+	delete_xid = GinPageGetDeleteXid(page);
+
+	if (!TransactionIdIsValid(delete_xid))
+		return true;
+
+	/*
+	 * If no backend still could view delete_xid as in running, all scans
+	 * concurrent with ginDeletePage() must have finished.
+	 */
+	return GlobalVisCheckRemovableXid(NULL, delete_xid);
 }

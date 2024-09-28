@@ -3,22 +3,12 @@
  * equalfuncs.c
  *	  Equality functions to compare node trees.
  *
- * NOTE: we currently support comparing all node types found in parse
- * trees.  We do not support comparing executor state trees; there
- * is no need for that, and no point in maintaining all the code that
- * would be needed.  We also do not support comparing Path trees, mainly
- * because the circular linkages between RelOptInfo and Path nodes can't
- * be handled easily in a simple depth-first traversal.
- *
- * Currently, in fact, equal() doesn't know how to compare Plan trees
- * either.  This might need to be fixed someday.
- *
  * NOTE: it is intentional that parse location fields (in nodes that have
  * one) are not compared.  This is because we want, for example, a variable
  * "x" to be considered equal() to another reference to "x" in the query.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -30,8 +20,11 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+<<<<<<< HEAD
 #include "nodes/extensible.h"
 #include "nodes/relation.h"
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #include "utils/datum.h"
 
 
@@ -74,6 +67,13 @@
 #define equalstr(a, b)	\
 	(((a) != NULL && (b) != NULL) ? (strcmp(a, b) == 0) : (a) == (b))
 
+/* Compare a field that is an inline array */
+#define COMPARE_ARRAY_FIELD(fldname) \
+	do { \
+		if (memcmp(a->fldname, b->fldname, sizeof(a->fldname)) != 0) \
+			return false; \
+	} while (0)
+
 /* Compare a field that is a pointer to a simple palloc'd object of size sz */
 #define COMPARE_POINTER_FIELD(fldname, sz) \
 	do { \
@@ -90,89 +90,12 @@
 	((void) 0)
 
 
-/*
- *	Stuff from primnodes.h
- */
+#include "equalfuncs.funcs.c"
 
-static bool
-_equalAlias(const Alias *a, const Alias *b)
-{
-	COMPARE_STRING_FIELD(aliasname);
-	COMPARE_NODE_FIELD(colnames);
-
-	return true;
-}
-
-static bool
-_equalRangeVar(const RangeVar *a, const RangeVar *b)
-{
-	COMPARE_STRING_FIELD(catalogname);
-	COMPARE_STRING_FIELD(schemaname);
-	COMPARE_STRING_FIELD(relname);
-	COMPARE_SCALAR_FIELD(inh);
-	COMPARE_SCALAR_FIELD(relpersistence);
-	COMPARE_NODE_FIELD(alias);
-	COMPARE_LOCATION_FIELD(location);
-
-	return true;
-}
-
-static bool
-_equalTableFunc(const TableFunc *a, const TableFunc *b)
-{
-	COMPARE_NODE_FIELD(ns_uris);
-	COMPARE_NODE_FIELD(ns_names);
-	COMPARE_NODE_FIELD(docexpr);
-	COMPARE_NODE_FIELD(rowexpr);
-	COMPARE_NODE_FIELD(colnames);
-	COMPARE_NODE_FIELD(coltypes);
-	COMPARE_NODE_FIELD(coltypmods);
-	COMPARE_NODE_FIELD(colcollations);
-	COMPARE_NODE_FIELD(colexprs);
-	COMPARE_NODE_FIELD(coldefexprs);
-	COMPARE_BITMAPSET_FIELD(notnulls);
-	COMPARE_SCALAR_FIELD(ordinalitycol);
-	COMPARE_LOCATION_FIELD(location);
-
-	return true;
-}
-
-static bool
-_equalIntoClause(const IntoClause *a, const IntoClause *b)
-{
-	COMPARE_NODE_FIELD(rel);
-	COMPARE_NODE_FIELD(colNames);
-	COMPARE_NODE_FIELD(options);
-	COMPARE_SCALAR_FIELD(onCommit);
-	COMPARE_STRING_FIELD(tableSpaceName);
-	COMPARE_NODE_FIELD(viewQuery);
-	COMPARE_SCALAR_FIELD(skipData);
-
-	return true;
-}
 
 /*
- * We don't need an _equalExpr because Expr is an abstract supertype which
- * should never actually get instantiated.  Also, since it has no common
- * fields except NodeTag, there's no need for a helper routine to factor
- * out comparing the common fields...
+ * Support functions for nodes with custom_copy_equal attribute
  */
-
-static bool
-_equalVar(const Var *a, const Var *b)
-{
-	COMPARE_SCALAR_FIELD(varno);
-	COMPARE_SCALAR_FIELD(varattno);
-	COMPARE_SCALAR_FIELD(vartype);
-	COMPARE_SCALAR_FIELD(vartypmod);
-	COMPARE_SCALAR_FIELD(varcollid);
-	COMPARE_SCALAR_FIELD(varlevelsup);
-	COMPARE_SCALAR_FIELD(varnoold);
-	COMPARE_SCALAR_FIELD(varoattno);
-	COMPARE_LOCATION_FIELD(location);
-
-	return true;
-}
 
 static bool
 _equalConst(const Const *a, const Const *b)
@@ -196,6 +119,7 @@ _equalConst(const Const *a, const Const *b)
 }
 
 static bool
+<<<<<<< HEAD
 _equalParam(const Param *a, const Param *b)
 {
 	COMPARE_SCALAR_FIELD(paramkind);
@@ -925,6 +849,8 @@ _equalPlaceHolderInfo(const PlaceHolderInfo *a, const PlaceHolderInfo *b)
  * Stuff from extensible.h
  */
 static bool
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 _equalExtensibleNode(const ExtensibleNode *a, const ExtensibleNode *b)
 {
 	const ExtensibleNodeMethods *methods;
@@ -941,13 +867,10 @@ _equalExtensibleNode(const ExtensibleNode *a, const ExtensibleNode *b)
 	return true;
 }
 
-/*
- * Stuff from parsenodes.h
- */
-
 static bool
-_equalQuery(const Query *a, const Query *b)
+_equalA_Const(const A_Const *a, const A_Const *b)
 {
+<<<<<<< HEAD
 	COMPARE_SCALAR_FIELD(commandType);
 	COMPARE_SCALAR_FIELD(querySource);
 	/* we intentionally ignore queryId, since it might not be set */
@@ -2351,6 +2274,12 @@ static bool
 _equalAConst(const A_Const *a, const A_Const *b)
 {
 	if (!equal(&a->val, &b->val))	/* hack for in-line Value field */
+=======
+	COMPARE_SCALAR_FIELD(isnull);
+	/* Hack for in-line val field.  Also val is not valid if isnull is true */
+	if (!a->isnull &&
+		!equal(&a->val, &b->val))
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		return false;
 	COMPARE_LOCATION_FIELD(location);
 
@@ -2358,8 +2287,9 @@ _equalAConst(const A_Const *a, const A_Const *b)
 }
 
 static bool
-_equalFuncCall(const FuncCall *a, const FuncCall *b)
+_equalBitmapset(const Bitmapset *a, const Bitmapset *b)
 {
+<<<<<<< HEAD
 	COMPARE_NODE_FIELD(funcname);
 	COMPARE_NODE_FIELD(args);
 	COMPARE_NODE_FIELD(agg_order);
@@ -2912,12 +2842,14 @@ _equalPartitionCmd(const PartitionCmd *a, const PartitionCmd *b)
 	COMPARE_NODE_FIELD(bound);
 
 	return true;
+=======
+	return bms_equal(a, b);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
- * Stuff from pg_list.h
+ * Lists are handled specially
  */
-
 static bool
 _equalList(const List *a, const List *b)
 {
@@ -2958,6 +2890,13 @@ _equalList(const List *a, const List *b)
 					return false;
 			}
 			break;
+		case T_XidList:
+			forboth(item_a, a, item_b, b)
+			{
+				if (lfirst_xid(item_a) != lfirst_xid(item_b))
+					return false;
+			}
+			break;
 		default:
 			elog(ERROR, "unrecognized list node type: %d",
 				 (int) a->type);
@@ -2973,35 +2912,6 @@ _equalList(const List *a, const List *b)
 	return true;
 }
 
-/*
- * Stuff from value.h
- */
-
-static bool
-_equalValue(const Value *a, const Value *b)
-{
-	COMPARE_SCALAR_FIELD(type);
-
-	switch (a->type)
-	{
-		case T_Integer:
-			COMPARE_SCALAR_FIELD(val.ival);
-			break;
-		case T_Float:
-		case T_String:
-		case T_BitString:
-			COMPARE_STRING_FIELD(val.str);
-			break;
-		case T_Null:
-			/* nothing to do */
-			break;
-		default:
-			elog(ERROR, "unrecognized node type: %d", (int) a->type);
-			break;
-	}
-
-	return true;
-}
 
 /*
  * equal
@@ -3032,191 +2942,16 @@ equal(const void *a, const void *b)
 
 	switch (nodeTag(a))
 	{
-			/*
-			 * PRIMITIVE NODES
-			 */
-		case T_Alias:
-			retval = _equalAlias(a, b);
-			break;
-		case T_RangeVar:
-			retval = _equalRangeVar(a, b);
-			break;
-		case T_TableFunc:
-			retval = _equalTableFunc(a, b);
-			break;
-		case T_IntoClause:
-			retval = _equalIntoClause(a, b);
-			break;
-		case T_Var:
-			retval = _equalVar(a, b);
-			break;
-		case T_Const:
-			retval = _equalConst(a, b);
-			break;
-		case T_Param:
-			retval = _equalParam(a, b);
-			break;
-		case T_Aggref:
-			retval = _equalAggref(a, b);
-			break;
-		case T_GroupingFunc:
-			retval = _equalGroupingFunc(a, b);
-			break;
-		case T_WindowFunc:
-			retval = _equalWindowFunc(a, b);
-			break;
-		case T_ArrayRef:
-			retval = _equalArrayRef(a, b);
-			break;
-		case T_FuncExpr:
-			retval = _equalFuncExpr(a, b);
-			break;
-		case T_NamedArgExpr:
-			retval = _equalNamedArgExpr(a, b);
-			break;
-		case T_OpExpr:
-			retval = _equalOpExpr(a, b);
-			break;
-		case T_DistinctExpr:
-			retval = _equalDistinctExpr(a, b);
-			break;
-		case T_NullIfExpr:
-			retval = _equalNullIfExpr(a, b);
-			break;
-		case T_ScalarArrayOpExpr:
-			retval = _equalScalarArrayOpExpr(a, b);
-			break;
-		case T_BoolExpr:
-			retval = _equalBoolExpr(a, b);
-			break;
-		case T_SubLink:
-			retval = _equalSubLink(a, b);
-			break;
-		case T_SubPlan:
-			retval = _equalSubPlan(a, b);
-			break;
-		case T_AlternativeSubPlan:
-			retval = _equalAlternativeSubPlan(a, b);
-			break;
-		case T_FieldSelect:
-			retval = _equalFieldSelect(a, b);
-			break;
-		case T_FieldStore:
-			retval = _equalFieldStore(a, b);
-			break;
-		case T_RelabelType:
-			retval = _equalRelabelType(a, b);
-			break;
-		case T_CoerceViaIO:
-			retval = _equalCoerceViaIO(a, b);
-			break;
-		case T_ArrayCoerceExpr:
-			retval = _equalArrayCoerceExpr(a, b);
-			break;
-		case T_ConvertRowtypeExpr:
-			retval = _equalConvertRowtypeExpr(a, b);
-			break;
-		case T_CollateExpr:
-			retval = _equalCollateExpr(a, b);
-			break;
-		case T_CaseExpr:
-			retval = _equalCaseExpr(a, b);
-			break;
-		case T_CaseWhen:
-			retval = _equalCaseWhen(a, b);
-			break;
-		case T_CaseTestExpr:
-			retval = _equalCaseTestExpr(a, b);
-			break;
-		case T_ArrayExpr:
-			retval = _equalArrayExpr(a, b);
-			break;
-		case T_RowExpr:
-			retval = _equalRowExpr(a, b);
-			break;
-		case T_RowCompareExpr:
-			retval = _equalRowCompareExpr(a, b);
-			break;
-		case T_CoalesceExpr:
-			retval = _equalCoalesceExpr(a, b);
-			break;
-		case T_MinMaxExpr:
-			retval = _equalMinMaxExpr(a, b);
-			break;
-		case T_SQLValueFunction:
-			retval = _equalSQLValueFunction(a, b);
-			break;
-		case T_XmlExpr:
-			retval = _equalXmlExpr(a, b);
-			break;
-		case T_NullTest:
-			retval = _equalNullTest(a, b);
-			break;
-		case T_BooleanTest:
-			retval = _equalBooleanTest(a, b);
-			break;
-		case T_CoerceToDomain:
-			retval = _equalCoerceToDomain(a, b);
-			break;
-		case T_CoerceToDomainValue:
-			retval = _equalCoerceToDomainValue(a, b);
-			break;
-		case T_SetToDefault:
-			retval = _equalSetToDefault(a, b);
-			break;
-		case T_CurrentOfExpr:
-			retval = _equalCurrentOfExpr(a, b);
-			break;
-		case T_NextValueExpr:
-			retval = _equalNextValueExpr(a, b);
-			break;
-		case T_InferenceElem:
-			retval = _equalInferenceElem(a, b);
-			break;
-		case T_TargetEntry:
-			retval = _equalTargetEntry(a, b);
-			break;
-		case T_RangeTblRef:
-			retval = _equalRangeTblRef(a, b);
-			break;
-		case T_FromExpr:
-			retval = _equalFromExpr(a, b);
-			break;
-		case T_OnConflictExpr:
-			retval = _equalOnConflictExpr(a, b);
-			break;
-		case T_JoinExpr:
-			retval = _equalJoinExpr(a, b);
-			break;
-
-			/*
-			 * RELATION NODES
-			 */
-		case T_PathKey:
-			retval = _equalPathKey(a, b);
-			break;
-		case T_RestrictInfo:
-			retval = _equalRestrictInfo(a, b);
-			break;
-		case T_PlaceHolderVar:
-			retval = _equalPlaceHolderVar(a, b);
-			break;
-		case T_SpecialJoinInfo:
-			retval = _equalSpecialJoinInfo(a, b);
-			break;
-		case T_AppendRelInfo:
-			retval = _equalAppendRelInfo(a, b);
-			break;
-		case T_PlaceHolderInfo:
-			retval = _equalPlaceHolderInfo(a, b);
-			break;
+#include "equalfuncs.switch.c"
 
 		case T_List:
 		case T_IntList:
 		case T_OidList:
+		case T_XidList:
 			retval = _equalList(a, b);
 			break;
 
+<<<<<<< HEAD
 		case T_Integer:
 		case T_Float:
 		case T_String:
@@ -3734,6 +3469,8 @@ equal(const void *a, const void *b)
 			retval = _equalPartitionCmd(a, b);
 			break;
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		default:
 			elog(ERROR, "unrecognized node type: %d",
 				 (int) nodeTag(a));

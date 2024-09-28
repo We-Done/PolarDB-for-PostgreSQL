@@ -4,7 +4,7 @@
  *	  Lightweight lock manager
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/lwlock.h
@@ -18,11 +18,20 @@
 #error "lwlock.h may not be included from frontend code"
 #endif
 
-#include "storage/proclist_types.h"
-#include "storage/s_lock.h"
 #include "port/atomics.h"
+#include "storage/lwlocknames.h"
+#include "storage/proclist_types.h"
 
 struct PGPROC;
+
+/* what state of the wait process is a backend in */
+typedef enum LWLockWaitState
+{
+	LW_WS_NOT_WAITING,			/* not currently waiting / woken up */
+	LW_WS_WAITING,				/* currently waiting */
+	LW_WS_PENDING_WAKEUP,		/* removed from waitlist, but not yet
+								 * signalled */
+}			LWLockWaitState;
 
 /*
  * Code outside of lwlock.c should not manipulate the contents of this
@@ -53,6 +62,7 @@ typedef struct LWLock
  * even more padding so that each LWLock takes up an entire cache line; this is
  * useful, for example, in the main LWLock array, where the overall number of
  * locks is small but some are heavily contended.
+<<<<<<< HEAD
  *
  * When allocating a tranche that contains data other than LWLocks, it is
  * probably best to include a bare LWLock and then pad the resulting structure
@@ -73,9 +83,13 @@ typedef struct LWLock
  * because pg_atomic_uint32 is more than 4 bytes on some obscure platforms, we
  * allow for the possibility that it might be 64.  Even on those platforms,
  * we probably won't exceed 32 bytes unless LWLOCK_DEBUG is defined.
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  */
 #define LWLOCK_PADDED_SIZE	PG_CACHE_LINE_SIZE
-#define LWLOCK_MINIMAL_SIZE (sizeof(LWLock) <= 32 ? 32 : 64)
+
+StaticAssertDecl(sizeof(LWLock) <= LWLOCK_PADDED_SIZE,
+				 "Miscalculated LWLock padding");
 
 /* LWLock, padded to a full cache line size */
 typedef union LWLockPadded
@@ -84,16 +98,12 @@ typedef union LWLockPadded
 	char		pad[LWLOCK_PADDED_SIZE];
 } LWLockPadded;
 
-/* LWLock, minimally padded */
-typedef union LWLockMinimallyPadded
-{
-	LWLock		lock;
-	char		pad[LWLOCK_MINIMAL_SIZE];
-} LWLockMinimallyPadded;
-
 extern PGDLLIMPORT LWLockPadded *MainLWLockArray;
+<<<<<<< HEAD
 extern char *MainLWLockNames[];
 extern LWLockPadded *SysLoggerWriterLWLockArray;   /* POLAR */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /* struct for storing named tranche information */
 typedef struct NamedLWLockTranche
@@ -104,9 +114,6 @@ typedef struct NamedLWLockTranche
 
 extern PGDLLIMPORT NamedLWLockTranche *NamedLWLockTrancheArray;
 extern PGDLLIMPORT int NamedLWLockTrancheRequests;
-
-/* Names for fixed lwlocks */
-#include "storage/lwlocknames.h"
 
 /*
  * It's a bit odd to declare NUM_BUFFER_PARTITIONS and NUM_LOCK_PARTITIONS
@@ -148,27 +155,33 @@ typedef enum LWLockMode
 {
 	LW_EXCLUSIVE,
 	LW_SHARED,
-	LW_WAIT_UNTIL_FREE			/* A special mode used in PGPROC->lwlockMode,
+	LW_WAIT_UNTIL_FREE,			/* A special mode used in PGPROC->lwWaitMode,
 								 * when waiting for lock to become free. Not
 								 * to be used as LWLockAcquire argument */
 } LWLockMode;
 
 
+<<<<<<< HEAD
 #ifdef LWLOCK_DEBUG
 extern bool Trace_lwlocks;
+=======
+#ifdef LOCK_DEBUG
+extern PGDLLIMPORT bool Trace_lwlocks;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #endif
 
 extern bool LWLockAcquire(LWLock *lock, LWLockMode mode);
 extern bool LWLockConditionalAcquire(LWLock *lock, LWLockMode mode);
 extern bool LWLockAcquireOrWait(LWLock *lock, LWLockMode mode);
 extern void LWLockRelease(LWLock *lock);
-extern void LWLockReleaseClearVar(LWLock *lock, uint64 *valptr, uint64 val);
+extern void LWLockReleaseClearVar(LWLock *lock, pg_atomic_uint64 *valptr, uint64 val);
 extern void LWLockReleaseAll(void);
 extern bool LWLockHeldByMe(LWLock *lock);
+extern bool LWLockAnyHeldByMe(LWLock *lock, int nlocks, size_t stride);
 extern bool LWLockHeldByMeInMode(LWLock *lock, LWLockMode mode);
 
-extern bool LWLockWaitForVar(LWLock *lock, uint64 *valptr, uint64 oldval, uint64 *newval);
-extern void LWLockUpdateVar(LWLock *lock, uint64 *valptr, uint64 value);
+extern bool LWLockWaitForVar(LWLock *lock, pg_atomic_uint64 *valptr, uint64 oldval, uint64 *newval);
+extern void LWLockUpdateVar(LWLock *lock, pg_atomic_uint64 *valptr, uint64 val);
 
 extern Size LWLockShmemSize(void);
 extern void CreateLWLocks(void);
@@ -215,33 +228,40 @@ extern int polar_get_lwlock_counter(void);
  */
 typedef enum BuiltinTrancheIds
 {
-	LWTRANCHE_CLOG_BUFFERS = NUM_INDIVIDUAL_LWLOCKS,
-	LWTRANCHE_COMMITTS_BUFFERS,
-	LWTRANCHE_SUBTRANS_BUFFERS,
-	LWTRANCHE_MXACTOFFSET_BUFFERS,
-	LWTRANCHE_MXACTMEMBER_BUFFERS,
-	LWTRANCHE_ASYNC_BUFFERS,
-	LWTRANCHE_OLDSERXID_BUFFERS,
+	LWTRANCHE_XACT_BUFFER = NUM_INDIVIDUAL_LWLOCKS,
+	LWTRANCHE_COMMITTS_BUFFER,
+	LWTRANCHE_SUBTRANS_BUFFER,
+	LWTRANCHE_MULTIXACTOFFSET_BUFFER,
+	LWTRANCHE_MULTIXACTMEMBER_BUFFER,
+	LWTRANCHE_NOTIFY_BUFFER,
+	LWTRANCHE_SERIAL_BUFFER,
 	LWTRANCHE_WAL_INSERT,
 	LWTRANCHE_BUFFER_CONTENT,
+<<<<<<< HEAD
 	LWTRANCHE_XLOG_BUFFER_CONTENT, /* POLAR */
 	LWTRANCHE_XLOG_BUFFER_IO, /* POLAR */
 	LWTRANCHE_BUFFER_IO_IN_PROGRESS,
 	LWTRANCHE_REPLICATION_ORIGIN,
 	LWTRANCHE_REPLICATION_SLOT_IO_IN_PROGRESS,
 	LWTRANCHE_PROC,
+=======
+	LWTRANCHE_REPLICATION_ORIGIN_STATE,
+	LWTRANCHE_REPLICATION_SLOT_IO,
+	LWTRANCHE_LOCK_FASTPATH,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	LWTRANCHE_BUFFER_MAPPING,
 	LWTRANCHE_SYSLOGGER_WRITER_MAPPING, /* POLAR */
 	LWTRANCHE_LOCK_MANAGER,
 	LWTRANCHE_PREDICATE_LOCK_MANAGER,
 	LWTRANCHE_PARALLEL_HASH_JOIN,
 	LWTRANCHE_PARALLEL_QUERY_DSA,
-	LWTRANCHE_SESSION_DSA,
-	LWTRANCHE_SESSION_RECORD_TABLE,
-	LWTRANCHE_SESSION_TYPMOD_TABLE,
+	LWTRANCHE_PER_SESSION_DSA,
+	LWTRANCHE_PER_SESSION_RECORD_TYPE,
+	LWTRANCHE_PER_SESSION_RECORD_TYPMOD,
 	LWTRANCHE_SHARED_TUPLESTORE,
-	LWTRANCHE_TBM,
+	LWTRANCHE_SHARED_TIDBITMAP,
 	LWTRANCHE_PARALLEL_APPEND,
+<<<<<<< HEAD
 	LWTRANCHE_LOGINDEX_MINI_TRANSACTION,
 	LWTRANCHE_LOGINDEX_MINI_TRANSACTION_TBL,
 	/* POLAR: Define tranche id for wal logindex. They must be defiend between LWTRANCE_WAL_LOGINDEX_BEGIN and LWTRANCE_WAL_LOGINDEX_END */
@@ -297,6 +317,25 @@ typedef enum BuiltinTrancheIds
 	LWTRANCHE_POLAR_SS_DB_ROLE_SETTING,
 	LWTRANCHE_POLAR_SS_SESSION_CONTEXT,
 	LWTRANCHE_FIRST_USER_DEFINED
+=======
+	LWTRANCHE_PER_XACT_PREDICATE_LIST,
+	LWTRANCHE_PGSTATS_DSA,
+	LWTRANCHE_PGSTATS_HASH,
+	LWTRANCHE_PGSTATS_DATA,
+	LWTRANCHE_LAUNCHER_DSA,
+	LWTRANCHE_LAUNCHER_HASH,
+	LWTRANCHE_DSM_REGISTRY_DSA,
+	LWTRANCHE_DSM_REGISTRY_HASH,
+	LWTRANCHE_COMMITTS_SLRU,
+	LWTRANCHE_MULTIXACTMEMBER_SLRU,
+	LWTRANCHE_MULTIXACTOFFSET_SLRU,
+	LWTRANCHE_NOTIFY_SLRU,
+	LWTRANCHE_SERIAL_SLRU,
+	LWTRANCHE_SUBTRANS_SLRU,
+	LWTRANCHE_XACT_SLRU,
+	LWTRANCHE_PARALLEL_VACUUM_DSA,
+	LWTRANCHE_FIRST_USER_DEFINED,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }			BuiltinTrancheIds;
 
 /*

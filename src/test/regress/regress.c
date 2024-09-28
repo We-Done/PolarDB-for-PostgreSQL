@@ -6,7 +6,7 @@
  *
  * This code is released under the terms of the PostgreSQL License.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/test/regress/regress.c
@@ -16,28 +16,66 @@
 
 #include "postgres.h"
 
-#include <float.h>
 #include <math.h>
 #include <signal.h>
 
+#include "access/detoast.h"
 #include "access/htup_details.h"
 #include "access/transam.h"
-#include "access/tuptoaster.h"
 #include "access/xact.h"
+#include "catalog/namespace.h"
+#include "catalog/pg_operator.h"
 #include "catalog/pg_type.h"
 #include "commands/sequence.h"
 #include "commands/trigger.h"
 #include "executor/executor.h"
 #include "executor/spi.h"
+#include "funcapi.h"
+#include "mb/pg_wchar.h"
 #include "miscadmin.h"
+#include "nodes/supportnodes.h"
+#include "optimizer/optimizer.h"
+#include "optimizer/plancat.h"
+#include "parser/parse_coerce.h"
 #include "port/atomics.h"
 #include "storage/spin.h"
+<<<<<<< HEAD
+=======
+#include "utils/array.h"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #include "utils/builtins.h"
 #include "utils/geo_decls.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 #include "utils/typcache.h"
-#include "utils/memutils.h"
 
+#define EXPECT_TRUE(expr)	\
+	do { \
+		if (!(expr)) \
+			elog(ERROR, \
+				 "%s was unexpectedly false in file \"%s\" line %u", \
+				 #expr, __FILE__, __LINE__); \
+	} while (0)
+
+#define EXPECT_EQ_U32(result_expr, expected_expr)	\
+	do { \
+		uint32		actual_result = (result_expr); \
+		uint32		expected_result = (expected_expr); \
+		if (actual_result != expected_result) \
+			elog(ERROR, \
+				 "%s yielded %u, expected %s in file \"%s\" line %u", \
+				 #result_expr, actual_result, #expected_expr, __FILE__, __LINE__); \
+	} while (0)
+
+#define EXPECT_EQ_U64(result_expr, expected_expr)	\
+	do { \
+		uint64		actual_result = (result_expr); \
+		uint64		expected_result = (expected_expr); \
+		if (actual_result != expected_result) \
+			elog(ERROR, \
+				 "%s yielded " UINT64_FORMAT ", expected %s in file \"%s\" line %u", \
+				 #result_expr, actual_result, #expected_expr, __FILE__, __LINE__); \
+	} while (0)
 
 #define EXPECT_TRUE(expr)	\
 	do { \
@@ -175,11 +213,16 @@ widget_in(PG_FUNCTION_ARGS)
 			coord[i++] = p + 1;
 	}
 
+	/*
+	 * Note: DON'T convert this error to "soft" style (errsave/ereturn).  We
+	 * want this data type to stay permanently in the hard-error world so that
+	 * it can be used for testing that such cases still work reasonably.
+	 */
 	if (i < NARGS)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-				 errmsg("invalid input syntax for type widget: \"%s\"",
-						str)));
+				 errmsg("invalid input syntax for type %s: \"%s\"",
+						"widget", str)));
 
 	result = (WIDGET *) palloc(sizeof(WIDGET));
 	result->center.x = atof(coord[0]);
@@ -206,8 +249,13 @@ pt_in_widget(PG_FUNCTION_ARGS)
 {
 	Point	   *point = PG_GETARG_POINT_P(0);
 	WIDGET	   *widget = (WIDGET *) PG_GETARG_POINTER(1);
+	float8		distance;
 
-	PG_RETURN_BOOL(point_dt(point, &widget->center) < widget->radius);
+	distance = DatumGetFloat8(DirectFunctionCall2(point_distance,
+												  PointPGetDatum(point),
+												  PointPGetDatum(&widget->center)));
+
+	PG_RETURN_BOOL(distance < widget->radius);
 }
 
 PG_FUNCTION_INFO_V1(reverse_name);
@@ -362,8 +410,7 @@ ttdummy(PG_FUNCTION_ARGS)
 	newoff = Int32GetDatum((int32) DatumGetInt64(newoff));
 
 	/* Connect to SPI manager */
-	if ((ret = SPI_connect()) < 0)
-		elog(ERROR, "ttdummy (%s): SPI_connect returned %d", relname, ret);
+	SPI_connect();
 
 	/* Fetch tuple values and nulls */
 	cvals = (Datum *) palloc(natts * sizeof(Datum));
@@ -520,6 +567,16 @@ int44out(PG_FUNCTION_ARGS)
 	PG_RETURN_CSTRING(result);
 }
 
+PG_FUNCTION_INFO_V1(test_canonicalize_path);
+Datum
+test_canonicalize_path(PG_FUNCTION_ARGS)
+{
+	char	   *path = text_to_cstring(PG_GETARG_TEXT_PP(0));
+
+	canonicalize_path(path);
+	PG_RETURN_TEXT_P(cstring_to_text(path));
+}
+
 PG_FUNCTION_INFO_V1(make_tuple_indirect);
 Datum
 make_tuple_indirect(PG_FUNCTION_ARGS)
@@ -568,7 +625,8 @@ make_tuple_indirect(PG_FUNCTION_ARGS)
 		/* only work on existing, not-null varlenas */
 		if (TupleDescAttr(tupdesc, i)->attisdropped ||
 			nulls[i] ||
-			TupleDescAttr(tupdesc, i)->attlen != -1)
+			TupleDescAttr(tupdesc, i)->attlen != -1 ||
+			TupleDescAttr(tupdesc, i)->attstorage == TYPSTORAGE_PLAIN)
 			continue;
 
 		attr = (struct varlena *) DatumGetPointer(values[i]);
@@ -579,7 +637,7 @@ make_tuple_indirect(PG_FUNCTION_ARGS)
 
 		/* copy datum, so it still lives later */
 		if (VARATT_IS_EXTERNAL_ONDISK(attr))
-			attr = heap_tuple_fetch_attr(attr);
+			attr = detoast_external_attr(attr);
 		else
 		{
 			struct varlena *oldattr = attr;
@@ -617,22 +675,18 @@ make_tuple_indirect(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(newtup->t_data);
 }
 
-PG_FUNCTION_INFO_V1(regress_putenv);
+PG_FUNCTION_INFO_V1(regress_setenv);
 
 Datum
-regress_putenv(PG_FUNCTION_ARGS)
+regress_setenv(PG_FUNCTION_ARGS)
 {
-	MemoryContext oldcontext;
-	char	   *envbuf;
+	char	   *envvar = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	char	   *envval = text_to_cstring(PG_GETARG_TEXT_PP(1));
 
 	if (!superuser())
 		elog(ERROR, "must be superuser to change environment variables");
 
-	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
-	envbuf = text_to_cstring((text *) PG_GETARG_POINTER(0));
-	MemoryContextSwitchTo(oldcontext);
-
-	if (putenv(envbuf) != 0)
+	if (setenv(envvar, envval, 1) != 0)
 		elog(ERROR, "could not set environment variable: %m");
 
 	PG_RETURN_VOID();
@@ -713,6 +767,14 @@ test_atomic_uint32(void)
 	EXPECT_EQ_U32(pg_atomic_read_u32(&var), (uint32) INT_MAX + 1);
 	EXPECT_EQ_U32(pg_atomic_sub_fetch_u32(&var, INT_MAX), 1);
 	pg_atomic_sub_fetch_u32(&var, 1);
+	expected = PG_INT16_MAX;
+	EXPECT_TRUE(!pg_atomic_compare_exchange_u32(&var, &expected, 1));
+	expected = PG_INT16_MAX + 1;
+	EXPECT_TRUE(!pg_atomic_compare_exchange_u32(&var, &expected, 1));
+	expected = PG_INT16_MIN;
+	EXPECT_TRUE(!pg_atomic_compare_exchange_u32(&var, &expected, 1));
+	expected = PG_INT16_MIN - 1;
+	EXPECT_TRUE(!pg_atomic_compare_exchange_u32(&var, &expected, 1));
 
 	/* fail exchange because of old expected */
 	expected = 10;
@@ -809,7 +871,11 @@ test_spinlock(void)
 			char		data_before[4];
 			slock_t		lock;
 			char		data_after[4];
+<<<<<<< HEAD
 		} struct_w_lock;
+=======
+		}			struct_w_lock;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 		memcpy(struct_w_lock.data_before, "abcd", 4);
 		memcpy(struct_w_lock.data_after, "ef12", 4);
@@ -855,6 +921,7 @@ test_spinlock(void)
 		if (memcmp(struct_w_lock.data_after, "ef12", 4) != 0)
 			elog(ERROR, "padding after spinlock modified");
 	}
+<<<<<<< HEAD
 
 	/*
 	 * Ensure that allocating more than INT32_MAX emulated spinlocks
@@ -943,6 +1010,9 @@ test_atomic_spin_nest(void)
 	SpinLockRelease(&lock);
 }
 #undef NUM_TEST_ATOMICS
+=======
+}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 PG_FUNCTION_INFO_V1(test_atomic_ops);
 Datum
@@ -960,8 +1030,11 @@ test_atomic_ops(PG_FUNCTION_ARGS)
 	 */
 	test_spinlock();
 
+<<<<<<< HEAD
 	test_atomic_spin_nest();
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	PG_RETURN_BOOL(true);
 }
 
@@ -971,4 +1044,225 @@ test_fdw_handler(PG_FUNCTION_ARGS)
 {
 	elog(ERROR, "test_fdw_handler is not implemented");
 	PG_RETURN_NULL();
+}
+
+PG_FUNCTION_INFO_V1(test_support_func);
+Datum
+test_support_func(PG_FUNCTION_ARGS)
+{
+	Node	   *rawreq = (Node *) PG_GETARG_POINTER(0);
+	Node	   *ret = NULL;
+
+	if (IsA(rawreq, SupportRequestSelectivity))
+	{
+		/*
+		 * Assume that the target is int4eq; that's safe as long as we don't
+		 * attach this to any other boolean-returning function.
+		 */
+		SupportRequestSelectivity *req = (SupportRequestSelectivity *) rawreq;
+		Selectivity s1;
+
+		if (req->is_join)
+			s1 = join_selectivity(req->root, Int4EqualOperator,
+								  req->args,
+								  req->inputcollid,
+								  req->jointype,
+								  req->sjinfo);
+		else
+			s1 = restriction_selectivity(req->root, Int4EqualOperator,
+										 req->args,
+										 req->inputcollid,
+										 req->varRelid);
+
+		req->selectivity = s1;
+		ret = (Node *) req;
+	}
+
+	if (IsA(rawreq, SupportRequestCost))
+	{
+		/* Provide some generic estimate */
+		SupportRequestCost *req = (SupportRequestCost *) rawreq;
+
+		req->startup = 0;
+		req->per_tuple = 2 * cpu_operator_cost;
+		ret = (Node *) req;
+	}
+
+	if (IsA(rawreq, SupportRequestRows))
+	{
+		/*
+		 * Assume that the target is generate_series_int4; that's safe as long
+		 * as we don't attach this to any other set-returning function.
+		 */
+		SupportRequestRows *req = (SupportRequestRows *) rawreq;
+
+		if (req->node && IsA(req->node, FuncExpr))	/* be paranoid */
+		{
+			List	   *args = ((FuncExpr *) req->node)->args;
+			Node	   *arg1 = linitial(args);
+			Node	   *arg2 = lsecond(args);
+
+			if (IsA(arg1, Const) &&
+				!((Const *) arg1)->constisnull &&
+				IsA(arg2, Const) &&
+				!((Const *) arg2)->constisnull)
+			{
+				int32		val1 = DatumGetInt32(((Const *) arg1)->constvalue);
+				int32		val2 = DatumGetInt32(((Const *) arg2)->constvalue);
+
+				req->rows = val2 - val1 + 1;
+				ret = (Node *) req;
+			}
+		}
+	}
+
+	PG_RETURN_POINTER(ret);
+}
+
+PG_FUNCTION_INFO_V1(test_opclass_options_func);
+Datum
+test_opclass_options_func(PG_FUNCTION_ARGS)
+{
+	PG_RETURN_NULL();
+}
+
+/*
+ * Call an encoding conversion or verification function.
+ *
+ * Arguments:
+ *	string	  bytea -- string to convert
+ *	src_enc	  name  -- source encoding
+ *	dest_enc  name  -- destination encoding
+ *	noError	  bool  -- if set, don't ereport() on invalid or untranslatable
+ *					   input
+ *
+ * Result is a tuple with two attributes:
+ *  int4	-- number of input bytes successfully converted
+ *  bytea	-- converted string
+ */
+PG_FUNCTION_INFO_V1(test_enc_conversion);
+Datum
+test_enc_conversion(PG_FUNCTION_ARGS)
+{
+	bytea	   *string = PG_GETARG_BYTEA_PP(0);
+	char	   *src_encoding_name = NameStr(*PG_GETARG_NAME(1));
+	int			src_encoding = pg_char_to_encoding(src_encoding_name);
+	char	   *dest_encoding_name = NameStr(*PG_GETARG_NAME(2));
+	int			dest_encoding = pg_char_to_encoding(dest_encoding_name);
+	bool		noError = PG_GETARG_BOOL(3);
+	TupleDesc	tupdesc;
+	char	   *src;
+	char	   *dst;
+	bytea	   *retval;
+	Size		srclen;
+	Size		dstsize;
+	Oid			proc;
+	int			convertedbytes;
+	int			dstlen;
+	Datum		values[2];
+	bool		nulls[2] = {0};
+	HeapTuple	tuple;
+
+	if (src_encoding < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid source encoding name \"%s\"",
+						src_encoding_name)));
+	if (dest_encoding < 0)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				 errmsg("invalid destination encoding name \"%s\"",
+						dest_encoding_name)));
+
+	/* Build a tuple descriptor for our result type */
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		elog(ERROR, "return type must be a row type");
+	tupdesc = BlessTupleDesc(tupdesc);
+
+	srclen = VARSIZE_ANY_EXHDR(string);
+	src = VARDATA_ANY(string);
+
+	if (src_encoding == dest_encoding)
+	{
+		/* just check that the source string is valid */
+		int			oklen;
+
+		oklen = pg_encoding_verifymbstr(src_encoding, src, srclen);
+
+		if (oklen == srclen)
+		{
+			convertedbytes = oklen;
+			retval = string;
+		}
+		else if (!noError)
+		{
+			report_invalid_encoding(src_encoding, src + oklen, srclen - oklen);
+		}
+		else
+		{
+			/*
+			 * build bytea data type structure.
+			 */
+			Assert(oklen < srclen);
+			convertedbytes = oklen;
+			retval = (bytea *) palloc(oklen + VARHDRSZ);
+			SET_VARSIZE(retval, oklen + VARHDRSZ);
+			memcpy(VARDATA(retval), src, oklen);
+		}
+	}
+	else
+	{
+		proc = FindDefaultConversionProc(src_encoding, dest_encoding);
+		if (!OidIsValid(proc))
+			ereport(ERROR,
+					(errcode(ERRCODE_UNDEFINED_FUNCTION),
+					 errmsg("default conversion function for encoding \"%s\" to \"%s\" does not exist",
+							pg_encoding_to_char(src_encoding),
+							pg_encoding_to_char(dest_encoding))));
+
+		if (srclen >= (MaxAllocSize / (Size) MAX_CONVERSION_GROWTH))
+			ereport(ERROR,
+					(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+					 errmsg("out of memory"),
+					 errdetail("String of %d bytes is too long for encoding conversion.",
+							   (int) srclen)));
+
+		dstsize = (Size) srclen * MAX_CONVERSION_GROWTH + 1;
+		dst = MemoryContextAlloc(CurrentMemoryContext, dstsize);
+
+		/* perform conversion */
+		convertedbytes = pg_do_encoding_conversion_buf(proc,
+													   src_encoding,
+													   dest_encoding,
+													   (unsigned char *) src, srclen,
+													   (unsigned char *) dst, dstsize,
+													   noError);
+		dstlen = strlen(dst);
+
+		/*
+		 * build bytea data type structure.
+		 */
+		retval = (bytea *) palloc(dstlen + VARHDRSZ);
+		SET_VARSIZE(retval, dstlen + VARHDRSZ);
+		memcpy(VARDATA(retval), dst, dstlen);
+
+		pfree(dst);
+	}
+
+	values[0] = Int32GetDatum(convertedbytes);
+	values[1] = PointerGetDatum(retval);
+	tuple = heap_form_tuple(tupdesc, values, nulls);
+
+	PG_RETURN_DATUM(HeapTupleGetDatum(tuple));
+}
+
+/* Provide SQL access to IsBinaryCoercible() */
+PG_FUNCTION_INFO_V1(binary_coercible);
+Datum
+binary_coercible(PG_FUNCTION_ARGS)
+{
+	Oid			srctype = PG_GETARG_OID(0);
+	Oid			targettype = PG_GETARG_OID(1);
+
+	PG_RETURN_BOOL(IsBinaryCoercible(srctype, targettype));
 }

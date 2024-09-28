@@ -2,7 +2,7 @@
  *
  * rmtree.c
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -20,9 +20,25 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
+<<<<<<< HEAD
 /* POLAR */
 #ifndef FRONTEND
 #include "storage/polar_fd.h"
+=======
+#include "common/file_utils.h"
+
+#ifndef FRONTEND
+#include "storage/fd.h"
+#define pg_log_warning(...) elog(WARNING, __VA_ARGS__)
+#define LOG_LEVEL WARNING
+#define OPENDIR(x) AllocateDir(x)
+#define CLOSEDIR(x) FreeDir(x)
+#else
+#include "common/logging.h"
+#define LOG_LEVEL PG_LOG_WARNING
+#define OPENDIR(x) opendir(x)
+#define CLOSEDIR(x) closedir(x)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #endif
 
 /*
@@ -41,26 +57,22 @@
 bool
 rmtree(const char *path, bool rmtopdir)
 {
-	bool		result = true;
 	char		pathbuf[MAXPGPATH];
-	char	  **filenames;
-	char	  **filename;
-	struct stat statbuf;
+	DIR		   *dir;
+	struct dirent *de;
+	bool		result = true;
+	size_t		dirnames_size = 0;
+	size_t		dirnames_capacity = 8;
+	char	  **dirnames;
 
-	/*
-	 * we copy all the names out of the directory before we start modifying
-	 * it.
-	 */
-	filenames = pgfnames(path);
-
-	if (filenames == NULL)
-		return false;
-
-	/* now we have the names we can start removing things */
-	for (filename = filenames; *filename; filename++)
+	dir = OPENDIR(path);
+	if (dir == NULL)
 	{
-		snprintf(pathbuf, MAXPGPATH, "%s/%s", path, *filename);
+		pg_log_warning("could not open directory \"%s\": %m", path);
+		return false;
+	}
 
+<<<<<<< HEAD
 		/*
 		 * It's ok if the file is not there anymore; we were just about to
 		 * delete it anyway.
@@ -89,9 +101,24 @@ rmtree(const char *path, bool rmtopdir)
 #endif
 				result = false;
 			}
-			continue;
-		}
+=======
+	dirnames = (char **) palloc(sizeof(char *) * dirnames_capacity);
 
+	while (errno = 0, (de = readdir(dir)))
+	{
+		if (strcmp(de->d_name, ".") == 0 ||
+			strcmp(de->d_name, "..") == 0)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+			continue;
+		snprintf(pathbuf, sizeof(pathbuf), "%s/%s", path, de->d_name);
+		switch (get_dirent_type(pathbuf, de, false, LOG_LEVEL))
+		{
+			case PGFILETYPE_ERROR:
+				/* already logged, press on */
+				break;
+			case PGFILETYPE_DIR:
+
+<<<<<<< HEAD
 		if (S_ISDIR(statbuf.st_mode))
 		{
 			/* call ourselves recursively for a directory */
@@ -110,18 +137,44 @@ rmtree(const char *path, bool rmtopdir)
 #endif
 			{
 				if (errno != ENOENT)
+=======
+				/*
+				 * Defer recursion until after we've closed this directory, to
+				 * avoid using more than one file descriptor at a time.
+				 */
+				if (dirnames_size == dirnames_capacity)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 				{
-#ifndef FRONTEND
-					elog(WARNING, "could not remove file or directory \"%s\": %m",
-						 pathbuf);
-#else
-					fprintf(stderr, _("could not remove file or directory \"%s\": %s\n"),
-							pathbuf, strerror(errno));
-#endif
+					dirnames = repalloc(dirnames,
+										sizeof(char *) * dirnames_capacity * 2);
+					dirnames_capacity *= 2;
+				}
+				dirnames[dirnames_size++] = pstrdup(pathbuf);
+				break;
+			default:
+				if (unlink(pathbuf) != 0 && errno != ENOENT)
+				{
+					pg_log_warning("could not remove file \"%s\": %m", pathbuf);
 					result = false;
 				}
-			}
+				break;
 		}
+	}
+
+	if (errno != 0)
+	{
+		pg_log_warning("could not read directory \"%s\": %m", path);
+		result = false;
+	}
+
+	CLOSEDIR(dir);
+
+	/* Now recurse into the subdirectories we found. */
+	for (size_t i = 0; i < dirnames_size; ++i)
+	{
+		if (!rmtree(dirnames[i], true))
+			result = false;
+		pfree(dirnames[i]);
 	}
 
 	if (rmtopdir)
@@ -132,18 +185,12 @@ rmtree(const char *path, bool rmtopdir)
 		if (rmdir(path) != 0)
 #endif
 		{
-#ifndef FRONTEND
-			elog(WARNING, "could not remove file or directory \"%s\": %m",
-				 path);
-#else
-			fprintf(stderr, _("could not remove file or directory \"%s\": %s\n"),
-					path, strerror(errno));
-#endif
+			pg_log_warning("could not remove directory \"%s\": %m", path);
 			result = false;
 		}
 	}
 
-	pgfnames_cleanup(filenames);
+	pfree(dirnames);
 
 	return result;
 }

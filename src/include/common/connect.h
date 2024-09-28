@@ -3,7 +3,11 @@
  * Interfaces in support of FE/BE connections.
  *
  *
+<<<<<<< HEAD
  * Portions Copyright (c) 1996-2020, PostgreSQL Global Development Group
+=======
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/common/connect.h

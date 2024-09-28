@@ -21,7 +21,7 @@ REVOKE SELECT ON deptest FROM GROUP regress_dep_group;
 DROP GROUP regress_dep_group;
 
 -- can't drop the user if we revoke the privileges partially
-REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES ON deptest FROM regress_dep_user;
+REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, MAINTAIN ON deptest FROM regress_dep_user;
 DROP USER regress_dep_user;
 
 -- now we are OK to drop him
@@ -38,8 +38,8 @@ DROP USER regress_dep_user2;
 \set VERBOSITY terse
 ALTER TABLE deptest OWNER TO regress_dep_user3;
 DROP USER regress_dep_user3;
-
 \set VERBOSITY default
+
 -- if we drop the object, we can drop the user too
 DROP TABLE deptest;
 DROP USER regress_dep_user3;
@@ -110,7 +110,6 @@ DROP USER regress_dep_user1;
 DROP OWNED BY regress_dep_user1;
 DROP USER regress_dep_user1;
 
-\set VERBOSITY terse
 DROP USER regress_dep_user2;
 DROP OWNED BY regress_dep_user2, regress_dep_user0;
 DROP USER regress_dep_user2;

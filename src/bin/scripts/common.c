@@ -4,7 +4,7 @@
  *		Common support routines for bin/scripts/
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/bin/scripts/common.c
@@ -18,9 +18,14 @@
 #include <unistd.h>
 
 #include "common.h"
-#include "fe_utils/connect.h"
+#include "common/connect.h"
+#include "common/logging.h"
+#include "common/string.h"
+#include "fe_utils/cancel.h"
+#include "fe_utils/query_utils.h"
 #include "fe_utils/string_utils.h"
 
+<<<<<<< HEAD
 
 static PGcancel *volatile cancelConn = NULL;
 bool		CancelRequested = false;
@@ -276,14 +281,16 @@ executeMaintenanceCommand(PGconn *conn, const char *query, bool echo)
 }
 
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 /*
  * Split TABLE[(COLUMNS)] into TABLE and [(COLUMNS)] portions.  When you
  * finish using them, pg_free(*table).  *columns is a pointer into "spec",
  * possibly to its NUL terminator.
  */
-static void
-split_table_columns_spec(const char *spec, int encoding,
-						 char **table, const char **columns)
+void
+splitTableColumnsSpec(const char *spec, int encoding,
+					  char **table, const char **columns)
 {
 	bool		inquotes = false;
 	const char *cp = spec;
@@ -303,10 +310,9 @@ split_table_columns_spec(const char *spec, int encoding,
 			cp++;
 		}
 		else
-			cp += PQmblen(cp, encoding);
+			cp += PQmblenBounded(cp, encoding);
 	}
-	*table = pg_strdup(spec);
-	(*table)[cp - spec] = '\0'; /* no strndup */
+	*table = pnstrdup(spec, cp - spec);
 	*columns = cp;
 }
 
@@ -319,7 +325,7 @@ split_table_columns_spec(const char *spec, int encoding,
  */
 void
 appendQualifiedRelation(PQExpBuffer buf, const char *spec,
-						PGconn *conn, const char *progname, bool echo)
+						PGconn *conn, bool echo)
 {
 	char	   *table;
 	const char *columns;
@@ -327,7 +333,11 @@ appendQualifiedRelation(PQExpBuffer buf, const char *spec,
 	PGresult   *res;
 	int			ntups;
 
+<<<<<<< HEAD
 	split_table_columns_spec(spec, PQclientEncoding(conn), &table, &columns);
+=======
+	splitTableColumnsSpec(spec, PQclientEncoding(conn), &table, &columns);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/*
 	 * Query must remain ABSOLUTELY devoid of unqualified names.  This would
@@ -344,7 +354,7 @@ appendQualifiedRelation(PQExpBuffer buf, const char *spec,
 	appendStringLiteralConn(&sql, table, conn);
 	appendPQExpBufferStr(&sql, "::pg_catalog.regclass;");
 
-	executeCommand(conn, "RESET search_path", progname, echo);
+	executeCommand(conn, "RESET search_path;", echo);
 
 	/*
 	 * One row is a typical result, as is a nonexistent relation ERROR.
@@ -352,15 +362,14 @@ appendQualifiedRelation(PQExpBuffer buf, const char *spec,
 	 * relation has that OID; this query returns no rows.  Catalog corruption
 	 * might elicit other row counts.
 	 */
-	res = executeQuery(conn, sql.data, progname, echo);
+	res = executeQuery(conn, sql.data, echo);
 	ntups = PQntuples(res);
 	if (ntups != 1)
 	{
-		fprintf(stderr,
-				ngettext("%s: query returned %d row instead of one: %s\n",
-						 "%s: query returned %d rows instead of one: %s\n",
-						 ntups),
-				progname, ntups, sql.data);
+		pg_log_error(ngettext("query returned %d row instead of one: %s",
+							  "query returned %d rows instead of one: %s",
+							  ntups),
+					 ntups, sql.data);
 		PQfinish(conn);
 		exit(1);
 	}
@@ -372,8 +381,7 @@ appendQualifiedRelation(PQExpBuffer buf, const char *spec,
 	termPQExpBuffer(&sql);
 	pg_free(table);
 
-	PQclear(executeQuery(conn, ALWAYS_SECURE_SEARCH_PATH_SQL,
-						 progname, echo));
+	PQclear(executeQuery(conn, ALWAYS_SECURE_SEARCH_PATH_SQL, echo));
 }
 
 
@@ -399,155 +407,23 @@ yesno_prompt(const char *question)
 
 	for (;;)
 	{
-		char		resp[10];
+		char	   *resp;
 
-		simple_prompt(prompt, resp, sizeof(resp), true);
+		resp = simple_prompt(prompt, true);
 
 		if (strcmp(resp, _(PG_YESLETTER)) == 0)
+		{
+			free(resp);
 			return true;
+		}
 		if (strcmp(resp, _(PG_NOLETTER)) == 0)
+		{
+			free(resp);
 			return false;
+		}
+		free(resp);
 
 		printf(_("Please answer \"%s\" or \"%s\".\n"),
 			   _(PG_YESLETTER), _(PG_NOLETTER));
 	}
 }
-
-/*
- * SetCancelConn
- *
- * Set cancelConn to point to the current database connection.
- */
-void
-SetCancelConn(PGconn *conn)
-{
-	PGcancel   *oldCancelConn;
-
-#ifdef WIN32
-	EnterCriticalSection(&cancelConnLock);
-#endif
-
-	/* Free the old one if we have one */
-	oldCancelConn = cancelConn;
-
-	/* be sure handle_sigint doesn't use pointer while freeing */
-	cancelConn = NULL;
-
-	if (oldCancelConn != NULL)
-		PQfreeCancel(oldCancelConn);
-
-	cancelConn = PQgetCancel(conn);
-
-#ifdef WIN32
-	LeaveCriticalSection(&cancelConnLock);
-#endif
-}
-
-/*
- * ResetCancelConn
- *
- * Free the current cancel connection, if any, and set to NULL.
- */
-void
-ResetCancelConn(void)
-{
-	PGcancel   *oldCancelConn;
-
-#ifdef WIN32
-	EnterCriticalSection(&cancelConnLock);
-#endif
-
-	oldCancelConn = cancelConn;
-
-	/* be sure handle_sigint doesn't use pointer while freeing */
-	cancelConn = NULL;
-
-	if (oldCancelConn != NULL)
-		PQfreeCancel(oldCancelConn);
-
-#ifdef WIN32
-	LeaveCriticalSection(&cancelConnLock);
-#endif
-}
-
-#ifndef WIN32
-/*
- * Handle interrupt signals by canceling the current command, if a cancelConn
- * is set.
- */
-static void
-handle_sigint(SIGNAL_ARGS)
-{
-	int			save_errno = errno;
-	char		errbuf[256];
-
-	/* Send QueryCancel if we are processing a database query */
-	if (cancelConn != NULL)
-	{
-		if (PQcancel(cancelConn, errbuf, sizeof(errbuf)))
-		{
-			CancelRequested = true;
-			fprintf(stderr, _("Cancel request sent\n"));
-		}
-		else
-			fprintf(stderr, _("Could not send cancel request: %s"), errbuf);
-	}
-	else
-		CancelRequested = true;
-
-	errno = save_errno;			/* just in case the write changed it */
-}
-
-void
-setup_cancel_handler(void)
-{
-	pqsignal(SIGINT, handle_sigint);
-}
-#else							/* WIN32 */
-
-/*
- * Console control handler for Win32. Note that the control handler will
- * execute on a *different thread* than the main one, so we need to do
- * proper locking around those structures.
- */
-static BOOL WINAPI
-consoleHandler(DWORD dwCtrlType)
-{
-	char		errbuf[256];
-
-	if (dwCtrlType == CTRL_C_EVENT ||
-		dwCtrlType == CTRL_BREAK_EVENT)
-	{
-		/* Send QueryCancel if we are processing a database query */
-		EnterCriticalSection(&cancelConnLock);
-		if (cancelConn != NULL)
-		{
-			if (PQcancel(cancelConn, errbuf, sizeof(errbuf)))
-			{
-				fprintf(stderr, _("Cancel request sent\n"));
-				CancelRequested = true;
-			}
-			else
-				fprintf(stderr, _("Could not send cancel request: %s"), errbuf);
-		}
-		else
-			CancelRequested = true;
-
-		LeaveCriticalSection(&cancelConnLock);
-
-		return TRUE;
-	}
-	else
-		/* Return FALSE for any signals not being handled */
-		return FALSE;
-}
-
-void
-setup_cancel_handler(void)
-{
-	InitializeCriticalSection(&cancelConnLock);
-
-	SetConsoleCtrlHandler(consoleHandler, TRUE);
-}
-
-#endif							/* WIN32 */

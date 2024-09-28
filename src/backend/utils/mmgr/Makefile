@@ -12,7 +12,17 @@ subdir = src/backend/utils/mmgr
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = aset.o dsa.o freepage.o generation.o mcxt.o memdebug.o portalmem.o slab.o
+OBJS = \
+	alignedalloc.o \
+	aset.o \
+	bump.o \
+	dsa.o \
+	freepage.o \
+	generation.o \
+	mcxt.o \
+	memdebug.o \
+	portalmem.o \
+	slab.o
 
 # POLAR
 OBJS += polar_shm_aset.o

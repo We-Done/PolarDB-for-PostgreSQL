@@ -3,7 +3,7 @@
  * hashvalidate.c
  *	  Opclass validator for hash.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -16,20 +16,17 @@
 #include "access/amvalidate.h"
 #include "access/hash.h"
 #include "access/htup_details.h"
+#include "access/xact.h"
+#include "catalog/pg_am.h"
 #include "catalog/pg_amop.h"
 #include "catalog/pg_amproc.h"
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_opfamily.h"
-#include "catalog/pg_proc.h"
 #include "catalog/pg_type.h"
-#include "parser/parse_coerce.h"
 #include "utils/builtins.h"
-#include "utils/fmgroids.h"
+#include "utils/lsyscache.h"
 #include "utils/regproc.h"
 #include "utils/syscache.h"
-
-
-static bool check_hash_func_signature(Oid funcid, int16 amprocnum, Oid argtype);
 
 
 /*
@@ -87,6 +84,7 @@ hashvalidate(Oid opclassoid)
 	{
 		HeapTuple	proctup = &proclist->members[i]->tuple;
 		Form_pg_amproc procform = (Form_pg_amproc) GETSTRUCT(proctup);
+		bool		ok;
 
 		/*
 		 * All hash functions should be registered with matching left/right
@@ -106,25 +104,15 @@ hashvalidate(Oid opclassoid)
 		switch (procform->amprocnum)
 		{
 			case HASHSTANDARD_PROC:
+				ok = check_amproc_signature(procform->amproc, INT4OID, true,
+											1, 1, procform->amproclefttype);
+				break;
 			case HASHEXTENDED_PROC:
-				if (!check_hash_func_signature(procform->amproc, procform->amprocnum,
-											   procform->amproclefttype))
-				{
-					ereport(INFO,
-							(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
-							 errmsg("operator family \"%s\" of access method %s contains function %s with wrong signature for support number %d",
-									opfamilyname, "hash",
-									format_procedure(procform->amproc),
-									procform->amprocnum)));
-					result = false;
-				}
-				else
-				{
-					/* Remember which types we can hash */
-					hashabletypes =
-						list_append_unique_oid(hashabletypes,
-											   procform->amproclefttype);
-				}
+				ok = check_amproc_signature(procform->amproc, INT8OID, true,
+											2, 2, procform->amproclefttype, INT8OID);
+				break;
+			case HASHOPTIONS_PROC:
+				ok = check_amoptsproc_signature(procform->amproc);
 				break;
 			default:
 				ereport(INFO,
@@ -134,7 +122,24 @@ hashvalidate(Oid opclassoid)
 								format_procedure(procform->amproc),
 								procform->amprocnum)));
 				result = false;
-				break;
+				continue;		/* don't want additional message */
+		}
+
+		if (!ok)
+		{
+			ereport(INFO,
+					(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+					 errmsg("operator family \"%s\" of access method %s contains function %s with wrong signature for support number %d",
+							opfamilyname, "hash",
+							format_procedure(procform->amproc),
+							procform->amprocnum)));
+			result = false;
+		}
+
+		/* Remember which types we can hash */
+		if (ok && (procform->amprocnum == HASHSTANDARD_PROC || procform->amprocnum == HASHEXTENDED_PROC))
+		{
+			hashabletypes = list_append_unique_oid(hashabletypes, procform->amproclefttype);
 		}
 	}
 
@@ -261,77 +266,94 @@ hashvalidate(Oid opclassoid)
 
 
 /*
- * We need a custom version of check_amproc_signature because of assorted
- * hacks in the core hash opclass definitions.
+ * Prechecking function for adding operators/functions to a hash opfamily.
  */
-static bool
-check_hash_func_signature(Oid funcid, int16 amprocnum, Oid argtype)
+void
+hashadjustmembers(Oid opfamilyoid,
+				  Oid opclassoid,
+				  List *operators,
+				  List *functions)
 {
-	bool		result = true;
-	Oid			restype;
-	int16		nargs;
-	HeapTuple	tp;
-	Form_pg_proc procform;
+	Oid			opcintype;
+	ListCell   *lc;
 
-	switch (amprocnum)
+	/*
+	 * Hash operators and required support functions are always "loose"
+	 * members of the opfamily if they are cross-type.  If they are not
+	 * cross-type, we prefer to tie them to the appropriate opclass ... but if
+	 * the user hasn't created one, we can't do that, and must fall back to
+	 * using the opfamily dependency.  (We mustn't force creation of an
+	 * opclass in such a case, as leaving an incomplete opclass laying about
+	 * would be bad.  Throwing an error is another undesirable alternative.)
+	 *
+	 * This behavior results in a bit of a dump/reload hazard, in that the
+	 * order of restoring objects could affect what dependencies we end up
+	 * with.  pg_dump's existing behavior will preserve the dependency choices
+	 * in most cases, but not if a cross-type operator has been bound tightly
+	 * into an opclass.  That's a mistake anyway, so silently "fixing" it
+	 * isn't awful.
+	 *
+	 * Optional support functions are always "loose" family members.
+	 *
+	 * To avoid repeated lookups, we remember the most recently used opclass's
+	 * input type.
+	 */
+	if (OidIsValid(opclassoid))
 	{
-		case HASHSTANDARD_PROC:
-			restype = INT4OID;
-			nargs = 1;
-			break;
-
-		case HASHEXTENDED_PROC:
-			restype = INT8OID;
-			nargs = 2;
-			break;
-
-		default:
-			elog(ERROR, "invalid amprocnum");
+		/* During CREATE OPERATOR CLASS, need CCI to see the pg_opclass row */
+		CommandCounterIncrement();
+		opcintype = get_opclass_input_type(opclassoid);
 	}
+	else
+		opcintype = InvalidOid;
 
-	tp = SearchSysCache1(PROCOID, ObjectIdGetDatum(funcid));
-	if (!HeapTupleIsValid(tp))
-		elog(ERROR, "cache lookup failed for function %u", funcid);
-	procform = (Form_pg_proc) GETSTRUCT(tp);
-
-	if (procform->prorettype != restype || procform->proretset ||
-		procform->pronargs != nargs)
-		result = false;
-
-	if (!IsBinaryCoercible(argtype, procform->proargtypes.values[0]))
+	/*
+	 * We handle operators and support functions almost identically, so rather
+	 * than duplicate this code block, just join the lists.
+	 */
+	foreach(lc, list_concat_copy(operators, functions))
 	{
-		/*
-		 * Some of the built-in hash opclasses cheat by using hash functions
-		 * that are different from but physically compatible with the opclass
-		 * datatype.  In some of these cases, even a "binary coercible" check
-		 * fails because there's no relevant cast.  For the moment, fix it by
-		 * having a whitelist of allowed cases.  Test the specific function
-		 * identity, not just its input type, because hashvarlena() takes
-		 * INTERNAL and allowing any such function seems too scary.
-		 */
-		if ((funcid == F_HASHINT4 || funcid == F_HASHINT4EXTENDED) &&
-			(argtype == DATEOID ||
-			 argtype == ABSTIMEOID || argtype == RELTIMEOID ||
-			 argtype == XIDOID || argtype == CIDOID))
-			 /* okay, allowed use of hashint4() */ ;
-		else if ((funcid == F_TIMESTAMP_HASH ||
-				  funcid == F_TIMESTAMP_HASH_EXTENDED) &&
-				 argtype == TIMESTAMPTZOID)
-			 /* okay, allowed use of timestamp_hash() */ ;
-		else if ((funcid == F_HASHCHAR || funcid == F_HASHCHAREXTENDED) &&
-				 argtype == BOOLOID)
-			 /* okay, allowed use of hashchar() */ ;
-		else if ((funcid == F_HASHVARLENA || funcid == F_HASHVARLENAEXTENDED) &&
-				 argtype == BYTEAOID)
-			 /* okay, allowed use of hashvarlena() */ ;
+		OpFamilyMember *op = (OpFamilyMember *) lfirst(lc);
+
+		if (op->is_func && op->number != HASHSTANDARD_PROC)
+		{
+			/* Optional support proc, so always a soft family dependency */
+			op->ref_is_hard = false;
+			op->ref_is_family = true;
+			op->refobjid = opfamilyoid;
+		}
+		else if (op->lefttype != op->righttype)
+		{
+			/* Cross-type, so always a soft family dependency */
+			op->ref_is_hard = false;
+			op->ref_is_family = true;
+			op->refobjid = opfamilyoid;
+		}
 		else
-			result = false;
+		{
+			/* Not cross-type; is there a suitable opclass? */
+			if (op->lefttype != opcintype)
+			{
+				/* Avoid repeating this expensive lookup, even if it fails */
+				opcintype = op->lefttype;
+				opclassoid = opclass_for_family_datatype(HASH_AM_OID,
+														 opfamilyoid,
+														 opcintype);
+			}
+			if (OidIsValid(opclassoid))
+			{
+				/* Hard dependency on opclass */
+				op->ref_is_hard = true;
+				op->ref_is_family = false;
+				op->refobjid = opclassoid;
+			}
+			else
+			{
+				/* We're stuck, so make a soft dependency on the opfamily */
+				op->ref_is_hard = false;
+				op->ref_is_family = true;
+				op->refobjid = opfamilyoid;
+			}
+		}
 	}
-
-	/* If function takes a second argument, it must be for a 64-bit salt. */
-	if (nargs == 2 && procform->proargtypes.values[1] != INT8OID)
-		result = false;
-
-	ReleaseSysCache(tp);
-	return result;
 }

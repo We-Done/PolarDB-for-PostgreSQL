@@ -4,7 +4,7 @@
  *	  Support routines for scanning Values lists
  *	  ("VALUES (...), (...), ..." in rangetable).
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -18,7 +18,6 @@
  *		ExecValuesScan			scans a values list.
  *		ExecValuesNext			retrieve next tuple in sequential order.
  *		ExecInitValuesScan		creates and initializes a valuesscan node.
- *		ExecEndValuesScan		releases any storage allocated.
  *		ExecReScanValuesScan	rescans the values list
  */
 #include "postgres.h"
@@ -248,12 +247,12 @@ ExecInitValuesScan(ValuesScan *node, EState *estate, int eflags)
 	 * Get info about values list, initialize scan slot with it.
 	 */
 	tupdesc = ExecTypeFromExprList((List *) linitial(node->values_lists));
-	ExecInitScanTupleSlot(estate, &scanstate->ss, tupdesc);
+	ExecInitScanTupleSlot(estate, &scanstate->ss, tupdesc, &TTSOpsVirtual);
 
 	/*
-	 * Initialize result slot, type and projection.
+	 * Initialize result type and projection.
 	 */
-	ExecInitResultTupleSlotTL(estate, &scanstate->ss.ps);
+	ExecInitResultTypeTL(&scanstate->ss.ps);
 	ExecAssignScanProjectionInfo(&scanstate->ss);
 
 	/*
@@ -285,7 +284,11 @@ ExecInitValuesScan(ValuesScan *node, EState *estate, int eflags)
 	i = 0;
 	foreach(vtl, node->values_lists)
 	{
+<<<<<<< HEAD
 		List	   *exprs = castNode(List, lfirst(vtl));
+=======
+		List	   *exprs = lfirst_node(List, vtl);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 		scanstate->exprlists[i] = exprs;
 
@@ -320,29 +323,6 @@ ExecInitValuesScan(ValuesScan *node, EState *estate, int eflags)
 }
 
 /* ----------------------------------------------------------------
- *		ExecEndValuesScan
- *
- *		frees any storage allocated through C routines.
- * ----------------------------------------------------------------
- */
-void
-ExecEndValuesScan(ValuesScanState *node)
-{
-	/*
-	 * Free both exprcontexts
-	 */
-	ExecFreeExprContext(&node->ss.ps);
-	node->ss.ps.ps_ExprContext = node->rowcontext;
-	ExecFreeExprContext(&node->ss.ps);
-
-	/*
-	 * clean out the tuple table
-	 */
-	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
-	ExecClearTuple(node->ss.ss_ScanTupleSlot);
-}
-
-/* ----------------------------------------------------------------
  *		ExecReScanValuesScan
  *
  *		Rescans the relation.
@@ -351,7 +331,8 @@ ExecEndValuesScan(ValuesScanState *node)
 void
 ExecReScanValuesScan(ValuesScanState *node)
 {
-	ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
+	if (node->ss.ps.ps_ResultTupleSlot)
+		ExecClearTuple(node->ss.ps.ps_ResultTupleSlot);
 
 	ExecScanReScan(&node->ss);
 

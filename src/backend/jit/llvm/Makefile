@@ -28,7 +28,11 @@ ifeq ($(GCC), yes)
 LLVM_CFLAGS += -Wno-deprecated-declarations
 endif
 
+<<<<<<< HEAD
 # All files in this directy use LLVM.
+=======
+# All files in this directory use LLVM.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 CFLAGS += $(LLVM_CFLAGS)
 CXXFLAGS += $(LLVM_CXXFLAGS)
 override CPPFLAGS := $(LLVM_CPPFLAGS) $(CPPFLAGS)
@@ -37,14 +41,22 @@ SHLIB_LINK += $(LLVM_LIBS)
 # Because this module includes C++ files, we need to use a C++
 # compiler for linking. Makefile.shlib uses $(COMPILER) to build
 # loadable modules.
-override COMPILER = $(CXX) $(CFLAGS)
+override COMPILER = $(CXX) $(CXXFLAGS)
 
-OBJS=$(WIN32RES)
+OBJS = \
+	$(WIN32RES)
 
 # Infrastructure
-OBJS += llvmjit.o llvmjit_error.o llvmjit_inline.o llvmjit_wrap.o
+OBJS += \
+	llvmjit.o \
+	llvmjit_error.o \
+	llvmjit_inline.o \
+	llvmjit_wrap.o
+
 # Code generation
-OBJS += llvmjit_expr.o llvmjit_deform.o
+OBJS += \
+	llvmjit_deform.o \
+	llvmjit_expr.o
 
 all: all-shared-lib llvmjit_types.bc
 
@@ -63,6 +75,6 @@ uninstall-types:
 
 include $(top_srcdir)/src/Makefile.shlib
 
-clean distclean maintainer-clean: clean-lib
+clean distclean: clean-lib
 	rm -f $(OBJS)
 	rm -f llvmjit_types.bc

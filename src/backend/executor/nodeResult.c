@@ -34,7 +34,7 @@
  *		plan normally and pass back the results.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -48,7 +48,6 @@
 #include "executor/executor.h"
 #include "executor/nodeResult.h"
 #include "miscadmin.h"
-#include "utils/memutils.h"
 
 /* POLAR px */
 #include "px/px_vars.h"
@@ -111,7 +110,7 @@ ExecResult(PlanState *pstate)
 	 * called, OR that we failed the constant qual check. Either way, now we
 	 * are through.
 	 */
-	while (!node->rs_done)
+	if (!node->rs_done)
 	{
 		outerPlan = outerPlanState(node);
 
@@ -267,7 +266,7 @@ ExecInitResult(Result *node, EState *estate, int eflags)
 	resstate->ps.ExecProcNode = ExecResult;
 
 	resstate->rs_done = false;
-	resstate->rs_checkqual = (node->resconstantqual == NULL) ? false : true;
+	resstate->rs_checkqual = (node->resconstantqual != NULL);
 
 	/*
 	 * Miscellaneous initialization
@@ -289,7 +288,7 @@ ExecInitResult(Result *node, EState *estate, int eflags)
 	/*
 	 * Initialize result slot, type and projection.
 	 */
-	ExecInitResultTupleSlotTL(estate, &resstate->ps);
+	ExecInitResultTupleSlotTL(&resstate->ps, &TTSOpsVirtual);
 	ExecAssignProjectionInfo(&resstate->ps, NULL);
 
 	/*
@@ -326,16 +325,6 @@ void
 ExecEndResult(ResultState *node)
 {
 	/*
-	 * Free the exprcontext
-	 */
-	ExecFreeExprContext(&node->ps);
-
-	/*
-	 * clean out the tuple table
-	 */
-	ExecClearTuple(node->ps.ps_ResultTupleSlot);
-
-	/*
 	 * shut down subplans
 	 */
 	ExecEndNode(outerPlanState(node));
@@ -344,14 +333,15 @@ ExecEndResult(ResultState *node)
 void
 ExecReScanResult(ResultState *node)
 {
+	PlanState  *outerPlan = outerPlanState(node);
+
 	node->rs_done = false;
-	node->rs_checkqual = (node->resconstantqual == NULL) ? false : true;
+	node->rs_checkqual = (node->resconstantqual != NULL);
 
 	/*
 	 * If chgParam of subnode is not null then plan will be re-scanned by
 	 * first ExecProcNode.
 	 */
-	if (node->ps.lefttree &&
-		node->ps.lefttree->chgParam == NULL)
-		ExecReScan(node->ps.lefttree);
+	if (outerPlan && outerPlan->chgParam == NULL)
+		ExecReScan(outerPlan);
 }

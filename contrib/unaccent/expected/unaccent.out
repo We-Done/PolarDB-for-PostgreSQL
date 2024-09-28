@@ -1,28 +1,66 @@
+/*
+ * This test must be run in a database with UTF-8 encoding,
+ * because other encodings don't support all the characters used.
+ */
+SELECT getdatabaseencoding() <> 'UTF8'
+       AS skip_test \gset
+\if :skip_test
+\quit
+\endif
 CREATE EXTENSION unaccent;
--- must have a UTF8 database
-SELECT getdatabaseencoding();
- getdatabaseencoding 
----------------------
- UTF8
-(1 row)
-
-SET client_encoding TO 'KOI8';
+SET client_encoding TO 'UTF8';
 SELECT unaccent('foobar');
  unaccent 
 ----------
  foobar
 (1 row)
 
-SELECT unaccent('£ÃÀ¡');
+SELECT unaccent('—ë–ª–∫–∞');
  unaccent 
 ----------
- ≈ÃÀ¡
+ –µ–ª–∫–∞
 (1 row)
 
-SELECT unaccent('≥ˆÈÎ');
+SELECT unaccent('–Å–ñ–ò–ö');
  unaccent 
 ----------
- ÂˆÈÎ
+ –ï–ñ–ò–ö
+(1 row)
+
+SELECT unaccent('ÀÉÀñÀóÀú');
+ unaccent 
+----------
+ >+-~
+(1 row)
+
+SELECT unaccent('AÃÄ');  -- Remove combining diacritical 0x0300
+ unaccent 
+----------
+ A
+(1 row)
+
+SELECT unaccent('‚ÑÉ‚Ñâ'); -- degree signs
+ unaccent 
+----------
+ ¬∞C¬∞F
+(1 row)
+
+SELECT unaccent('‚Ñó'); -- sound recording copyright
+ unaccent 
+----------
+ (P)
+(1 row)
+
+SELECT unaccent('1¬Ω'); -- math expression with whitespace
+ unaccent 
+----------
+ 1 1/2
+(1 row)
+
+SELECT unaccent('„Äù'); -- quote
+ unaccent 
+----------
+ "
 (1 row)
 
 SELECT unaccent('unaccent', 'foobar');
@@ -31,16 +69,52 @@ SELECT unaccent('unaccent', 'foobar');
  foobar
 (1 row)
 
-SELECT unaccent('unaccent', '£ÃÀ¡');
+SELECT unaccent('unaccent', '—ë–ª–∫–∞');
  unaccent 
 ----------
- ≈ÃÀ¡
+ –µ–ª–∫–∞
 (1 row)
 
-SELECT unaccent('unaccent', '≥ˆÈÎ');
+SELECT unaccent('unaccent', '–Å–ñ–ò–ö');
  unaccent 
 ----------
- ÂˆÈÎ
+ –ï–ñ–ò–ö
+(1 row)
+
+SELECT unaccent('unaccent', 'ÀÉÀñÀóÀú');
+ unaccent 
+----------
+ >+-~
+(1 row)
+
+SELECT unaccent('unaccent', 'AÃÄ');
+ unaccent 
+----------
+ A
+(1 row)
+
+SELECT unaccent('unaccent', '‚ÑÉ‚Ñâ');
+ unaccent 
+----------
+ ¬∞C¬∞F
+(1 row)
+
+SELECT unaccent('unaccent', '‚Ñó');
+ unaccent 
+----------
+ (P)
+(1 row)
+
+SELECT unaccent('unaccent', '1¬Ω');
+ unaccent 
+----------
+ 1 1/2
+(1 row)
+
+SELECT unaccent('unaccent', '„Äù');
+ unaccent 
+----------
+ "
 (1 row)
 
 SELECT ts_lexize('unaccent', 'foobar');
@@ -49,15 +123,59 @@ SELECT ts_lexize('unaccent', 'foobar');
  
 (1 row)
 
-SELECT ts_lexize('unaccent', '£ÃÀ¡');
+SELECT ts_lexize('unaccent', '—ë–ª–∫–∞');
  ts_lexize 
 -----------
- {≈ÃÀ¡}
+ {–µ–ª–∫–∞}
 (1 row)
 
-SELECT ts_lexize('unaccent', '≥ˆÈÎ');
+SELECT ts_lexize('unaccent', '–Å–ñ–ò–ö');
  ts_lexize 
 -----------
- {ÂˆÈÎ}
+ {–ï–ñ–ò–ö}
+(1 row)
+
+SELECT ts_lexize('unaccent', 'ÀÉÀñÀóÀú');
+ ts_lexize 
+-----------
+ {>+-~}
+(1 row)
+
+SELECT ts_lexize('unaccent', 'AÃÄ');
+ ts_lexize 
+-----------
+ {A}
+(1 row)
+
+SELECT ts_lexize('unaccent', '‚ÑÉ‚Ñâ');
+ ts_lexize 
+-----------
+ {¬∞C¬∞F}
+(1 row)
+
+SELECT ts_lexize('unaccent', '‚Ñó');
+ ts_lexize 
+-----------
+ {(P)}
+(1 row)
+
+SELECT ts_lexize('unaccent', '1¬Ω');
+ ts_lexize 
+-----------
+ {"1 1/2"}
+(1 row)
+
+SELECT ts_lexize('unaccent', '„Äù');
+ ts_lexize 
+-----------
+ {"\""}
+(1 row)
+
+-- Controversial case.  Black-Letter Capital H (U+210C) is translated by
+-- Latin-ASCII.xml as 'x', but it should be 'H'.
+SELECT unaccent('‚Ñå');
+ unaccent 
+----------
+ H
 (1 row)
 

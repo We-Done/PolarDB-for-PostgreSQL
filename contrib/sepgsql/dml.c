@@ -4,7 +4,7 @@
  *
  * Routines to handle DML permission checks
  *
- * Copyright (c) 2010-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2010-2024, PostgreSQL Global Development Group
  *
  * -------------------------------------------------------------------------
  */
@@ -14,8 +14,8 @@
 #include "access/sysattr.h"
 #include "access/tupdesc.h"
 #include "catalog/catalog.h"
-#include "catalog/heap.h"
 #include "catalog/dependency.h"
+#include "catalog/heap.h"
 #include "catalog/pg_attribute.h"
 #include "catalog/pg_class.h"
 #include "catalog/pg_inherits.h"
@@ -23,10 +23,10 @@
 #include "commands/tablecmds.h"
 #include "executor/executor.h"
 #include "nodes/bitmapset.h"
+#include "parser/parsetree.h"
+#include "sepgsql.h"
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
-
-#include "sepgsql.h"
 
 /*
  * fixup_whole_row_references
@@ -84,8 +84,8 @@ fixup_whole_row_references(Oid relOid, Bitmapset *columns)
  *
  * When user is querying on a table with children, it implicitly accesses
  * child tables also. So, we also need to check security label of child
- * tables and columns, but here is no guarantee attribute numbers are
- * same between the parent ans children.
+ * tables and columns, but there is no guarantee attribute numbers are
+ * same between the parent and children.
  * It returns a bitmapset which contains attribute number of the child
  * table based on the given bitmapset of the parent.
  */
@@ -160,12 +160,10 @@ check_relation_privileges(Oid relOid,
 	 */
 	if (sepgsql_getenforce() > 0)
 	{
-		Oid			relnamespace = get_rel_namespace(relOid);
-
-		if (IsSystemNamespace(relnamespace) &&
-			(required & (SEPG_DB_TABLE__UPDATE |
+		if ((required & (SEPG_DB_TABLE__UPDATE |
 						 SEPG_DB_TABLE__INSERT |
-						 SEPG_DB_TABLE__DELETE)) != 0)
+						 SEPG_DB_TABLE__DELETE)) != 0 &&
+			IsCatalogRelationOid(relOid))
 			ereport(ERROR,
 					(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
 					 errmsg("SELinux: hardwired security policy violation")));
@@ -182,7 +180,7 @@ check_relation_privileges(Oid relOid,
 	object.classId = RelationRelationId;
 	object.objectId = relOid;
 	object.objectSubId = 0;
-	audit_name = getObjectIdentity(&object);
+	audit_name = getObjectIdentity(&object, false);
 	switch (relkind)
 	{
 		case RELKIND_RELATION:
@@ -233,7 +231,8 @@ check_relation_privileges(Oid relOid,
 	updated = fixup_whole_row_references(relOid, updated);
 	columns = bms_union(selected, bms_union(inserted, updated));
 
-	while ((index = bms_first_member(columns)) >= 0)
+	index = -1;
+	while ((index = bms_next_member(columns, index)) >= 0)
 	{
 		AttrNumber	attnum;
 		uint32		column_perms = 0;
@@ -259,7 +258,7 @@ check_relation_privileges(Oid relOid,
 		object.classId = RelationRelationId;
 		object.objectId = relOid;
 		object.objectSubId = attnum;
-		audit_name = getObjectDescription(&object);
+		audit_name = getObjectDescription(&object, false);
 
 		result = sepgsql_avc_check_perms(&object,
 										 SEPG_CLASS_DB_COLUMN,
@@ -280,38 +279,33 @@ check_relation_privileges(Oid relOid,
  * Entrypoint of the DML permission checks
  */
 bool
-sepgsql_dml_privileges(List *rangeTabls, bool abort_on_violation)
+sepgsql_dml_privileges(List *rangeTbls, List *rteperminfos,
+					   bool abort_on_violation)
 {
 	ListCell   *lr;
 
-	foreach(lr, rangeTabls)
+	foreach(lr, rteperminfos)
 	{
-		RangeTblEntry *rte = lfirst(lr);
+		RTEPermissionInfo *perminfo = lfirst_node(RTEPermissionInfo, lr);
 		uint32		required = 0;
 		List	   *tableIds;
 		ListCell   *li;
 
 		/*
-		 * Only regular relations shall be checked
-		 */
-		if (rte->rtekind != RTE_RELATION)
-			continue;
-
-		/*
 		 * Find out required permissions
 		 */
-		if (rte->requiredPerms & ACL_SELECT)
+		if (perminfo->requiredPerms & ACL_SELECT)
 			required |= SEPG_DB_TABLE__SELECT;
-		if (rte->requiredPerms & ACL_INSERT)
+		if (perminfo->requiredPerms & ACL_INSERT)
 			required |= SEPG_DB_TABLE__INSERT;
-		if (rte->requiredPerms & ACL_UPDATE)
+		if (perminfo->requiredPerms & ACL_UPDATE)
 		{
-			if (!bms_is_empty(rte->updatedCols))
+			if (!bms_is_empty(perminfo->updatedCols))
 				required |= SEPG_DB_TABLE__UPDATE;
 			else
 				required |= SEPG_DB_TABLE__LOCK;
 		}
-		if (rte->requiredPerms & ACL_DELETE)
+		if (perminfo->requiredPerms & ACL_DELETE)
 			required |= SEPG_DB_TABLE__DELETE;
 
 		/*
@@ -326,10 +320,10 @@ sepgsql_dml_privileges(List *rangeTabls, bool abort_on_violation)
 		 * expand rte->relid into list of OIDs of inheritance hierarchy, then
 		 * checker routine will be invoked for each relations.
 		 */
-		if (!rte->inh)
-			tableIds = list_make1_oid(rte->relid);
+		if (!perminfo->inh)
+			tableIds = list_make1_oid(perminfo->relid);
 		else
-			tableIds = find_all_inheritors(rte->relid, NoLock, NULL);
+			tableIds = find_all_inheritors(perminfo->relid, NoLock, NULL);
 
 		foreach(li, tableIds)
 		{
@@ -342,12 +336,12 @@ sepgsql_dml_privileges(List *rangeTabls, bool abort_on_violation)
 			 * child table has different attribute numbers, so we need to fix
 			 * up them.
 			 */
-			selectedCols = fixup_inherited_columns(rte->relid, tableOid,
-												   rte->selectedCols);
-			insertedCols = fixup_inherited_columns(rte->relid, tableOid,
-												   rte->insertedCols);
-			updatedCols = fixup_inherited_columns(rte->relid, tableOid,
-												  rte->updatedCols);
+			selectedCols = fixup_inherited_columns(perminfo->relid, tableOid,
+												   perminfo->selectedCols);
+			insertedCols = fixup_inherited_columns(perminfo->relid, tableOid,
+												   perminfo->insertedCols);
+			updatedCols = fixup_inherited_columns(perminfo->relid, tableOid,
+												  perminfo->updatedCols);
 
 			/*
 			 * check permissions on individual tables

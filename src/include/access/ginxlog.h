@@ -2,7 +2,7 @@
  * ginxlog.h
  *	  header file for postgres inverted index xlog implementation.
  *
- *	Copyright (c) 2006-2018, PostgreSQL Global Development Group
+ *	Copyright (c) 2006-2024, PostgreSQL Global Development Group
  *
  *	src/include/access/ginxlog.h
  *--------------------------------------------------------------------------
@@ -16,11 +16,14 @@
 #include "lib/stringinfo.h"
 #include "storage/off.h"
 
+<<<<<<< HEAD
 /* POLAR */
 #include "storage/buf.h"
 
 #define XLOG_GIN_CREATE_INDEX  0x00
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #define XLOG_GIN_CREATE_PTREE  0x10
 
 typedef struct ginxlogCreatePostingTree
@@ -115,7 +118,7 @@ typedef struct
 
 typedef struct ginxlogSplit
 {
-	RelFileNode node;
+	RelFileLocator locator;
 	BlockNumber rrlink;			/* right link, or root's blocknumber if root
 								 * split */
 	BlockNumber leftChildBlkno; /* valid on a non-leaf split */
@@ -132,7 +135,7 @@ typedef struct ginxlogSplit
 
 /*
  * Vacuum simply WAL-logs the whole page, when anything is modified. This
- * is functionally identical to heap_newpage records, but is kept separate for
+ * is functionally identical to XLOG_FPI records, but is kept separate for
  * debugging purposes. (When inspecting the WAL stream, it's easier to see
  * what's going on when GIN vacuum records are marked as such, not as heap
  * records.) This is currently only used for entry tree leaf pages.
@@ -182,7 +185,7 @@ typedef struct ginxlogDeletePageOld
  */
 typedef struct ginxlogUpdateMeta
 {
-	RelFileNode node;
+	RelFileLocator locator;
 	GinMetaPageData metadata;
 	BlockNumber prevTail;
 	BlockNumber newRightlink;

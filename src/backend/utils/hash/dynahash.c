@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  *
  * dynahash.c
- *	  dynamic hash tables
+ *	  dynamic chained hash tables
  *
  * dynahash.c supports both local-to-a-backend hash tables and hash tables in
  * shared memory.  For shared hash tables, it is the caller's responsibility
@@ -30,18 +30,29 @@
  * dynahash.c provides support for these types of lookup keys:
  *
  * 1. Null-terminated C strings (truncated if necessary to fit in keysize),
- * compared as though by strcmp().  This is the default behavior.
+ * compared as though by strcmp().  This is selected by specifying the
+ * HASH_STRINGS flag to hash_create.
  *
  * 2. Arbitrary binary data of size keysize, compared as though by memcmp().
  * (Caller must ensure there are no undefined padding bits in the keys!)
- * This is selected by specifying HASH_BLOBS flag to hash_create.
+ * This is selected by specifying the HASH_BLOBS flag to hash_create.
  *
  * 3. More complex key behavior can be selected by specifying user-supplied
  * hashing, comparison, and/or key-copying functions.  At least a hashing
  * function must be supplied; comparison defaults to memcmp() and key copying
  * to memcpy() when a user-defined hashing function is selected.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Compared to simplehash, dynahash has the following benefits:
+ *
+ * - It supports partitioning, which is useful for shared memory access using
+ *   locks.
+ * - Shared memory hashes are allocated in a fixed size area at startup and
+ *   are discoverable by name from other processes.
+ * - Because entries don't need to be moved in the case of hash conflicts,
+ *   dynahash has better performance for large entries.
+ * - Guarantees stable pointers to entries.
+ *
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -86,6 +97,8 @@
 #include <limits.h>
 
 #include "access/xact.h"
+#include "common/hashfn.h"
+#include "port/pg_bitutils.h"
 #include "storage/shmem.h"
 #include "storage/spin.h"
 #include "utils/dynahash.h"
@@ -118,7 +131,6 @@
 #define DEF_SEGSIZE			   256
 #define DEF_SEGSIZE_SHIFT	   8	/* must be log2(DEF_SEGSIZE) */
 #define DEF_DIRSIZE			   256
-#define DEF_FFACTOR			   1	/* default fill factor */
 
 /* Number of freelists to be used for a partitioned hash table. */
 #define NUM_FREELISTS			32
@@ -187,7 +199,6 @@ struct HASHHDR
 	Size		keysize;		/* hash key length in bytes */
 	Size		entrysize;		/* total user element size in bytes */
 	long		num_partitions; /* # partitions (must be power of 2), or 0 */
-	long		ffactor;		/* target fill factor */
 	long		max_dsize;		/* 'dsize' limit if directory is fixed size */
 	long		ssize;			/* segment size --- must be power of 2 */
 	int			sshift;			/* segment shift = log2(ssize) */
@@ -251,7 +262,7 @@ struct HTAB
  */
 #define MOD(x,y)			   ((x) & ((y)-1))
 
-#if HASH_STATISTICS
+#ifdef HASH_STATISTICS
 static long hash_accesses,
 			hash_collisions,
 			hash_expansions;
@@ -269,7 +280,9 @@ static HASHBUCKET get_hash_entry(HTAB *hashp, int freelist_idx);
 static void hdefault(HTAB *hashp);
 static int	choose_nelem_alloc(Size entrysize);
 static bool init_htab(HTAB *hashp, long nelem);
-static void hash_corrupted(HTAB *hashp);
+static void hash_corrupted(HTAB *hashp) pg_attribute_noreturn();
+static uint32 hash_initial_lookup(HTAB *hashp, uint32 hashvalue,
+								  HASHBUCKET **bucketptr);
 static long next_pow2_long(long num);
 static int	next_pow2_int(long num);
 static void register_seq_scan(HTAB *hashp);
@@ -286,7 +299,8 @@ static void *
 DynaHashAlloc(Size size)
 {
 	Assert(MemoryContextIsValid(CurrentDynaHashCxt));
-	return MemoryContextAlloc(CurrentDynaHashCxt, size);
+	return MemoryContextAllocExtended(CurrentDynaHashCxt, size,
+									  MCXT_ALLOC_NO_OOM);
 }
 
 
@@ -314,6 +328,28 @@ string_compare(const char *key1, const char *key2, Size keysize)
  *	*info: additional table parameters, as indicated by flags
  *	flags: bitmask indicating which parameters to take from *info
  *
+ * The flags value *must* include HASH_ELEM.  (Formerly, this was nominally
+ * optional, but the default keysize and entrysize values were useless.)
+ * The flags value must also include exactly one of HASH_STRINGS, HASH_BLOBS,
+ * or HASH_FUNCTION, to define the key hashing semantics (C strings,
+ * binary blobs, or custom, respectively).  Callers specifying a custom
+ * hash function will likely also want to use HASH_COMPARE, and perhaps
+ * also HASH_KEYCOPY, to control key comparison and copying.
+ * Another often-used flag is HASH_CONTEXT, to allocate the hash table
+ * under info->hcxt rather than under TopMemoryContext; the default
+ * behavior is only suitable for session-lifespan hash tables.
+ * Other flags bits are special-purpose and seldom used, except for those
+ * associated with shared-memory hash tables, for which see ShmemInitHash().
+ *
+ * Fields in *info are read only when the associated flags bit is set.
+ * It is not necessary to initialize other fields of *info.
+ * Neither tabname nor *info need persist after the hash_create() call.
+ *
+ * Note: It is deprecated for callers of hash_create() to explicitly specify
+ * string_hash, tag_hash, uint32_hash, or oid_hash.  Just set HASH_STRINGS or
+ * HASH_BLOBS.  Use HASH_FUNCTION only when you want something other than
+ * one of these.
+ *
  * Note: for a shared-memory hashtable, nelem needs to be a pretty good
  * estimate, since we can't expand the table on the fly.  But an unshared
  * hashtable can be expanded on-the-fly, so it's better for nelem to be
@@ -321,10 +357,18 @@ string_compare(const char *key1, const char *key2, Size keysize)
  * large nelem will penalize hash_seq_search speed without buying much.
  */
 HTAB *
-hash_create(const char *tabname, long nelem, HASHCTL *info, int flags)
+hash_create(const char *tabname, long nelem, const HASHCTL *info, int flags)
 {
 	HTAB	   *hashp;
 	HASHHDR    *hctl;
+
+	/*
+	 * Hash tables now allocate space for key and data, but you have to say
+	 * how much space to allocate.
+	 */
+	Assert(flags & HASH_ELEM);
+	Assert(info->keysize > 0);
+	Assert(info->entrysize >= info->keysize);
 
 	/*
 	 * For shared hash tables, we have a local hash header (HTAB struct) that
@@ -389,28 +433,43 @@ hash_create(const char *tabname, long nelem, HASHCTL *info, int flags)
 	 * Select the appropriate hash function (see comments at head of file).
 	 */
 	if (flags & HASH_FUNCTION)
+	{
+		Assert(!(flags & (HASH_BLOBS | HASH_STRINGS)));
 		hashp->hash = info->hash;
+	}
 	else if (flags & HASH_BLOBS)
 	{
+		Assert(!(flags & HASH_STRINGS));
 		/* We can optimize hashing for common key sizes */
-		Assert(flags & HASH_ELEM);
 		if (info->keysize == sizeof(uint32))
 			hashp->hash = uint32_hash;
 		else
 			hashp->hash = tag_hash;
 	}
 	else
-		hashp->hash = string_hash;	/* default hash function */
+	{
+		/*
+		 * string_hash used to be considered the default hash method, and in a
+		 * non-assert build it effectively still is.  But we now consider it
+		 * an assertion error to not say HASH_STRINGS explicitly.  To help
+		 * catch mistaken usage of HASH_STRINGS, we also insist on a
+		 * reasonably long string length: if the keysize is only 4 or 8 bytes,
+		 * it's almost certainly an integer or pointer not a string.
+		 */
+		Assert(flags & HASH_STRINGS);
+		Assert(info->keysize > 8);
+
+		hashp->hash = string_hash;
+	}
 
 	/*
 	 * If you don't specify a match function, it defaults to string_compare if
-	 * you used string_hash (either explicitly or by default) and to memcmp
-	 * otherwise.
+	 * you used string_hash, and to memcmp otherwise.
 	 *
 	 * Note: explicitly specifying string_hash is deprecated, because this
 	 * might not work for callers in loadable modules on some platforms due to
 	 * referencing a trampoline instead of the string_hash function proper.
-	 * Just let it default, eh?
+	 * Specify HASH_STRINGS instead.
 	 */
 	if (flags & HASH_COMPARE)
 		hashp->match = info->match;
@@ -425,7 +484,16 @@ hash_create(const char *tabname, long nelem, HASHCTL *info, int flags)
 	if (flags & HASH_KEYCOPY)
 		hashp->keycopy = info->keycopy;
 	else if (hashp->hash == string_hash)
-		hashp->keycopy = (HashCopyFunc) strlcpy;
+	{
+		/*
+		 * The signature of keycopy is meant for memcpy(), which returns
+		 * void*, but strlcpy() returns size_t.  Since we never use the return
+		 * value of keycopy, and size_t is pretty much always the same size as
+		 * void *, this should be safe.  The extra cast in the middle is to
+		 * avoid warnings from -Wcast-function-type.
+		 */
+		hashp->keycopy = (HashCopyFunc) (pg_funcptr_t) strlcpy;
+	}
 	else
 		hashp->keycopy = memcpy;
 
@@ -505,8 +573,6 @@ hash_create(const char *tabname, long nelem, HASHCTL *info, int flags)
 		/* ssize had better be a power of 2 */
 		Assert(hctl->ssize == (1L << hctl->sshift));
 	}
-	if (flags & HASH_FFACTOR)
-		hctl->ffactor = info->ffactor;
 
 	/*
 	 * SHM hash tables have fixed directory size passed by the caller.
@@ -517,16 +583,9 @@ hash_create(const char *tabname, long nelem, HASHCTL *info, int flags)
 		hctl->dsize = info->dsize;
 	}
 
-	/*
-	 * hash table now allocates space for key and data but you have to say how
-	 * much space to allocate
-	 */
-	if (flags & HASH_ELEM)
-	{
-		Assert(info->entrysize >= info->keysize);
-		hctl->keysize = info->keysize;
-		hctl->entrysize = info->entrysize;
-	}
+	/* remember the entry sizes, too */
+	hctl->keysize = info->keysize;
+	hctl->entrysize = info->entrysize;
 
 	/* make local copies of heavily-used constant fields */
 	hashp->keysize = hctl->keysize;
@@ -605,13 +664,7 @@ hdefault(HTAB *hashp)
 	hctl->dsize = DEF_DIRSIZE;
 	hctl->nsegs = 0;
 
-	/* rather pointless defaults for key & entry size */
-	hctl->keysize = sizeof(char *);
-	hctl->entrysize = 2 * sizeof(char *);
-
 	hctl->num_partitions = 0;	/* not partitioned */
-
-	hctl->ffactor = DEF_FFACTOR;
 
 	/* table has no fixed maximum size */
 	hctl->max_dsize = NO_MAX_DSIZE;
@@ -678,11 +731,10 @@ init_htab(HTAB *hashp, long nelem)
 			SpinLockInit(&(hctl->freeList[i].mutex));
 
 	/*
-	 * Divide number of elements by the fill factor to determine a desired
-	 * number of buckets.  Allocate space for the next greater power of two
-	 * number of buckets
+	 * Allocate space for the next greater power of two number of buckets,
+	 * assuming a desired maximum load factor of 1.
 	 */
-	nbuckets = next_pow2_int((nelem - 1) / hctl->ffactor + 1);
+	nbuckets = next_pow2_int(nelem);
 
 	/*
 	 * In a partitioned table, nbuckets must be at least equal to
@@ -735,13 +787,12 @@ init_htab(HTAB *hashp, long nelem)
 	/* Choose number of entries to allocate at a time */
 	hctl->nelem_alloc = choose_nelem_alloc(hctl->entrysize);
 
-#if HASH_DEBUG
+#ifdef HASH_DEBUG
 	fprintf(stderr, "init_htab:\n%s%p\n%s%ld\n%s%ld\n%s%d\n%s%ld\n%s%u\n%s%x\n%s%x\n%s%ld\n",
 			"TABLE POINTER   ", hashp,
 			"DIRECTORY SIZE  ", hctl->dsize,
 			"SEGMENT SIZE    ", hctl->ssize,
 			"SEGMENT SHIFT   ", hctl->sshift,
-			"FILL FACTOR     ", hctl->ffactor,
 			"MAX BUCKET      ", hctl->max_bucket,
 			"HIGH MASK       ", hctl->high_mask,
 			"LOW  MASK       ", hctl->low_mask,
@@ -769,7 +820,7 @@ hash_estimate_size(long num_entries, Size entrysize)
 				elementAllocCnt;
 
 	/* estimate number of buckets wanted */
-	nBuckets = next_pow2_long((num_entries - 1) / DEF_FFACTOR + 1);
+	nBuckets = next_pow2_long(num_entries);
 	/* # of segments needed for nBuckets */
 	nSegments = next_pow2_long((nBuckets - 1) / DEF_SEGSIZE + 1);
 	/* directory entries */
@@ -812,7 +863,7 @@ hash_select_dirsize(long num_entries)
 				nDirEntries;
 
 	/* estimate number of buckets wanted */
-	nBuckets = next_pow2_long((num_entries - 1) / DEF_FFACTOR + 1);
+	nBuckets = next_pow2_long(num_entries);
 	/* # of segments needed for nBuckets */
 	nSegments = next_pow2_long((nBuckets - 1) / DEF_SEGSIZE + 1);
 	/* directory entries */
@@ -846,7 +897,7 @@ hash_destroy(HTAB *hashp)
 	{
 		/* allocation method must be one we know how to free, too */
 		Assert(hashp->alloc == DynaHashAlloc);
-		/* so this hashtable must have it's own context */
+		/* so this hashtable must have its own context */
 		Assert(hashp->hcxt != NULL);
 
 		hash_stats("destroy", hashp);
@@ -861,7 +912,7 @@ hash_destroy(HTAB *hashp)
 void
 hash_stats(const char *where, HTAB *hashp)
 {
-#if HASH_STATISTICS
+#ifdef HASH_STATISTICS
 	fprintf(stderr, "%s: this HTAB -- accesses %ld collisions %ld\n",
 			where, hashp->hctl->accesses, hashp->hctl->collisions);
 
@@ -920,9 +971,7 @@ calc_bucket(HASHHDR *hctl, uint32 hash_val)
  *
  * HASH_ENTER will normally ereport a generic "out of memory" error if
  * it is unable to create a new entry.  The HASH_ENTER_NULL operation is
- * the same except it will return NULL if out of memory.  Note that
- * HASH_ENTER_NULL cannot be used with the default palloc-based allocator,
- * since palloc internally ereports on out-of-memory.
+ * the same except it will return NULL if out of memory.
  *
  * If foundPtr isn't NULL, then *foundPtr is set true if we found an
  * existing entry in the table, false otherwise.  This is needed in the
@@ -954,15 +1003,11 @@ hash_search_with_hash_value(HTAB *hashp,
 	HASHHDR    *hctl = hashp->hctl;
 	int			freelist_idx = FREELIST_IDX(hctl, hashvalue);
 	Size		keysize;
-	uint32		bucket;
-	long		segment_num;
-	long		segment_ndx;
-	HASHSEGMENT segp;
 	HASHBUCKET	currBucket;
 	HASHBUCKET *prevBucketPtr;
 	HashCompareFunc match;
 
-#if HASH_STATISTICS
+#ifdef HASH_STATISTICS
 	hash_accesses++;
 	hctl->accesses++;
 #endif
@@ -979,11 +1024,10 @@ hash_search_with_hash_value(HTAB *hashp,
 	{
 		/*
 		 * Can't split if running in partitioned mode, nor if frozen, nor if
-		 * table is the subject of any active hash_seq_search scans.  Strange
-		 * order of these tests is to try to check cheaper conditions first.
+		 * table is the subject of any active hash_seq_search scans.
 		 */
-		if (!IS_PARTITIONED(hctl) && !hashp->frozen &&
-			hctl->freeList[0].nentries / (long) (hctl->max_bucket + 1) >= hctl->ffactor &&
+		if (hctl->freeList[0].nentries > (long) hctl->max_bucket &&
+			!IS_PARTITIONED(hctl) && !hashp->frozen &&
 			!has_seq_scans(hashp))
 			(void) expand_table(hashp);
 	}
@@ -991,17 +1035,7 @@ hash_search_with_hash_value(HTAB *hashp,
 	/*
 	 * Do the initial lookup
 	 */
-	bucket = calc_bucket(hctl, hashvalue);
-
-	segment_num = bucket >> hashp->sshift;
-	segment_ndx = MOD(bucket, hashp->ssize);
-
-	segp = hashp->dir[segment_num];
-
-	if (segp == NULL)
-		hash_corrupted(hashp);
-
-	prevBucketPtr = &segp[segment_ndx];
+	(void) hash_initial_lookup(hashp, hashvalue, &prevBucketPtr);
 	currBucket = *prevBucketPtr;
 
 	/*
@@ -1017,7 +1051,7 @@ hash_search_with_hash_value(HTAB *hashp,
 			break;
 		prevBucketPtr = &(currBucket->link);
 		currBucket = *prevBucketPtr;
-#if HASH_STATISTICS
+#ifdef HASH_STATISTICS
 		hash_collisions++;
 		hctl->collisions++;
 #endif
@@ -1066,12 +1100,8 @@ hash_search_with_hash_value(HTAB *hashp,
 			}
 			return NULL;
 
-		case HASH_ENTER_NULL:
-			/* ENTER_NULL does not work with palloc-based allocator */
-			Assert(hashp->alloc != DynaHashAlloc);
-			/* FALL THRU */
-
 		case HASH_ENTER:
+		case HASH_ENTER_NULL:
 			/* Return existing element if found, else create one */
 			if (currBucket != NULL)
 				return (void *) ELEMENTKEY(currBucket);
@@ -1146,20 +1176,16 @@ hash_update_hash_key(HTAB *hashp,
 					 const void *newKeyPtr)
 {
 	HASHELEMENT *existingElement = ELEMENT_FROM_KEY(existingEntry);
-	HASHHDR    *hctl = hashp->hctl;
 	uint32		newhashvalue;
 	Size		keysize;
 	uint32		bucket;
 	uint32		newbucket;
-	long		segment_num;
-	long		segment_ndx;
-	HASHSEGMENT segp;
 	HASHBUCKET	currBucket;
 	HASHBUCKET *prevBucketPtr;
 	HASHBUCKET *oldPrevPtr;
 	HashCompareFunc match;
 
-#if HASH_STATISTICS
+#ifdef HASH_STATISTICS
 	hash_accesses++;
 	hctl->accesses++;
 #endif
@@ -1174,17 +1200,8 @@ hash_update_hash_key(HTAB *hashp,
 	 * this to be able to unlink it from its hash chain, but as a side benefit
 	 * we can verify the validity of the passed existingEntry pointer.
 	 */
-	bucket = calc_bucket(hctl, existingElement->hashvalue);
-
-	segment_num = bucket >> hashp->sshift;
-	segment_ndx = MOD(bucket, hashp->ssize);
-
-	segp = hashp->dir[segment_num];
-
-	if (segp == NULL)
-		hash_corrupted(hashp);
-
-	prevBucketPtr = &segp[segment_ndx];
+	bucket = hash_initial_lookup(hashp, existingElement->hashvalue,
+								 &prevBucketPtr);
 	currBucket = *prevBucketPtr;
 
 	while (currBucket != NULL)
@@ -1206,18 +1223,7 @@ hash_update_hash_key(HTAB *hashp,
 	 * chain we want to put the entry into.
 	 */
 	newhashvalue = hashp->hash(newKeyPtr, hashp->keysize);
-
-	newbucket = calc_bucket(hctl, newhashvalue);
-
-	segment_num = newbucket >> hashp->sshift;
-	segment_ndx = MOD(newbucket, hashp->ssize);
-
-	segp = hashp->dir[segment_num];
-
-	if (segp == NULL)
-		hash_corrupted(hashp);
-
-	prevBucketPtr = &segp[segment_ndx];
+	newbucket = hash_initial_lookup(hashp, newhashvalue, &prevBucketPtr);
 	currBucket = *prevBucketPtr;
 
 	/*
@@ -1233,7 +1239,7 @@ hash_update_hash_key(HTAB *hashp,
 			break;
 		prevBucketPtr = &(currBucket->link);
 		currBucket = *prevBucketPtr;
-#if HASH_STATISTICS
+#ifdef HASH_STATISTICS
 		hash_collisions++;
 		hctl->collisions++;
 #endif
@@ -1410,8 +1416,33 @@ hash_seq_init(HASH_SEQ_STATUS *status, HTAB *hashp)
 	status->hashp = hashp;
 	status->curBucket = 0;
 	status->curEntry = NULL;
+	status->hasHashvalue = false;
 	if (!hashp->frozen)
 		register_seq_scan(hashp);
+}
+
+/*
+ * Same as above but scan by the given hash value.
+ * See also hash_seq_search().
+ *
+ * NOTE: the default hash function doesn't match syscache hash function.
+ * Thus, if you're going to use this function in syscache callback, make sure
+ * you're using custom hash function.  See relatt_cache_syshash()
+ * for example.
+ */
+void
+hash_seq_init_with_hash_value(HASH_SEQ_STATUS *status, HTAB *hashp,
+							  uint32 hashvalue)
+{
+	HASHBUCKET *bucketPtr;
+
+	hash_seq_init(status, hashp);
+
+	status->hasHashvalue = true;
+	status->hashvalue = hashvalue;
+
+	status->curBucket = hash_initial_lookup(hashp, hashvalue, &bucketPtr);
+	status->curEntry = *bucketPtr;
 }
 
 void *
@@ -1426,6 +1457,24 @@ hash_seq_search(HASH_SEQ_STATUS *status)
 	HASHSEGMENT segp;
 	uint32		curBucket;
 	HASHELEMENT *curElem;
+
+	if (status->hasHashvalue)
+	{
+		/*
+		 * Scan entries only in the current bucket because only this bucket
+		 * can contain entries with the given hash value.
+		 */
+		while ((curElem = status->curEntry) != NULL)
+		{
+			status->curEntry = curElem->link;
+			if (status->hashvalue != curElem->hashvalue)
+				continue;
+			return (void *) ELEMENTKEY(curElem);
+		}
+
+		hash_seq_term(status);
+		return NULL;
+	}
 
 	if ((curElem = status->curEntry) != NULL)
 	{
@@ -1728,6 +1777,33 @@ element_alloc(HTAB *hashp, int nelem, int freelist_idx)
 	return true;
 }
 
+/*
+ * Do initial lookup of a bucket for the given hash value, retrieving its
+ * bucket number and its hash bucket.
+ */
+static inline uint32
+hash_initial_lookup(HTAB *hashp, uint32 hashvalue, HASHBUCKET **bucketptr)
+{
+	HASHHDR    *hctl = hashp->hctl;
+	HASHSEGMENT segp;
+	long		segment_num;
+	long		segment_ndx;
+	uint32		bucket;
+
+	bucket = calc_bucket(hctl, hashvalue);
+
+	segment_num = bucket >> hashp->sshift;
+	segment_ndx = MOD(bucket, hashp->ssize);
+
+	segp = hashp->dir[segment_num];
+
+	if (segp == NULL)
+		hash_corrupted(hashp);
+
+	*bucketptr = &segp[segment_ndx];
+	return bucket;
+}
+
 /* complain when we have detected a corrupted hashtable */
 static void
 hash_corrupted(HTAB *hashp)
@@ -1746,16 +1822,18 @@ hash_corrupted(HTAB *hashp)
 int
 my_log2(long num)
 {
-	int			i;
-	long		limit;
-
-	/* guard against too-large input, which would put us into infinite loop */
+	/*
+	 * guard against too-large input, which would be invalid for
+	 * pg_ceil_log2_*()
+	 */
 	if (num > LONG_MAX / 2)
 		num = LONG_MAX / 2;
 
-	for (i = 0, limit = 1; limit < num; i++, limit <<= 1)
-		;
-	return i;
+#if SIZEOF_LONG < 8
+	return pg_ceil_log2_32(num);
+#else
+	return pg_ceil_log2_64(num);
+#endif
 }
 
 /* calculate first power of 2 >= num, bounded to what will fit in a long */

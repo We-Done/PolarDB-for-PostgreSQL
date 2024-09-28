@@ -46,11 +46,15 @@
 
 /* PG doesn't currently rely on <inttypes.h>, so work around strtoimax() */
 #undef strtoimax
+<<<<<<< HEAD
 #ifdef HAVE_STRTOLL
 #define strtoimax strtoll
 #else
 #define strtoimax strtol
 #endif
+=======
+#define strtoimax strtoll
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 
 /*

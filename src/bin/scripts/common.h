@@ -2,7 +2,7 @@
  *	common.h
  *		Common support routines for bin/scripts/
  *
- *	Copyright (c) 2003-2018, PostgreSQL Global Development Group
+ *	Copyright (c) 2003-2024, PostgreSQL Global Development Group
  *
  *	src/bin/scripts/common.h
  */
@@ -10,17 +10,15 @@
 #define COMMON_H
 
 #include "common/username.h"
-#include "libpq-fe.h"
+#include "fe_utils/connect_utils.h"
 #include "getopt_long.h"		/* pgrminclude ignore */
+#include "libpq-fe.h"
 #include "pqexpbuffer.h"		/* pgrminclude ignore */
 
-enum trivalue
-{
-	TRI_DEFAULT,
-	TRI_NO,
-	TRI_YES
-};
+extern void splitTableColumnsSpec(const char *spec, int encoding,
+								  char **table, const char **columns);
 
+<<<<<<< HEAD
 extern bool CancelRequested;
 
 /* Parameters needed by connectDatabase/connectMaintenanceDatabase */
@@ -62,13 +60,11 @@ extern bool executeMaintenanceCommand(PGconn *conn, const char *query,
 
 extern void appendQualifiedRelation(PQExpBuffer buf, const char *name,
 						PGconn *conn, const char *progname, bool echo);
+=======
+extern void appendQualifiedRelation(PQExpBuffer buf, const char *spec,
+									PGconn *conn, bool echo);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 extern bool yesno_prompt(const char *question);
-
-extern void setup_cancel_handler(void);
-
-extern void SetCancelConn(PGconn *conn);
-extern void ResetCancelConn(void);
-
 
 #endif							/* COMMON_H */

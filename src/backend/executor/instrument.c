@@ -4,7 +4,7 @@
  *	 functions for instrumentation of plan execution
  *
  *
- * Copyright (c) 2001-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2001-2024, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/executor/instrument.c
@@ -19,23 +19,32 @@
 
 BufferUsage pgBufferUsage;
 static BufferUsage save_pgBufferUsage;
+WalUsage	pgWalUsage;
+static WalUsage save_pgWalUsage;
 
 static void BufferUsageAdd(BufferUsage *dst, const BufferUsage *add);
-static void BufferUsageAccumDiff(BufferUsage *dst,
-					 const BufferUsage *add, const BufferUsage *sub);
+static void WalUsageAdd(WalUsage *dst, WalUsage *add);
 
 
 /* Allocate new instrumentation structure(s) */
 Instrumentation *
-InstrAlloc(int n, int instrument_options)
+InstrAlloc(int n, int instrument_options, bool async_mode)
 {
 	Instrumentation *instr;
 
 	/* initialize all fields to zeroes, then modify as needed */
 	instr = palloc0(n * sizeof(Instrumentation));
+<<<<<<< HEAD
 	if (instrument_options & (INSTRUMENT_BUFFERS | INSTRUMENT_TIMER 
 								| INSTRUMENT_OPERATION | INSTRUMENT_PX /* POLAR px */))
 	{
+=======
+	if (instrument_options & (INSTRUMENT_BUFFERS | INSTRUMENT_TIMER | INSTRUMENT_WAL))
+	{
+		bool		need_buffers = (instrument_options & INSTRUMENT_BUFFERS) != 0;
+		bool		need_wal = (instrument_options & INSTRUMENT_WAL) != 0;
+		bool		need_timer = (instrument_options & INSTRUMENT_TIMER) != 0;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		int			i;
 		bool		need_buffers = (instrument_options & INSTRUMENT_BUFFERS) != 0;
 		bool		need_timer = (instrument_options & INSTRUMENT_TIMER) != 0;		
@@ -47,11 +56,16 @@ InstrAlloc(int n, int instrument_options)
 		for (i = 0; i < n; i++)
 		{
 			instr[i].need_bufusage = need_buffers;
+			instr[i].need_walusage = need_wal;
 			instr[i].need_timer = need_timer;
+<<<<<<< HEAD
 
 			/* POLAR px */
 			instr[i].need_operation = need_operation;
 			instr[i].need_px = need_px;
+=======
+			instr[i].async_mode = async_mode;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		}
 
 		/* POLAR px */
@@ -76,6 +90,7 @@ InstrInit(Instrumentation *instr, int instrument_options)
 {
 	memset(instr, 0, sizeof(Instrumentation));
 	instr->need_bufusage = (instrument_options & INSTRUMENT_BUFFERS) != 0;
+	instr->need_walusage = (instrument_options & INSTRUMENT_WAL) != 0;
 	instr->need_timer = (instrument_options & INSTRUMENT_TIMER) != 0;
 
 	/* POLAR px */
@@ -94,23 +109,23 @@ InstrInit(Instrumentation *instr, int instrument_options)
 void
 InstrStartNode(Instrumentation *instr)
 {
-	if (instr->need_timer)
-	{
-		if (INSTR_TIME_IS_ZERO(instr->starttime))
-			INSTR_TIME_SET_CURRENT(instr->starttime);
-		else
-			elog(ERROR, "InstrStartNode called twice in a row");
-	}
+	if (instr->need_timer &&
+		!INSTR_TIME_SET_CURRENT_LAZY(instr->starttime))
+		elog(ERROR, "InstrStartNode called twice in a row");
 
 	/* save buffer usage totals at node entry, if needed */
 	if (instr->need_bufusage)
 		instr->bufusage_start = pgBufferUsage;
+
+	if (instr->need_walusage)
+		instr->walusage_start = pgWalUsage;
 }
 
 /* Exit from a plan node */
 void
 InstrStopNode(Instrumentation *instr, double nTuples)
 {
+	double		save_tuplecount = instr->tuplecount;
 	instr_time	endtime;
 	/* POLAR px */
 	instr_time	starttime;
@@ -158,6 +173,10 @@ InstrStopNode(Instrumentation *instr, double nTuples)
 		BufferUsageAccumDiff(&instr->bufusage,
 							 &pgBufferUsage, &instr->bufusage_start);
 
+	if (instr->need_walusage)
+		WalUsageAccumDiff(&instr->walusage,
+						  &pgWalUsage, &instr->walusage_start);
+
 	/* Is this the first tuple of this cycle? */
 	if (!instr->running)
 	{
@@ -167,6 +186,23 @@ InstrStopNode(Instrumentation *instr, double nTuples)
 		instr->firststart = starttime;
 		/* POLAR end */
 	}
+	else
+	{
+		/*
+		 * In async mode, if the plan node hadn't emitted any tuples before,
+		 * this might be the first tuple
+		 */
+		if (instr->async_mode && save_tuplecount < 1.0)
+			instr->firsttuple = INSTR_TIME_GET_DOUBLE(instr->counter);
+	}
+}
+
+/* Update tuple count */
+void
+InstrUpdateTupleCount(Instrumentation *instr, double nTuples)
+{
+	/* count the returned tuples */
+	instr->tuplecount += nTuples;
 }
 
 /* POLAR px: Finish a run cycle for a plan node */
@@ -237,6 +273,9 @@ InstrAggNode(Instrumentation *dst, Instrumentation *add)
 	/* Add delta of buffer usage since entry to node's totals */
 	if (dst->need_bufusage)
 		BufferUsageAdd(&dst->bufusage, &add->bufusage);
+
+	if (dst->need_walusage)
+		WalUsageAdd(&dst->walusage, &add->walusage);
 }
 
 /* note current values during parallel executor startup */
@@ -244,21 +283,25 @@ void
 InstrStartParallelQuery(void)
 {
 	save_pgBufferUsage = pgBufferUsage;
+	save_pgWalUsage = pgWalUsage;
 }
 
 /* report usage after parallel executor shutdown */
 void
-InstrEndParallelQuery(BufferUsage *result)
+InstrEndParallelQuery(BufferUsage *bufusage, WalUsage *walusage)
 {
-	memset(result, 0, sizeof(BufferUsage));
-	BufferUsageAccumDiff(result, &pgBufferUsage, &save_pgBufferUsage);
+	memset(bufusage, 0, sizeof(BufferUsage));
+	BufferUsageAccumDiff(bufusage, &pgBufferUsage, &save_pgBufferUsage);
+	memset(walusage, 0, sizeof(WalUsage));
+	WalUsageAccumDiff(walusage, &pgWalUsage, &save_pgWalUsage);
 }
 
 /* accumulate work done by workers in leader's stats */
 void
-InstrAccumParallelQuery(BufferUsage *result)
+InstrAccumParallelQuery(BufferUsage *bufusage, WalUsage *walusage)
 {
-	BufferUsageAdd(&pgBufferUsage, result);
+	BufferUsageAdd(&pgBufferUsage, bufusage);
+	WalUsageAdd(&pgWalUsage, walusage);
 }
 
 /* dst += add */
@@ -275,12 +318,16 @@ BufferUsageAdd(BufferUsage *dst, const BufferUsage *add)
 	dst->local_blks_written += add->local_blks_written;
 	dst->temp_blks_read += add->temp_blks_read;
 	dst->temp_blks_written += add->temp_blks_written;
-	INSTR_TIME_ADD(dst->blk_read_time, add->blk_read_time);
-	INSTR_TIME_ADD(dst->blk_write_time, add->blk_write_time);
+	INSTR_TIME_ADD(dst->shared_blk_read_time, add->shared_blk_read_time);
+	INSTR_TIME_ADD(dst->shared_blk_write_time, add->shared_blk_write_time);
+	INSTR_TIME_ADD(dst->local_blk_read_time, add->local_blk_read_time);
+	INSTR_TIME_ADD(dst->local_blk_write_time, add->local_blk_write_time);
+	INSTR_TIME_ADD(dst->temp_blk_read_time, add->temp_blk_read_time);
+	INSTR_TIME_ADD(dst->temp_blk_write_time, add->temp_blk_write_time);
 }
 
 /* dst += add - sub */
-static void
+void
 BufferUsageAccumDiff(BufferUsage *dst,
 					 const BufferUsage *add,
 					 const BufferUsage *sub)
@@ -295,8 +342,41 @@ BufferUsageAccumDiff(BufferUsage *dst,
 	dst->local_blks_written += add->local_blks_written - sub->local_blks_written;
 	dst->temp_blks_read += add->temp_blks_read - sub->temp_blks_read;
 	dst->temp_blks_written += add->temp_blks_written - sub->temp_blks_written;
+<<<<<<< HEAD
 	INSTR_TIME_ACCUM_DIFF(dst->blk_read_time,
 						  add->blk_read_time, sub->blk_read_time);
 	INSTR_TIME_ACCUM_DIFF(dst->blk_write_time,
 						  add->blk_write_time, sub->blk_write_time);
 }
+=======
+	INSTR_TIME_ACCUM_DIFF(dst->shared_blk_read_time,
+						  add->shared_blk_read_time, sub->shared_blk_read_time);
+	INSTR_TIME_ACCUM_DIFF(dst->shared_blk_write_time,
+						  add->shared_blk_write_time, sub->shared_blk_write_time);
+	INSTR_TIME_ACCUM_DIFF(dst->local_blk_read_time,
+						  add->local_blk_read_time, sub->local_blk_read_time);
+	INSTR_TIME_ACCUM_DIFF(dst->local_blk_write_time,
+						  add->local_blk_write_time, sub->local_blk_write_time);
+	INSTR_TIME_ACCUM_DIFF(dst->temp_blk_read_time,
+						  add->temp_blk_read_time, sub->temp_blk_read_time);
+	INSTR_TIME_ACCUM_DIFF(dst->temp_blk_write_time,
+						  add->temp_blk_write_time, sub->temp_blk_write_time);
+}
+
+/* helper functions for WAL usage accumulation */
+static void
+WalUsageAdd(WalUsage *dst, WalUsage *add)
+{
+	dst->wal_bytes += add->wal_bytes;
+	dst->wal_records += add->wal_records;
+	dst->wal_fpi += add->wal_fpi;
+}
+
+void
+WalUsageAccumDiff(WalUsage *dst, const WalUsage *add, const WalUsage *sub)
+{
+	dst->wal_bytes += add->wal_bytes - sub->wal_bytes;
+	dst->wal_records += add->wal_records - sub->wal_records;
+	dst->wal_fpi += add->wal_fpi - sub->wal_fpi;
+}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

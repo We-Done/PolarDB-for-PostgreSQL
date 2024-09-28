@@ -1,16 +1,22 @@
 # contrib/postgres_fdw/Makefile
 
 MODULE_big = postgres_fdw
-OBJS = postgres_fdw.o option.o deparse.o connection.o shippable.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	connection.o \
+	deparse.o \
+	option.o \
+	postgres_fdw.o \
+	shippable.o
 PGFILEDESC = "postgres_fdw - foreign data wrapper for PostgreSQL"
 
 PG_CPPFLAGS = -I$(libpq_srcdir)
 SHLIB_LINK_INTERNAL = $(libpq)
 
 EXTENSION = postgres_fdw
-DATA = postgres_fdw--1.0.sql
+DATA = postgres_fdw--1.0.sql postgres_fdw--1.0--1.1.sql postgres_fdw--1.1--1.2.sql
 
-REGRESS = postgres_fdw
+REGRESS = postgres_fdw query_cancel
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config

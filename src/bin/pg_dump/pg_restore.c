@@ -45,16 +45,15 @@
 #include <termios.h>
 #endif
 
-#include "getopt_long.h"
-
 #include "dumputils.h"
+#include "fe_utils/option_utils.h"
+#include "filter.h"
+#include "getopt_long.h"
 #include "parallel.h"
 #include "pg_backup_utils.h"
 
-
 static void usage(const char *progname);
-
-typedef struct option optType;
+static void read_restore_filters(const char *filename, RestoreOptions *opts);
 
 int
 main(int argc, char **argv)
@@ -69,6 +68,7 @@ main(int argc, char **argv)
 	static int	enable_row_security = 0;
 	static int	if_exists = 0;
 	static int	no_data_for_failed_tables = 0;
+	static int	outputNoTableAm = 0;
 	static int	outputNoTablespaces = 0;
 	static int	use_setsessauth = 0;
 	static int	no_comments = 0;
@@ -115,19 +115,24 @@ main(int argc, char **argv)
 		{"enable-row-security", no_argument, &enable_row_security, 1},
 		{"if-exists", no_argument, &if_exists, 1},
 		{"no-data-for-failed-tables", no_argument, &no_data_for_failed_tables, 1},
+		{"no-table-access-method", no_argument, &outputNoTableAm, 1},
 		{"no-tablespaces", no_argument, &outputNoTablespaces, 1},
 		{"role", required_argument, NULL, 2},
 		{"section", required_argument, NULL, 3},
 		{"strict-names", no_argument, &strict_names, 1},
+		{"transaction-size", required_argument, NULL, 5},
 		{"use-set-session-authorization", no_argument, &use_setsessauth, 1},
 		{"no-comments", no_argument, &no_comments, 1},
 		{"no-publications", no_argument, &no_publications, 1},
 		{"no-security-labels", no_argument, &no_security_labels, 1},
 		{"no-subscriptions", no_argument, &no_subscriptions, 1},
+		{"filter", required_argument, NULL, 4},
 
 		{NULL, 0, NULL, 0}
 	};
 
+	pg_logging_init(argv[0]);
+	pg_logging_set_level(PG_LOG_WARNING);
 	set_pglocale_pgservice(argv[0], PG_TEXTDOMAIN("pg_dump"));
 
 	init_parallel_dump_utils();
@@ -183,7 +188,10 @@ main(int argc, char **argv)
 				break;
 
 			case 'j':			/* number of restore jobs */
-				numWorkers = atoi(optarg);
+				if (!option_parse_int(optarg, "-j/--jobs", 1,
+									  PG_MAX_JOBS,
+									  &numWorkers))
+					exit(1);
 				break;
 
 			case 'l':			/* Dump the TOC summary */
@@ -247,6 +255,7 @@ main(int argc, char **argv)
 
 			case 'v':			/* verbose */
 				opts->verbose = 1;
+				pg_logging_increase_verbosity();
 				break;
 
 			case 'w':
@@ -281,8 +290,21 @@ main(int argc, char **argv)
 				set_dump_section(optarg, &(opts->dumpSections));
 				break;
 
+			case 4:				/* filter */
+				read_restore_filters(optarg, opts);
+				break;
+
+			case 5:				/* transaction-size */
+				if (!option_parse_int(optarg, "--transaction-size",
+									  1, INT_MAX,
+									  &opts->txn_size))
+					exit(1);
+				opts->exit_on_error = true;
+				break;
+
 			default:
-				fprintf(stderr, _("Try \"%s --help\" for more information.\n"), progname);
+				/* getopt_long already emitted a complaint */
+				pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 				exit_nicely(1);
 		}
 	}
@@ -296,68 +318,52 @@ main(int argc, char **argv)
 	/* Complain if any arguments remain */
 	if (optind < argc)
 	{
-		fprintf(stderr, _("%s: too many command-line arguments (first is \"%s\")\n"),
-				progname, argv[optind]);
-		fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
-				progname);
+		pg_log_error("too many command-line arguments (first is \"%s\")",
+					 argv[optind]);
+		pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 		exit_nicely(1);
 	}
+
+	/* Complain if neither -f nor -d was specified (except if dumping TOC) */
+	if (!opts->cparams.dbname && !opts->filename && !opts->tocSummary)
+		pg_fatal("one of -d/--dbname and -f/--file must be specified");
 
 	/* Should get at most one of -d and -f, else user is confused */
 	if (opts->cparams.dbname)
 	{
 		if (opts->filename)
 		{
-			fprintf(stderr, _("%s: options -d/--dbname and -f/--file cannot be used together\n"),
-					progname);
-			fprintf(stderr, _("Try \"%s --help\" for more information.\n"),
-					progname);
+			pg_log_error("options -d/--dbname and -f/--file cannot be used together");
+			pg_log_error_hint("Try \"%s --help\" for more information.", progname);
 			exit_nicely(1);
 		}
 		opts->useDB = 1;
 	}
 
 	if (opts->dataOnly && opts->schemaOnly)
-	{
-		fprintf(stderr, _("%s: options -s/--schema-only and -a/--data-only cannot be used together\n"),
-				progname);
-		exit_nicely(1);
-	}
+		pg_fatal("options -s/--schema-only and -a/--data-only cannot be used together");
 
 	if (opts->dataOnly && opts->dropSchema)
-	{
-		fprintf(stderr, _("%s: options -c/--clean and -a/--data-only cannot be used together\n"),
-				progname);
-		exit_nicely(1);
-	}
+		pg_fatal("options -c/--clean and -a/--data-only cannot be used together");
 
-	if (numWorkers <= 0)
-	{
-		fprintf(stderr, _("%s: invalid number of parallel jobs\n"), progname);
-		exit(1);
-	}
+	if (opts->single_txn && opts->txn_size > 0)
+		pg_fatal("options -1/--single-transaction and --transaction-size cannot be used together");
 
-	/* See comments in pg_dump.c */
-#ifdef WIN32
-	if (numWorkers > MAXIMUM_WAIT_OBJECTS)
-	{
-		fprintf(stderr, _("%s: maximum number of parallel jobs is %d\n"),
-				progname, MAXIMUM_WAIT_OBJECTS);
-		exit(1);
-	}
-#endif
+	/*
+	 * -C is not compatible with -1, because we can't create a database inside
+	 * a transaction block.
+	 */
+	if (opts->createDB && opts->single_txn)
+		pg_fatal("options -C/--create and -1/--single-transaction cannot be used together");
 
 	/* Can't do single-txn mode with multiple connections */
 	if (opts->single_txn && numWorkers > 1)
-	{
-		fprintf(stderr, _("%s: cannot specify both --single-transaction and multiple jobs\n"),
-				progname);
-		exit_nicely(1);
-	}
+		pg_fatal("cannot specify both --single-transaction and multiple jobs");
 
 	opts->disable_triggers = disable_triggers;
 	opts->enable_row_security = enable_row_security;
 	opts->noDataForFailedTables = no_data_for_failed_tables;
+	opts->noTableAm = outputNoTableAm;
 	opts->noTablespace = outputNoTablespaces;
 	opts->use_setsessauth = use_setsessauth;
 	opts->no_comments = no_comments;
@@ -366,11 +372,7 @@ main(int argc, char **argv)
 	opts->no_subscriptions = no_subscriptions;
 
 	if (if_exists && !opts->dropSchema)
-	{
-		fprintf(stderr, _("%s: option --if-exists requires option -c/--clean\n"),
-				progname);
-		exit_nicely(1);
-	}
+		pg_fatal("option --if-exists requires option -c/--clean");
 	opts->if_exists = if_exists;
 	opts->strict_names = strict_names;
 
@@ -394,9 +396,8 @@ main(int argc, char **argv)
 				break;
 
 			default:
-				write_msg(NULL, "unrecognized archive format \"%s\"; please specify \"c\", \"d\", or \"t\"\n",
-						  opts->formatName);
-				exit_nicely(1);
+				pg_fatal("unrecognized archive format \"%s\"; please specify \"c\", \"d\", or \"t\"",
+						 opts->formatName);
 		}
 	}
 
@@ -434,8 +435,7 @@ main(int argc, char **argv)
 
 	/* done, print a summary of ignored errors */
 	if (AH->n_errors)
-		fprintf(stderr, _("WARNING: errors ignored on restore: %d\n"),
-				AH->n_errors);
+		pg_log_warning("errors ignored on restore: %d", AH->n_errors);
 
 	/* AH may be freed in CloseArchive? */
 	exit_code = AH->n_errors ? 1 : 0;
@@ -482,6 +482,8 @@ usage(const char *progname)
 	printf(_("  -1, --single-transaction     restore as a single transaction\n"));
 	printf(_("  --disable-triggers           disable triggers during data-only restore\n"));
 	printf(_("  --enable-row-security        enable row security\n"));
+	printf(_("  --filter=FILENAME            restore or skip objects based on expressions\n"
+			 "                               in FILENAME\n"));
 	printf(_("  --if-exists                  use IF EXISTS when dropping objects\n"));
 	printf(_("  --no-comments                do not restore comments\n"));
 	printf(_("  --no-data-for-failed-tables  do not restore data of tables that could not be\n"
@@ -489,10 +491,12 @@ usage(const char *progname)
 	printf(_("  --no-publications            do not restore publications\n"));
 	printf(_("  --no-security-labels         do not restore security labels\n"));
 	printf(_("  --no-subscriptions           do not restore subscriptions\n"));
+	printf(_("  --no-table-access-method     do not restore table access methods\n"));
 	printf(_("  --no-tablespaces             do not restore tablespace assignments\n"));
 	printf(_("  --section=SECTION            restore named section (pre-data, data, or post-data)\n"));
 	printf(_("  --strict-names               require table and/or schema include patterns to\n"
 			 "                               match at least one entity each\n"));
+	printf(_("  --transaction-size=N         commit after every N objects\n"));
 	printf(_("  --use-set-session-authorization\n"
 			 "                               use SET SESSION AUTHORIZATION commands instead of\n"
 			 "                               ALTER OWNER commands to set ownership\n"));
@@ -509,5 +513,106 @@ usage(const char *progname)
 			 "The options -I, -n, -N, -P, -t, -T, and --section can be combined and specified\n"
 			 "multiple times to select multiple objects.\n"));
 	printf(_("\nIf no input file name is supplied, then standard input is used.\n\n"));
-	printf(_("Report bugs to <pgsql-bugs@postgresql.org>.\n"));
+	printf(_("Report bugs to <%s>.\n"), PACKAGE_BUGREPORT);
+	printf(_("%s home page: <%s>\n"), PACKAGE_NAME, PACKAGE_URL);
+}
+
+/*
+ * read_restore_filters - retrieve object identifier patterns from file
+ *
+ * Parse the specified filter file for include and exclude patterns, and add
+ * them to the relevant lists.  If the filename is "-" then filters will be
+ * read from STDIN rather than a file.
+ */
+static void
+read_restore_filters(const char *filename, RestoreOptions *opts)
+{
+	FilterStateData fstate;
+	char	   *objname;
+	FilterCommandType comtype;
+	FilterObjectType objtype;
+
+	filter_init(&fstate, filename, exit_nicely);
+
+	while (filter_read_item(&fstate, &objname, &comtype, &objtype))
+	{
+		if (comtype == FILTER_COMMAND_TYPE_INCLUDE)
+		{
+			switch (objtype)
+			{
+				case FILTER_OBJECT_TYPE_NONE:
+					break;
+				case FILTER_OBJECT_TYPE_TABLE_DATA:
+				case FILTER_OBJECT_TYPE_TABLE_DATA_AND_CHILDREN:
+				case FILTER_OBJECT_TYPE_TABLE_AND_CHILDREN:
+				case FILTER_OBJECT_TYPE_DATABASE:
+				case FILTER_OBJECT_TYPE_EXTENSION:
+				case FILTER_OBJECT_TYPE_FOREIGN_DATA:
+					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed"),
+										"include",
+										filter_object_type_name(objtype));
+					exit_nicely(1);
+
+				case FILTER_OBJECT_TYPE_FUNCTION:
+					opts->selTypes = 1;
+					opts->selFunction = 1;
+					simple_string_list_append(&opts->functionNames, objname);
+					break;
+				case FILTER_OBJECT_TYPE_INDEX:
+					opts->selTypes = 1;
+					opts->selIndex = 1;
+					simple_string_list_append(&opts->indexNames, objname);
+					break;
+				case FILTER_OBJECT_TYPE_SCHEMA:
+					simple_string_list_append(&opts->schemaNames, objname);
+					break;
+				case FILTER_OBJECT_TYPE_TABLE:
+					opts->selTypes = 1;
+					opts->selTable = 1;
+					simple_string_list_append(&opts->tableNames, objname);
+					break;
+				case FILTER_OBJECT_TYPE_TRIGGER:
+					opts->selTypes = 1;
+					opts->selTrigger = 1;
+					simple_string_list_append(&opts->triggerNames, objname);
+					break;
+			}
+		}
+		else if (comtype == FILTER_COMMAND_TYPE_EXCLUDE)
+		{
+			switch (objtype)
+			{
+				case FILTER_OBJECT_TYPE_NONE:
+					break;
+				case FILTER_OBJECT_TYPE_TABLE_DATA:
+				case FILTER_OBJECT_TYPE_TABLE_DATA_AND_CHILDREN:
+				case FILTER_OBJECT_TYPE_DATABASE:
+				case FILTER_OBJECT_TYPE_EXTENSION:
+				case FILTER_OBJECT_TYPE_FOREIGN_DATA:
+				case FILTER_OBJECT_TYPE_FUNCTION:
+				case FILTER_OBJECT_TYPE_INDEX:
+				case FILTER_OBJECT_TYPE_TABLE:
+				case FILTER_OBJECT_TYPE_TABLE_AND_CHILDREN:
+				case FILTER_OBJECT_TYPE_TRIGGER:
+					pg_log_filter_error(&fstate, _("%s filter for \"%s\" is not allowed"),
+										"exclude",
+										filter_object_type_name(objtype));
+					exit_nicely(1);
+
+				case FILTER_OBJECT_TYPE_SCHEMA:
+					simple_string_list_append(&opts->schemaExcludeNames, objname);
+					break;
+			}
+		}
+		else
+		{
+			Assert(comtype == FILTER_COMMAND_TYPE_NONE);
+			Assert(objtype == FILTER_OBJECT_TYPE_NONE);
+		}
+
+		if (objname)
+			free(objname);
+	}
+
+	filter_free(&fstate);
 }

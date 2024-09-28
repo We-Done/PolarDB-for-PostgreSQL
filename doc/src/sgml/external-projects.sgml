@@ -40,13 +40,15 @@
    </itemizedlist>
 
    All other language interfaces are external projects and are distributed
-   separately. <xref linkend="language-interface-table"/> includes a list of
-   some of these projects. Note that some of these packages might not be
-   released under the same license as <productname>PostgreSQL</productname>. For more
-   information on each language interface, including licensing terms, refer to
-   its website and documentation.
+   separately. A
+   <ulink url="https://wiki.postgresql.org/wiki/List_of_drivers">list of language interfaces</ulink>
+   is maintained on the PostgreSQL wiki. Note that some of these packages are
+   not released under the same license as <productname>PostgreSQL</productname>.
+   For more information on each language interface, including licensing terms,
+   refer to its website and documentation.
   </para>
 
+<<<<<<< HEAD
   <table id="language-interface-table">
    <title>Externally Maintained Client Interfaces</title>
 
@@ -133,6 +135,11 @@
     </tbody>
    </tgroup>
   </table>
+=======
+  <para>
+    <ulink url="https://wiki.postgresql.org/wiki/List_of_drivers"></ulink>
+  </para>
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  </sect1>
 
  <sect1 id="external-admin-tools">
@@ -170,13 +177,16 @@
   <para>
    In addition, there are a number of procedural languages that are developed
    and maintained outside the core <productname>PostgreSQL</productname>
-   distribution. <xref linkend="pl-language-table"/> lists some of these
-   packages. Note that some of these projects might not be released under the same
-   license as <productname>PostgreSQL</productname>. For more information on each
-   procedural language, including licensing information, refer to its website
+   distribution. A list of
+   <ulink url="https://wiki.postgresql.org/wiki/PL_Matrix">procedural languages</ulink>
+   is maintained on the PostgreSQL wiki. Note that some of these projects are
+   not released under the same license as <productname>PostgreSQL</productname>.
+   For more information on each procedural language, including licensing
+   information, refer to its website
    and documentation.
   </para>
 
+<<<<<<< HEAD
   <table id="pl-language-table">
    <title>Externally Maintained Procedural Languages</title>
 
@@ -222,6 +232,11 @@
     </tbody>
    </tgroup>
   </table>
+=======
+  <para>
+   <ulink url="https://wiki.postgresql.org/wiki/PL_Matrix"></ulink>
+  </para>
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  </sect1>
 
  <sect1 id="external-extensions">
@@ -244,7 +259,11 @@
    <productname>PostgreSQL</productname> replication solutions can be developed
    externally. For example, <application> <ulink
    url="https://www.slony.info">Slony-I</ulink></application> is a popular
+<<<<<<< HEAD
    master/standby replication solution that is developed independently
+=======
+   primary/standby replication solution that is developed independently
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
    from the core project.
   </para>
  </sect1>

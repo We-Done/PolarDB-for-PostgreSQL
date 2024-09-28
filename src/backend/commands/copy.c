@@ -3,7 +3,7 @@
  * copy.c
  *		Implements the COPY utility command
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -18,38 +18,27 @@
 #include <unistd.h>
 #include <sys/stat.h>
 
-#include "access/heapam.h"
-#include "access/htup_details.h"
 #include "access/sysattr.h"
+#include "access/table.h"
 #include "access/xact.h"
-#include "access/xlog.h"
-#include "catalog/dependency.h"
 #include "catalog/pg_authid.h"
-#include "catalog/pg_type.h"
 #include "commands/copy.h"
 #include "commands/defrem.h"
-#include "commands/trigger.h"
-#include "executor/execPartition.h"
 #include "executor/executor.h"
-#include "foreign/fdwapi.h"
-#include "libpq/libpq.h"
-#include "libpq/pqformat.h"
 #include "mb/pg_wchar.h"
 #include "miscadmin.h"
-#include "optimizer/clauses.h"
-#include "optimizer/planner.h"
 #include "nodes/makefuncs.h"
+#include "optimizer/optimizer.h"
+#include "parser/parse_coerce.h"
+#include "parser/parse_collate.h"
+#include "parser/parse_expr.h"
 #include "parser/parse_relation.h"
-#include "port/pg_bswap.h"
-#include "rewrite/rewriteHandler.h"
-#include "storage/fd.h"
-#include "tcop/tcopprot.h"
+#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
-#include "utils/memutils.h"
-#include "utils/portal.h"
 #include "utils/rel.h"
 #include "utils/rls.h"
+<<<<<<< HEAD
 #include "utils/snapmgr.h"
 
 /* POLAR */
@@ -765,6 +754,8 @@ CopyLoadRawBuf(CopyState cstate)
 	return (inbytes > 0);
 }
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /*
  *	 DoCopy executes the SQL COPY statement
@@ -779,8 +770,8 @@ CopyLoadRawBuf(CopyState cstate)
  * input/output stream. The latter could be either stdin/stdout or a
  * socket, depending on whether we're running under Postmaster control.
  *
- * Do not allow a Postgres user without the 'pg_access_server_files' role to
- * read from or write to a file.
+ * Do not allow a Postgres user without the 'pg_read_server_files' or
+ * 'pg_write_server_files' role to read from or write to a file.
  *
  * Do not allow the copy if user doesn't have proper permission to access
  * the table or the specifically requested columns.
@@ -790,12 +781,12 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 	   int stmt_location, int stmt_len,
 	   uint64 *processed)
 {
-	CopyState	cstate;
 	bool		is_from = stmt->is_from;
 	bool		pipe = (stmt->filename == NULL);
 	Relation	rel;
 	Oid			relid;
 	RawStmt    *query = NULL;
+	Node	   *whereClause = NULL;
 
 	/*
 	 * Disallow COPY to/from file or program except to users with the
@@ -805,26 +796,32 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 	{
 		if (stmt->is_program)
 		{
-			if (!is_member_of_role(GetUserId(), DEFAULT_ROLE_EXECUTE_SERVER_PROGRAM))
+			if (!has_privs_of_role(GetUserId(), ROLE_PG_EXECUTE_SERVER_PROGRAM))
 				ereport(ERROR,
 						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-						 errmsg("must be superuser or a member of the pg_execute_server_program role to COPY to or from an external program"),
+						 errmsg("permission denied to COPY to or from an external program"),
+						 errdetail("Only roles with privileges of the \"%s\" role may COPY to or from an external program.",
+								   "pg_execute_server_program"),
 						 errhint("Anyone can COPY to stdout or from stdin. "
 								 "psql's \\copy command also works for anyone.")));
 		}
 		else
 		{
-			if (is_from && !is_member_of_role(GetUserId(), DEFAULT_ROLE_READ_SERVER_FILES))
+			if (is_from && !has_privs_of_role(GetUserId(), ROLE_PG_READ_SERVER_FILES))
 				ereport(ERROR,
 						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-						 errmsg("must be superuser or a member of the pg_read_server_files role to COPY from a file"),
+						 errmsg("permission denied to COPY from a file"),
+						 errdetail("Only roles with privileges of the \"%s\" role may COPY from a file.",
+								   "pg_read_server_files"),
 						 errhint("Anyone can COPY to stdout or from stdin. "
 								 "psql's \\copy command also works for anyone.")));
 
-			if (!is_from && !is_member_of_role(GetUserId(), DEFAULT_ROLE_WRITE_SERVER_FILES))
+			if (!is_from && !has_privs_of_role(GetUserId(), ROLE_PG_WRITE_SERVER_FILES))
 				ereport(ERROR,
 						(errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
-						 errmsg("must be superuser or a member of the pg_write_server_files role to COPY to a file"),
+						 errmsg("permission denied to COPY to a file"),
+						 errdetail("Only roles with privileges of the \"%s\" role may COPY to a file.",
+								   "pg_write_server_files"),
 						 errhint("Anyone can COPY to stdout or from stdin. "
 								 "psql's \\copy command also works for anyone.")));
 		}
@@ -832,35 +829,59 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 	if (stmt->relation)
 	{
+		LOCKMODE	lockmode = is_from ? RowExclusiveLock : AccessShareLock;
+		ParseNamespaceItem *nsitem;
+		RTEPermissionInfo *perminfo;
 		TupleDesc	tupDesc;
 		List	   *attnums;
 		ListCell   *cur;
-		RangeTblEntry *rte;
 
 		Assert(!stmt->query);
 
 		/* Open and lock the relation, using the appropriate lock type. */
-		rel = heap_openrv(stmt->relation,
-						  (is_from ? RowExclusiveLock : AccessShareLock));
+		rel = table_openrv(stmt->relation, lockmode);
 
 		relid = RelationGetRelid(rel);
 
-		rte = addRangeTableEntryForRelation(pstate, rel, NULL, false, false);
-		rte->requiredPerms = (is_from ? ACL_INSERT : ACL_SELECT);
+		nsitem = addRangeTableEntryForRelation(pstate, rel, lockmode,
+											   NULL, false, false);
+
+		perminfo = nsitem->p_perminfo;
+		perminfo->requiredPerms = (is_from ? ACL_INSERT : ACL_SELECT);
+
+		if (stmt->whereClause)
+		{
+			/* add nsitem to query namespace */
+			addNSItemToQuery(pstate, nsitem, false, true, true);
+
+			/* Transform the raw expression tree */
+			whereClause = transformExpr(pstate, stmt->whereClause, EXPR_KIND_COPY_WHERE);
+
+			/* Make sure it yields a boolean result. */
+			whereClause = coerce_to_boolean(pstate, whereClause, "WHERE");
+
+			/* we have to fix its collations too */
+			assign_expr_collations(pstate, whereClause);
+
+			whereClause = eval_const_expressions(NULL, whereClause);
+
+			whereClause = (Node *) canonicalize_qual((Expr *) whereClause, false);
+			whereClause = (Node *) make_ands_implicit((Expr *) whereClause);
+		}
 
 		tupDesc = RelationGetDescr(rel);
 		attnums = CopyGetAttnums(tupDesc, rel, stmt->attlist);
 		foreach(cur, attnums)
 		{
-			int			attno = lfirst_int(cur) -
-			FirstLowInvalidHeapAttributeNumber;
+			int			attno;
+			Bitmapset **bms;
 
-			if (is_from)
-				rte->insertedCols = bms_add_member(rte->insertedCols, attno);
-			else
-				rte->selectedCols = bms_add_member(rte->selectedCols, attno);
+			attno = lfirst_int(cur) - FirstLowInvalidHeapAttributeNumber;
+			bms = is_from ? &perminfo->insertedCols : &perminfo->selectedCols;
+
+			*bms = bms_add_member(*bms, attno);
 		}
-		ExecCheckRTPerms(pstate->p_rtable, true);
+		ExecCheckPermissions(pstate->p_rtable, list_make1(perminfo), true);
 
 		/*
 		 * Permission check for row security policies.
@@ -876,7 +897,7 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 		 * If RLS is not enabled for this, then just fall through to the
 		 * normal non-filtering relation handling.
 		 */
-		if (check_enable_rls(rte->relid, InvalidOid, false) == RLS_ENABLED)
+		if (check_enable_rls(relid, InvalidOid, false) == RLS_ENABLED)
 		{
 			SelectStmt *select;
 			ColumnRef  *cr;
@@ -924,9 +945,8 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 				{
 					/*
 					 * Build the ColumnRef for each column.  The ColumnRef
-					 * 'fields' property is a String 'Value' node (see
-					 * nodes/value.h) that corresponds to the column name
-					 * respectively.
+					 * 'fields' property is a String node that corresponds to
+					 * the column name respectively.
 					 */
 					cr = makeNode(ColumnRef);
 					cr->fields = list_make1(lfirst(lc));
@@ -946,11 +966,14 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 			/*
 			 * Build RangeVar for from clause, fully qualified based on the
-			 * relation which we have opened and locked.
+			 * relation which we have opened and locked.  Use "ONLY" so that
+			 * COPY retrieves rows from only the target table not any
+			 * inheritance children, the same as when RLS doesn't apply.
 			 */
 			from = makeRangeVar(get_namespace_name(RelationGetNamespace(rel)),
 								pstrdup(RelationGetRelationName(rel)),
 								-1);
+			from->inh = false;	/* apply ONLY */
 
 			/* Build query */
 			select = makeNode(SelectStmt);
@@ -968,7 +991,7 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 			 *
 			 * We'll reopen it later as part of the query-based COPY.
 			 */
-			heap_close(rel, NoLock);
+			table_close(rel, NoLock);
 			rel = NULL;
 		}
 	}
@@ -987,48 +1010,168 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
 
 	if (is_from)
 	{
+		CopyFromState cstate;
+
 		Assert(rel);
 
 		/* check read-only transaction and parallel mode */
 		if (XactReadOnly && !rel->rd_islocaltemp)
 			PreventCommandIfReadOnly("COPY FROM");
-		PreventCommandIfParallelMode("COPY FROM");
 
-		cstate = BeginCopyFrom(pstate, rel, stmt->filename, stmt->is_program,
+		cstate = BeginCopyFrom(pstate, rel, whereClause,
+							   stmt->filename, stmt->is_program,
 							   NULL, stmt->attlist, stmt->options);
 		*processed = CopyFrom(cstate);	/* copy from file to database */
 		EndCopyFrom(cstate);
 	}
 	else
 	{
+		CopyToState cstate;
+
 		cstate = BeginCopyTo(pstate, rel, query, relid,
 							 stmt->filename, stmt->is_program,
-							 stmt->attlist, stmt->options);
+							 NULL, stmt->attlist, stmt->options);
 		*processed = DoCopyTo(cstate);	/* copy from database to file */
 		EndCopyTo(cstate);
 	}
 
-	/*
-	 * Close the relation. If reading, we can release the AccessShareLock we
-	 * got; if writing, we should hold the lock until end of transaction to
-	 * ensure that updates will be committed before lock is released.
-	 */
 	if (rel != NULL)
-		heap_close(rel, (is_from ? NoLock : AccessShareLock));
+		table_close(rel, NoLock);
+}
+
+/*
+ * Extract a CopyHeaderChoice value from a DefElem.  This is like
+ * defGetBoolean() but also accepts the special value "match".
+ */
+static CopyHeaderChoice
+defGetCopyHeaderChoice(DefElem *def, bool is_from)
+{
+	/*
+	 * If no parameter value given, assume "true" is meant.
+	 */
+	if (def->arg == NULL)
+		return COPY_HEADER_TRUE;
+
+	/*
+	 * Allow 0, 1, "true", "false", "on", "off", or "match".
+	 */
+	switch (nodeTag(def->arg))
+	{
+		case T_Integer:
+			switch (intVal(def->arg))
+			{
+				case 0:
+					return COPY_HEADER_FALSE;
+				case 1:
+					return COPY_HEADER_TRUE;
+				default:
+					/* otherwise, error out below */
+					break;
+			}
+			break;
+		default:
+			{
+				char	   *sval = defGetString(def);
+
+				/*
+				 * The set of strings accepted here should match up with the
+				 * grammar's opt_boolean_or_string production.
+				 */
+				if (pg_strcasecmp(sval, "true") == 0)
+					return COPY_HEADER_TRUE;
+				if (pg_strcasecmp(sval, "false") == 0)
+					return COPY_HEADER_FALSE;
+				if (pg_strcasecmp(sval, "on") == 0)
+					return COPY_HEADER_TRUE;
+				if (pg_strcasecmp(sval, "off") == 0)
+					return COPY_HEADER_FALSE;
+				if (pg_strcasecmp(sval, "match") == 0)
+				{
+					if (!is_from)
+						ereport(ERROR,
+								(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+								 errmsg("cannot use \"%s\" with HEADER in COPY TO",
+										sval)));
+					return COPY_HEADER_MATCH;
+				}
+			}
+			break;
+	}
+	ereport(ERROR,
+			(errcode(ERRCODE_SYNTAX_ERROR),
+			 errmsg("%s requires a Boolean value or \"match\"",
+					def->defname)));
+	return COPY_HEADER_FALSE;	/* keep compiler quiet */
+}
+
+/*
+ * Extract a CopyOnErrorChoice value from a DefElem.
+ */
+static CopyOnErrorChoice
+defGetCopyOnErrorChoice(DefElem *def, ParseState *pstate, bool is_from)
+{
+	char	   *sval = defGetString(def);
+
+	if (!is_from)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+		 second %s is a COPY with direction, e.g. COPY TO */
+				 errmsg("COPY %s cannot be used with %s", "ON_ERROR", "COPY TO"),
+				 parser_errposition(pstate, def->location)));
+
+	/*
+	 * Allow "stop", or "ignore" values.
+	 */
+	if (pg_strcasecmp(sval, "stop") == 0)
+		return COPY_ON_ERROR_STOP;
+	if (pg_strcasecmp(sval, "ignore") == 0)
+		return COPY_ON_ERROR_IGNORE;
+
+	ereport(ERROR,
+			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+	/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR */
+			 errmsg("COPY %s \"%s\" not recognized", "ON_ERROR", sval),
+			 parser_errposition(pstate, def->location)));
+	return COPY_ON_ERROR_STOP;	/* keep compiler quiet */
+}
+
+/*
+ * Extract a CopyLogVerbosityChoice value from a DefElem.
+ */
+static CopyLogVerbosityChoice
+defGetCopyLogVerbosityChoice(DefElem *def, ParseState *pstate)
+{
+	char	   *sval;
+
+	/*
+	 * Allow "default", or "verbose" values.
+	 */
+	sval = defGetString(def);
+	if (pg_strcasecmp(sval, "default") == 0)
+		return COPY_LOG_VERBOSITY_DEFAULT;
+	if (pg_strcasecmp(sval, "verbose") == 0)
+		return COPY_LOG_VERBOSITY_VERBOSE;
+
+	ereport(ERROR,
+			(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+	/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR */
+			 errmsg("COPY %s \"%s\" not recognized", "LOG_VERBOSITY", sval),
+			 parser_errposition(pstate, def->location)));
+	return COPY_LOG_VERBOSITY_DEFAULT;	/* keep compiler quiet */
 }
 
 /*
  * Process the statement option list for COPY.
  *
  * Scan the options list (a list of DefElem) and transpose the information
- * into cstate, applying appropriate error checking.
+ * into *opts_out, applying appropriate error checking.
  *
- * cstate is assumed to be filled with zeroes initially.
+ * If 'opts_out' is not NULL, it is assumed to be filled with zeroes initially.
  *
  * This is exported so that external users of the COPY API can sanity-check
- * a list of options.  In that usage, cstate should be passed as NULL
- * (since external users don't know sizeof(CopyStateData)) and the collected
- * data is just leaked until CurrentMemoryContext is reset.
+ * a list of options.  In that usage, 'opts_out' can be passed as NULL and
+ * the collected data is just leaked until CurrentMemoryContext is reset.
  *
  * Note that additional checking, such as whether column names listed in FORCE
  * QUOTE actually exist, has to be applied later.  This just checks for
@@ -1036,20 +1179,28 @@ DoCopy(ParseState *pstate, const CopyStmt *stmt,
  */
 void
 ProcessCopyOptions(ParseState *pstate,
-				   CopyState cstate,
+				   CopyFormatOptions *opts_out,
 				   bool is_from,
 				   List *options)
 {
 	bool		format_specified = false;
+	bool		freeze_specified = false;
+	bool		header_specified = false;
+	bool		on_error_specified = false;
+	bool		log_verbosity_specified = false;
 	ListCell   *option;
 
 	/* Support external use for option sanity checking */
-	if (cstate == NULL)
-		cstate = (CopyStateData *) palloc0(sizeof(CopyStateData));
+	if (opts_out == NULL)
+		opts_out = (CopyFormatOptions *) palloc0(sizeof(CopyFormatOptions));
 
+<<<<<<< HEAD
 	cstate->is_copy_from = is_from;
 
 	cstate->file_encoding = -1;
+=======
+	opts_out->file_encoding = -1;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/* Extract options from the statement node tree */
 	foreach(option, options)
@@ -1061,97 +1212,72 @@ ProcessCopyOptions(ParseState *pstate,
 			char	   *fmt = defGetString(defel);
 
 			if (format_specified)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
+				errorConflictingDefElem(defel, pstate);
 			format_specified = true;
 			if (strcmp(fmt, "text") == 0)
 				 /* default format */ ;
 			else if (strcmp(fmt, "csv") == 0)
-				cstate->csv_mode = true;
+				opts_out->csv_mode = true;
 			else if (strcmp(fmt, "binary") == 0)
-				cstate->binary = true;
+				opts_out->binary = true;
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("COPY format \"%s\" not recognized", fmt),
 						 parser_errposition(pstate, defel->location)));
 		}
-		else if (strcmp(defel->defname, "oids") == 0)
-		{
-			if (cstate->oids)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->oids = defGetBoolean(defel);
-		}
 		else if (strcmp(defel->defname, "freeze") == 0)
 		{
-			if (cstate->freeze)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->freeze = defGetBoolean(defel);
+			if (freeze_specified)
+				errorConflictingDefElem(defel, pstate);
+			freeze_specified = true;
+			opts_out->freeze = defGetBoolean(defel);
 		}
 		else if (strcmp(defel->defname, "delimiter") == 0)
 		{
-			if (cstate->delim)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->delim = defGetString(defel);
+			if (opts_out->delim)
+				errorConflictingDefElem(defel, pstate);
+			opts_out->delim = defGetString(defel);
 		}
 		else if (strcmp(defel->defname, "null") == 0)
 		{
-			if (cstate->null_print)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->null_print = defGetString(defel);
+			if (opts_out->null_print)
+				errorConflictingDefElem(defel, pstate);
+			opts_out->null_print = defGetString(defel);
+		}
+		else if (strcmp(defel->defname, "default") == 0)
+		{
+			if (opts_out->default_print)
+				errorConflictingDefElem(defel, pstate);
+			opts_out->default_print = defGetString(defel);
 		}
 		else if (strcmp(defel->defname, "header") == 0)
 		{
-			if (cstate->header_line)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->header_line = defGetBoolean(defel);
+			if (header_specified)
+				errorConflictingDefElem(defel, pstate);
+			header_specified = true;
+			opts_out->header_line = defGetCopyHeaderChoice(defel, is_from);
 		}
 		else if (strcmp(defel->defname, "quote") == 0)
 		{
-			if (cstate->quote)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->quote = defGetString(defel);
+			if (opts_out->quote)
+				errorConflictingDefElem(defel, pstate);
+			opts_out->quote = defGetString(defel);
 		}
 		else if (strcmp(defel->defname, "escape") == 0)
 		{
-			if (cstate->escape)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->escape = defGetString(defel);
+			if (opts_out->escape)
+				errorConflictingDefElem(defel, pstate);
+			opts_out->escape = defGetString(defel);
 		}
 		else if (strcmp(defel->defname, "force_quote") == 0)
 		{
-			if (cstate->force_quote || cstate->force_quote_all)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
+			if (opts_out->force_quote || opts_out->force_quote_all)
+				errorConflictingDefElem(defel, pstate);
 			if (defel->arg && IsA(defel->arg, A_Star))
-				cstate->force_quote_all = true;
+				opts_out->force_quote_all = true;
 			else if (defel->arg && IsA(defel->arg, List))
-				cstate->force_quote = castNode(List, defel->arg);
+				opts_out->force_quote = castNode(List, defel->arg);
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1161,13 +1287,12 @@ ProcessCopyOptions(ParseState *pstate,
 		}
 		else if (strcmp(defel->defname, "force_not_null") == 0)
 		{
-			if (cstate->force_notnull)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			if (defel->arg && IsA(defel->arg, List))
-				cstate->force_notnull = castNode(List, defel->arg);
+			if (opts_out->force_notnull || opts_out->force_notnull_all)
+				errorConflictingDefElem(defel, pstate);
+			if (defel->arg && IsA(defel->arg, A_Star))
+				opts_out->force_notnull_all = true;
+			else if (defel->arg && IsA(defel->arg, List))
+				opts_out->force_notnull = castNode(List, defel->arg);
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1177,12 +1302,12 @@ ProcessCopyOptions(ParseState *pstate,
 		}
 		else if (strcmp(defel->defname, "force_null") == 0)
 		{
-			if (cstate->force_null)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options")));
-			if (defel->arg && IsA(defel->arg, List))
-				cstate->force_null = castNode(List, defel->arg);
+			if (opts_out->force_null || opts_out->force_null_all)
+				errorConflictingDefElem(defel, pstate);
+			if (defel->arg && IsA(defel->arg, A_Star))
+				opts_out->force_null_all = true;
+			else if (defel->arg && IsA(defel->arg, List))
+				opts_out->force_null = castNode(List, defel->arg);
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1197,14 +1322,11 @@ ProcessCopyOptions(ParseState *pstate,
 			 * named columns to binary form, storing the rest as NULLs. It's
 			 * allowed for the column list to be NIL.
 			 */
-			if (cstate->convert_selectively)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->convert_selectively = true;
+			if (opts_out->convert_selectively)
+				errorConflictingDefElem(defel, pstate);
+			opts_out->convert_selectively = true;
 			if (defel->arg == NULL || IsA(defel->arg, List))
-				cstate->convert_select = castNode(List, defel->arg);
+				opts_out->convert_select = castNode(List, defel->arg);
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -1214,18 +1336,29 @@ ProcessCopyOptions(ParseState *pstate,
 		}
 		else if (strcmp(defel->defname, "encoding") == 0)
 		{
-			if (cstate->file_encoding >= 0)
-				ereport(ERROR,
-						(errcode(ERRCODE_SYNTAX_ERROR),
-						 errmsg("conflicting or redundant options"),
-						 parser_errposition(pstate, defel->location)));
-			cstate->file_encoding = pg_char_to_encoding(defGetString(defel));
-			if (cstate->file_encoding < 0)
+			if (opts_out->file_encoding >= 0)
+				errorConflictingDefElem(defel, pstate);
+			opts_out->file_encoding = pg_char_to_encoding(defGetString(defel));
+			if (opts_out->file_encoding < 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 						 errmsg("argument to option \"%s\" must be a valid encoding name",
 								defel->defname),
 						 parser_errposition(pstate, defel->location)));
+		}
+		else if (strcmp(defel->defname, "on_error") == 0)
+		{
+			if (on_error_specified)
+				errorConflictingDefElem(defel, pstate);
+			on_error_specified = true;
+			opts_out->on_error = defGetCopyOnErrorChoice(defel, pstate, is_from);
+		}
+		else if (strcmp(defel->defname, "log_verbosity") == 0)
+		{
+			if (log_verbosity_specified)
+				errorConflictingDefElem(defel, pstate);
+			log_verbosity_specified = true;
+			opts_out->log_verbosity = defGetCopyLogVerbosityChoice(defel, pstate);
 		}
 		else
 			ereport(ERROR,
@@ -1239,50 +1372,72 @@ ProcessCopyOptions(ParseState *pstate,
 	 * Check for incompatible options (must do these two before inserting
 	 * defaults)
 	 */
-	if (cstate->binary && cstate->delim)
+	if (opts_out->binary && opts_out->delim)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("cannot specify DELIMITER in BINARY mode")));
+		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+				 errmsg("cannot specify %s in BINARY mode", "DELIMITER")));
 
-	if (cstate->binary && cstate->null_print)
+	if (opts_out->binary && opts_out->null_print)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
-				 errmsg("cannot specify NULL in BINARY mode")));
+				 errmsg("cannot specify %s in BINARY mode", "NULL")));
+
+	if (opts_out->binary && opts_out->default_print)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("cannot specify %s in BINARY mode", "DEFAULT")));
+
+	if (opts_out->binary && opts_out->on_error != COPY_ON_ERROR_STOP)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("only ON_ERROR STOP is allowed in BINARY mode")));
 
 	/* Set defaults for omitted options */
-	if (!cstate->delim)
-		cstate->delim = cstate->csv_mode ? "," : "\t";
+	if (!opts_out->delim)
+		opts_out->delim = opts_out->csv_mode ? "," : "\t";
 
-	if (!cstate->null_print)
-		cstate->null_print = cstate->csv_mode ? "" : "\\N";
-	cstate->null_print_len = strlen(cstate->null_print);
+	if (!opts_out->null_print)
+		opts_out->null_print = opts_out->csv_mode ? "" : "\\N";
+	opts_out->null_print_len = strlen(opts_out->null_print);
 
-	if (cstate->csv_mode)
+	if (opts_out->csv_mode)
 	{
-		if (!cstate->quote)
-			cstate->quote = "\"";
-		if (!cstate->escape)
-			cstate->escape = cstate->quote;
+		if (!opts_out->quote)
+			opts_out->quote = "\"";
+		if (!opts_out->escape)
+			opts_out->escape = opts_out->quote;
 	}
 
 	/* Only single-byte delimiter strings are supported. */
-	if (strlen(cstate->delim) != 1)
+	if (strlen(opts_out->delim) != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("COPY delimiter must be a single one-byte character")));
 
 	/* Disallow end-of-line characters */
-	if (strchr(cstate->delim, '\r') != NULL ||
-		strchr(cstate->delim, '\n') != NULL)
+	if (strchr(opts_out->delim, '\r') != NULL ||
+		strchr(opts_out->delim, '\n') != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("COPY delimiter cannot be newline or carriage return")));
 
-	if (strchr(cstate->null_print, '\r') != NULL ||
-		strchr(cstate->null_print, '\n') != NULL)
+	if (strchr(opts_out->null_print, '\r') != NULL ||
+		strchr(opts_out->null_print, '\n') != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("COPY null representation cannot use newline or carriage return")));
+
+	if (opts_out->default_print)
+	{
+		opts_out->default_print_len = strlen(opts_out->default_print);
+
+		if (strchr(opts_out->default_print, '\r') != NULL ||
+			strchr(opts_out->default_print, '\n') != NULL)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					 errmsg("COPY default representation cannot use newline or carriage return")));
+	}
 
 	/*
 	 * Disallow unsafe delimiter characters in non-CSV mode.  We can't allow
@@ -1294,220 +1449,152 @@ ProcessCopyOptions(ParseState *pstate,
 	 * future-proofing.  Likewise we disallow all digits though only octal
 	 * digits are actually dangerous.
 	 */
-	if (!cstate->csv_mode &&
+	if (!opts_out->csv_mode &&
 		strchr("\\.abcdefghijklmnopqrstuvwxyz0123456789",
-			   cstate->delim[0]) != NULL)
+			   opts_out->delim[0]) != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("COPY delimiter cannot be \"%s\"", cstate->delim)));
+				 errmsg("COPY delimiter cannot be \"%s\"", opts_out->delim)));
 
 	/* Check header */
-	if (!cstate->csv_mode && cstate->header_line)
+	if (opts_out->binary && opts_out->header_line)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY HEADER available only in CSV mode")));
+		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+				 errmsg("cannot specify %s in BINARY mode", "HEADER")));
 
 	/* Check quote */
-	if (!cstate->csv_mode && cstate->quote != NULL)
+	if (!opts_out->csv_mode && opts_out->quote != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY quote available only in CSV mode")));
+		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+				 errmsg("COPY %s requires CSV mode", "QUOTE")));
 
-	if (cstate->csv_mode && strlen(cstate->quote) != 1)
+	if (opts_out->csv_mode && strlen(opts_out->quote) != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("COPY quote must be a single one-byte character")));
 
-	if (cstate->csv_mode && cstate->delim[0] == cstate->quote[0])
+	if (opts_out->csv_mode && opts_out->delim[0] == opts_out->quote[0])
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("COPY delimiter and quote must be different")));
 
 	/* Check escape */
-	if (!cstate->csv_mode && cstate->escape != NULL)
+	if (!opts_out->csv_mode && opts_out->escape != NULL)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY escape available only in CSV mode")));
+		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+				 errmsg("COPY %s requires CSV mode", "ESCAPE")));
 
-	if (cstate->csv_mode && strlen(cstate->escape) != 1)
+	if (opts_out->csv_mode && strlen(opts_out->escape) != 1)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 				 errmsg("COPY escape must be a single one-byte character")));
 
 	/* Check force_quote */
-	if (!cstate->csv_mode && (cstate->force_quote || cstate->force_quote_all))
+	if (!opts_out->csv_mode && (opts_out->force_quote || opts_out->force_quote_all))
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY force quote available only in CSV mode")));
-	if ((cstate->force_quote || cstate->force_quote_all) && is_from)
+		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+				 errmsg("COPY %s requires CSV mode", "FORCE_QUOTE")));
+	if ((opts_out->force_quote || opts_out->force_quote_all) && is_from)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY force quote only available using COPY TO")));
+		/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+		 second %s is a COPY with direction, e.g. COPY TO */
+				 errmsg("COPY %s cannot be used with %s", "FORCE_QUOTE",
+						"COPY FROM")));
 
 	/* Check force_notnull */
-	if (!cstate->csv_mode && cstate->force_notnull != NIL)
+	if (!opts_out->csv_mode && opts_out->force_notnull != NIL)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY force not null available only in CSV mode")));
-	if (cstate->force_notnull != NIL && !is_from)
+		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+				 errmsg("COPY %s requires CSV mode", "FORCE_NOT_NULL")));
+	if (opts_out->force_notnull != NIL && !is_from)
 		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY force not null only available using COPY FROM")));
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+		 second %s is a COPY with direction, e.g. COPY TO */
+				 errmsg("COPY %s cannot be used with %s", "FORCE_NOT_NULL",
+						"COPY TO")));
 
 	/* Check force_null */
-	if (!cstate->csv_mode && cstate->force_null != NIL)
+	if (!opts_out->csv_mode && opts_out->force_null != NIL)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY force null available only in CSV mode")));
+		/*- translator: %s is the name of a COPY option, e.g. ON_ERROR */
+				 errmsg("COPY %s requires CSV mode", "FORCE_NULL")));
 
-	if (cstate->force_null != NIL && !is_from)
+	if (opts_out->force_null != NIL && !is_from)
 		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY force null only available using COPY FROM")));
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+		 second %s is a COPY with direction, e.g. COPY TO */
+				 errmsg("COPY %s cannot be used with %s", "FORCE_NULL",
+						"COPY TO")));
 
 	/* Don't allow the delimiter to appear in the null string. */
-	if (strchr(cstate->null_print, cstate->delim[0]) != NULL)
+	if (strchr(opts_out->null_print, opts_out->delim[0]) != NULL)
 		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("COPY delimiter must not appear in the NULL specification")));
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		/*- translator: %s is the name of a COPY option, e.g. NULL */
+				 errmsg("COPY delimiter character must not appear in the %s specification",
+						"NULL")));
 
 	/* Don't allow the CSV quote char to appear in the null string. */
-	if (cstate->csv_mode &&
-		strchr(cstate->null_print, cstate->quote[0]) != NULL)
+	if (opts_out->csv_mode &&
+		strchr(opts_out->null_print, opts_out->quote[0]) != NULL)
 		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("CSV quote character must not appear in the NULL specification")));
-}
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		/*- translator: %s is the name of a COPY option, e.g. NULL */
+				 errmsg("CSV quote character must not appear in the %s specification",
+						"NULL")));
 
-/*
- * Common setup routines used by BeginCopyFrom and BeginCopyTo.
- *
- * Iff <binary>, unload or reload in the binary format, as opposed to the
- * more wasteful but more robust and portable text format.
- *
- * Iff <oids>, unload or reload the format that includes OID information.
- * On input, we accept OIDs whether or not the table has an OID column,
- * but silently drop them if it does not.  On output, we report an error
- * if the user asks for OIDs in a table that has none (not providing an
- * OID column might seem friendlier, but could seriously confuse programs).
- *
- * If in the text format, delimit columns with delimiter <delim> and print
- * NULL values as <null_print>.
- */
-static CopyState
-BeginCopy(ParseState *pstate,
-		  bool is_from,
-		  Relation rel,
-		  RawStmt *raw_query,
-		  Oid queryRelId,
-		  List *attnamelist,
-		  List *options)
-{
-	CopyState	cstate;
-	TupleDesc	tupDesc;
-	int			num_phys_attrs;
-	MemoryContext oldcontext;
+	/* Check freeze */
+	if (opts_out->freeze && !is_from)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+		/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+		 second %s is a COPY with direction, e.g. COPY TO */
+				 errmsg("COPY %s cannot be used with %s", "FREEZE",
+						"COPY TO")));
 
-	/* Allocate workspace and zero all fields */
-	cstate = (CopyStateData *) palloc0(sizeof(CopyStateData));
-
-	/*
-	 * We allocate everything used by a cstate in a new memory context. This
-	 * avoids memory leaks during repeated use of COPY in a query.
-	 */
-	cstate->copycontext = AllocSetContextCreate(CurrentMemoryContext,
-												"COPY",
-												ALLOCSET_DEFAULT_SIZES);
-
-	oldcontext = MemoryContextSwitchTo(cstate->copycontext);
-
-	/* Extract options from the statement node tree */
-	ProcessCopyOptions(pstate, cstate, is_from, options);
-
-	/* Process the source/target relation or query */
-	if (rel)
+	if (opts_out->default_print)
 	{
-		Assert(!raw_query);
-
-		cstate->rel = rel;
-
-		tupDesc = RelationGetDescr(cstate->rel);
-
-		/* Don't allow COPY w/ OIDs to or from a table without them */
-		if (cstate->oids && !cstate->rel->rd_rel->relhasoids)
-			ereport(ERROR,
-					(errcode(ERRCODE_UNDEFINED_COLUMN),
-					 errmsg("table \"%s\" does not have OIDs",
-							RelationGetRelationName(cstate->rel))));
-	}
-	else
-	{
-		List	   *rewritten;
-		Query	   *query;
-		PlannedStmt *plan;
-		DestReceiver *dest;
-
-		Assert(!is_from);
-		cstate->rel = NULL;
-
-		/* Don't allow COPY w/ OIDs from a query */
-		if (cstate->oids)
+		if (!is_from)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("COPY (query) WITH OIDS is not supported")));
+			/*- translator: first %s is the name of a COPY option, e.g. ON_ERROR,
+			 second %s is a COPY with direction, e.g. COPY TO */
+					 errmsg("COPY %s cannot be used with %s", "DEFAULT",
+							"COPY TO")));
 
-		/*
-		 * Run parse analysis and rewrite.  Note this also acquires sufficient
-		 * locks on the source table(s).
-		 *
-		 * Because the parser and planner tend to scribble on their input, we
-		 * make a preliminary copy of the source querytree.  This prevents
-		 * problems in the case that the COPY is in a portal or plpgsql
-		 * function and is executed repeatedly.  (See also the same hack in
-		 * DECLARE CURSOR and PREPARE.)  XXX FIXME someday.
-		 */
-		rewritten = pg_analyze_and_rewrite(copyObject(raw_query),
-										   pstate->p_sourcetext, NULL, 0,
-										   NULL);
-
-		/* check that we got back something we can work with */
-		if (rewritten == NIL)
-		{
+		/* Don't allow the delimiter to appear in the default string. */
+		if (strchr(opts_out->default_print, opts_out->delim[0]) != NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("DO INSTEAD NOTHING rules are not supported for COPY")));
-		}
-		else if (list_length(rewritten) > 1)
-		{
-			ListCell   *lc;
+			/*- translator: %s is the name of a COPY option, e.g. NULL */
+					 errmsg("COPY delimiter character must not appear in the %s specification",
+							"DEFAULT")));
 
-			/* examine queries to determine which error message to issue */
-			foreach(lc, rewritten)
-			{
-				Query	   *q = lfirst_node(Query, lc);
-
-				if (q->querySource == QSRC_QUAL_INSTEAD_RULE)
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("conditional DO INSTEAD rules are not supported for COPY")));
-				if (q->querySource == QSRC_NON_INSTEAD_RULE)
-					ereport(ERROR,
-							(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							 errmsg("DO ALSO rules are not supported for the COPY")));
-			}
-
+		/* Don't allow the CSV quote char to appear in the default string. */
+		if (opts_out->csv_mode &&
+			strchr(opts_out->default_print, opts_out->quote[0]) != NULL)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-					 errmsg("multi-statement DO INSTEAD rules are not supported for COPY")));
-		}
+			/*- translator: %s is the name of a COPY option, e.g. NULL */
+					 errmsg("CSV quote character must not appear in the %s specification",
+							"DEFAULT")));
 
-		query = linitial_node(Query, rewritten);
-
-		/* The grammar allows SELECT INTO, but we don't support that */
-		if (query->utilityStmt != NULL &&
-			IsA(query->utilityStmt, CreateTableAsStmt))
+		/* Don't allow the NULL and DEFAULT string to be the same */
+		if (opts_out->null_print_len == opts_out->default_print_len &&
+			strncmp(opts_out->null_print, opts_out->default_print,
+					opts_out->null_print_len) == 0)
 			ereport(ERROR,
 					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<<<<<<< HEAD
 					 errmsg("COPY (SELECT INTO) is not supported")));
 
 		Assert(query->utilityStmt == NULL);
@@ -4775,6 +4862,9 @@ CopyAttributeOutCSV(CopyState cstate, char *string,
 	{
 		/* If it doesn't need quoting, we can just dump it as-is */
 		CopySendString(cstate, ptr);
+=======
+					 errmsg("NULL specification and DEFAULT specification cannot be the same")));
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 }
 
@@ -4785,9 +4875,14 @@ CopyAttributeOutCSV(CopyState cstate, char *string,
  * or NIL if there was none (in which case we want all the non-dropped
  * columns).
  *
+ * We don't include generated columns in the generated full list and we don't
+ * allow them to be specified explicitly.  They don't make sense for COPY
+ * FROM, but we could possibly allow them for COPY TO.  But this way it's at
+ * least ensured that whatever we copy out can be copied back in.
+ *
  * rel can be NULL ... it's only used for error reports.
  */
-static List *
+List *
 CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 {
 	List	   *attnums = NIL;
@@ -4801,6 +4896,8 @@ CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 		for (i = 0; i < attr_count; i++)
 		{
 			if (TupleDescAttr(tupDesc, i)->attisdropped)
+				continue;
+			if (TupleDescAttr(tupDesc, i)->attgenerated)
 				continue;
 			attnums = lappend_int(attnums, i + 1);
 		}
@@ -4826,6 +4923,12 @@ CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 					continue;
 				if (namestrcmp(&(att->attname), name) == 0)
 				{
+					if (att->attgenerated)
+						ereport(ERROR,
+								(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+								 errmsg("column \"%s\" is a generated column",
+										name),
+								 errdetail("Generated columns cannot be used in COPY.")));
 					attnum = att->attnum;
 					break;
 				}
@@ -4854,71 +4957,4 @@ CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 	}
 
 	return attnums;
-}
-
-
-/*
- * copy_dest_startup --- executor startup
- */
-static void
-copy_dest_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
-{
-	/* no-op */
-}
-
-/*
- * copy_dest_receive --- receive one tuple
- */
-static bool
-copy_dest_receive(TupleTableSlot *slot, DestReceiver *self)
-{
-	DR_copy    *myState = (DR_copy *) self;
-	CopyState	cstate = myState->cstate;
-
-	/* Make sure the tuple is fully deconstructed */
-	slot_getallattrs(slot);
-
-	/* And send the data */
-	CopyOneRowTo(cstate, InvalidOid, slot->tts_values, slot->tts_isnull);
-	myState->processed++;
-
-	return true;
-}
-
-/*
- * copy_dest_shutdown --- executor end
- */
-static void
-copy_dest_shutdown(DestReceiver *self)
-{
-	/* no-op */
-}
-
-/*
- * copy_dest_destroy --- release DestReceiver object
- */
-static void
-copy_dest_destroy(DestReceiver *self)
-{
-	pfree(self);
-}
-
-/*
- * CreateCopyDestReceiver -- create a suitable DestReceiver object
- */
-DestReceiver *
-CreateCopyDestReceiver(void)
-{
-	DR_copy    *self = (DR_copy *) palloc(sizeof(DR_copy));
-
-	self->pub.receiveSlot = copy_dest_receive;
-	self->pub.rStartup = copy_dest_startup;
-	self->pub.rShutdown = copy_dest_shutdown;
-	self->pub.rDestroy = copy_dest_destroy;
-	self->pub.mydest = DestCopyOut;
-
-	self->cstate = NULL;		/* will be set later */
-	self->processed = 0;
-
-	return (DestReceiver *) self;
 }

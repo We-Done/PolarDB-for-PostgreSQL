@@ -3,7 +3,7 @@
  * nodeGroup.c
  *	  Routines to handle group nodes (used for queries with GROUP BY clause).
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -25,7 +25,6 @@
 #include "executor/executor.h"
 #include "executor/nodeGroup.h"
 #include "miscadmin.h"
-#include "utils/memutils.h"
 
 
 /*
@@ -162,6 +161,7 @@ GroupState *
 ExecInitGroup(Group *node, EState *estate, int eflags)
 {
 	GroupState *grpstate;
+	const TupleTableSlotOps *tts_ops;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -188,12 +188,13 @@ ExecInitGroup(Group *node, EState *estate, int eflags)
 	/*
 	 * Initialize scan slot and type.
 	 */
-	ExecCreateScanSlotFromOuterPlan(estate, &grpstate->ss);
+	tts_ops = ExecGetResultSlotOps(outerPlanState(&grpstate->ss), NULL);
+	ExecCreateScanSlotFromOuterPlan(estate, &grpstate->ss, tts_ops);
 
 	/*
 	 * Initialize result slot, type and projection.
 	 */
-	ExecInitResultTupleSlotTL(estate, &grpstate->ss.ps);
+	ExecInitResultTupleSlotTL(&grpstate->ss.ps, &TTSOpsVirtual);
 	ExecAssignProjectionInfo(&grpstate->ss.ps, NULL);
 
 	/*
@@ -210,6 +211,7 @@ ExecInitGroup(Group *node, EState *estate, int eflags)
 							   node->numCols,
 							   node->grpColIdx,
 							   node->grpOperators,
+							   node->grpCollations,
 							   &grpstate->ss.ps);
 
 	return grpstate;
@@ -224,11 +226,6 @@ void
 ExecEndGroup(GroupState *node)
 {
 	PlanState  *outerPlan;
-
-	ExecFreeExprContext(&node->ss.ps);
-
-	/* clean up tuple table */
-	ExecClearTuple(node->ss.ss_ScanTupleSlot);
 
 	outerPlan = outerPlanState(node);
 	ExecEndNode(outerPlan);

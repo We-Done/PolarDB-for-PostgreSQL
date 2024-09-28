@@ -3,7 +3,7 @@
  * crypt.h
  *	  Interface to libpq/crypt.c
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/libpq/crypt.h
@@ -16,7 +16,7 @@
 #include "datatype/timestamp.h"
 
 /*
- * Types of password hashes or verifiers.
+ * Types of password hashes or secrets.
  *
  * Plaintext passwords can be passed in by the user, in a CREATE/ALTER USER
  * command. They will be encrypted to MD5 or SCRAM-SHA-256 format, before
@@ -28,19 +28,32 @@ typedef enum PasswordType
 {
 	PASSWORD_TYPE_PLAINTEXT = 0,
 	PASSWORD_TYPE_MD5,
-	PASSWORD_TYPE_SCRAM_SHA_256
+	PASSWORD_TYPE_SCRAM_SHA_256,
 } PasswordType;
 
 extern PasswordType get_password_type(const char *shadow_pass);
 extern char *encrypt_password(PasswordType target_type, const char *role,
+<<<<<<< HEAD
 				 const char *password, bool polar_role_is_super);
+=======
+							  const char *password);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-extern char *get_role_password(const char *role, char **logdetail);
+extern char *get_role_password(const char *role, const char **logdetail);
 
+<<<<<<< HEAD
 extern int md5_crypt_verify(const char *role, const char *polar_shadow_pass,
 				 const char *client_pass, const char *md5_salt,
 				 int md5_salt_len, char **logdetail);
 extern int plain_crypt_verify(const char *role, const char *shadow_pass,
 				   const char *client_pass, char **logdetail);
+=======
+extern int	md5_crypt_verify(const char *role, const char *shadow_pass,
+							 const char *client_pass, const char *md5_salt,
+							 int md5_salt_len, const char **logdetail);
+extern int	plain_crypt_verify(const char *role, const char *shadow_pass,
+							   const char *client_pass,
+							   const char **logdetail);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #endif

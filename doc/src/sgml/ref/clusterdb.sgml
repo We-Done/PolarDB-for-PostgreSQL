@@ -15,7 +15,7 @@ PostgreSQL documentation
  </refmeta>
 
  <refnamediv>
-  <refname id="clusterdb">clusterdb</refname>
+  <refname>clusterdb</refname>
   <refpurpose>cluster a <productname>PostgreSQL</productname> database</refpurpose>
  </refnamediv>
 
@@ -23,7 +23,7 @@ PostgreSQL documentation
   <cmdsynopsis>
    <command>clusterdb</command>
    <arg rep="repeat"><replaceable>connection-option</replaceable></arg>
-   <group choice="opt"><arg choice="plain"><option>--verbose</option></arg><arg choice="plain"><option>-v</option></arg></group>
+   <arg rep="repeat"><replaceable>option</replaceable></arg>
 
    <arg choice="plain" rep="repeat">
      <arg choice="opt">
@@ -35,14 +35,13 @@ PostgreSQL documentation
      </arg>
    </arg>
 
-   <arg choice="opt"><replaceable>dbname</replaceable></arg>
-  </cmdsynopsis>
-
-  <cmdsynopsis>
-   <command>clusterdb</command>
-   <arg rep="repeat"><replaceable>connection-option</replaceable></arg>
-   <group choice="opt"><arg choice="plain"><option>--verbose</option></arg><arg choice="plain"><option>-v</option></arg></group>
-   <group choice="plain"><arg choice="plain"><option>--all</option></arg><arg choice="plain"><option>-a</option></arg></group>
+   <arg choice="opt">
+    <group choice="plain">
+     <arg choice="plain"><replaceable>dbname</replaceable></arg>
+     <arg choice="plain"><option>-a</option></arg>
+     <arg choice="plain"><option>--all</option></arg>
+    </group>
+   </arg>
   </cmdsynopsis>
  </refsynopsisdiv>
 
@@ -95,7 +94,10 @@ PostgreSQL documentation
         If this is not specified, the database name is read
         from the environment variable <envar>PGDATABASE</envar>.  If
         that is not set, the user name specified for the connection is
-        used.
+        used.  The <replaceable>dbname</replaceable> can be a <link
+        linkend="libpq-connstring">connection string</link>.  If so,
+        connection string parameters will override any conflicting command
+        line options.
        </para>
       </listitem>
      </varlistentry>
@@ -277,6 +279,17 @@ PostgreSQL documentation
     <listitem>
      <para>
       Default connection parameters
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><envar>PG_COLOR</envar></term>
+    <listitem>
+     <para>
+      Specifies whether to use color in diagnostic messages. Possible values
+      are <literal>always</literal>, <literal>auto</literal> and
+      <literal>never</literal>.
      </para>
     </listitem>
    </varlistentry>

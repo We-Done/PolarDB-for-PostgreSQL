@@ -4,7 +4,7 @@
  *	  routines to manage scans on GiST index relations
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -17,7 +17,11 @@
 #include "access/gist_private.h"
 #include "access/gistscan.h"
 #include "access/relscan.h"
+<<<<<<< HEAD
 #include "utils/builtins.h"
+=======
+#include "utils/float.h"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
@@ -173,6 +177,7 @@ gistrescan(IndexScanDesc scan, ScanKey key, int nkeys,
 	if (scan->xs_want_itup && !scan->xs_hitupdesc)
 	{
 		int			natts;
+		int			nkeyatts;
 		int			attno;
 
 		/*
@@ -182,11 +187,21 @@ gistrescan(IndexScanDesc scan, ScanKey key, int nkeys,
 		 * types.
 		 */
 		natts = RelationGetNumberOfAttributes(scan->indexRelation);
-		so->giststate->fetchTupdesc = CreateTemplateTupleDesc(natts, false);
-		for (attno = 1; attno <= natts; attno++)
+		nkeyatts = IndexRelationGetNumberOfKeyAttributes(scan->indexRelation);
+		so->giststate->fetchTupdesc = CreateTemplateTupleDesc(natts);
+		for (attno = 1; attno <= nkeyatts; attno++)
 		{
 			TupleDescInitEntry(so->giststate->fetchTupdesc, attno, NULL,
 							   scan->indexRelation->rd_opcintype[attno - 1],
+							   -1, 0);
+		}
+
+		for (; attno <= natts; attno++)
+		{
+			/* taking opcintype from giststate->tupdesc */
+			TupleDescInitEntry(so->giststate->fetchTupdesc, attno, NULL,
+							   TupleDescAttr(so->giststate->leafTupdesc,
+											 attno - 1)->atttypid,
 							   -1, 0);
 		}
 		scan->xs_hitupdesc = so->giststate->fetchTupdesc;
@@ -221,8 +236,7 @@ gistrescan(IndexScanDesc scan, ScanKey key, int nkeys,
 				fn_extras[i] = scan->keyData[i].sk_func.fn_extra;
 		}
 
-		memmove(scan->keyData, key,
-				scan->numberOfKeys * sizeof(ScanKeyData));
+		memcpy(scan->keyData, key, scan->numberOfKeys * sizeof(ScanKeyData));
 
 		/*
 		 * Modify the scan key so that the Consistent method is called for all
@@ -277,8 +291,7 @@ gistrescan(IndexScanDesc scan, ScanKey key, int nkeys,
 				fn_extras[i] = scan->orderByData[i].sk_func.fn_extra;
 		}
 
-		memmove(scan->orderByData, orderbys,
-				scan->numberOfOrderBys * sizeof(ScanKeyData));
+		memcpy(scan->orderByData, orderbys, scan->numberOfOrderBys * sizeof(ScanKeyData));
 
 		so->orderByTypes = (Oid *) palloc(scan->numberOfOrderBys * sizeof(Oid));
 

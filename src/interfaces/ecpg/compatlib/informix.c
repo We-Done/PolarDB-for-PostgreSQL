@@ -7,14 +7,14 @@
 #include <ctype.h>
 #include <limits.h>
 
-#include <ecpgtype.h>
-#include <ecpg_informix.h>
-#include <pgtypes_error.h>
-#include <pgtypes_date.h>
-#include <pgtypes_numeric.h>
-#include <sqltypes.h>
-#include <sqlca.h>
-#include <ecpgerrno.h>
+#include "ecpg_informix.h"
+#include "ecpgerrno.h"
+#include "ecpgtype.h"
+#include "pgtypes_date.h"
+#include "pgtypes_error.h"
+#include "pgtypes_numeric.h"
+#include "sqlca.h"
+#include "sqltypes.h"
 
 /* this is also defined in ecpglib/misc.c, by defining it twice we don't have to export the symbol */
 
@@ -454,6 +454,7 @@ dectoint(decimal *np, int *ip)
 {
 	int			ret;
 	numeric    *nres = PGTYPESnumeric_new();
+	int			errnum;
 
 	if (nres == NULL)
 		return ECPG_INFORMIX_OUT_OF_MEMORY;
@@ -464,10 +465,12 @@ dectoint(decimal *np, int *ip)
 		return ECPG_INFORMIX_OUT_OF_MEMORY;
 	}
 
+	errno = 0;
 	ret = PGTYPESnumeric_to_int(nres, ip);
+	errnum = errno;
 	PGTYPESnumeric_free(nres);
 
-	if (ret == PGTYPES_NUM_OVERFLOW)
+	if (ret == -1 && errnum == PGTYPES_NUM_OVERFLOW)
 		ret = ECPG_INFORMIX_NUM_OVERFLOW;
 
 	return ret;
@@ -478,6 +481,7 @@ dectolong(decimal *np, long *lngp)
 {
 	int			ret;
 	numeric    *nres = PGTYPESnumeric_new();
+	int			errnum;
 
 	if (nres == NULL)
 		return ECPG_INFORMIX_OUT_OF_MEMORY;
@@ -488,10 +492,12 @@ dectolong(decimal *np, long *lngp)
 		return ECPG_INFORMIX_OUT_OF_MEMORY;
 	}
 
+	errno = 0;
 	ret = PGTYPESnumeric_to_long(nres, lngp);
+	errnum = errno;
 	PGTYPESnumeric_free(nres);
 
-	if (ret == PGTYPES_NUM_OVERFLOW)
+	if (ret == -1 && errnum == PGTYPES_NUM_OVERFLOW)
 		ret = ECPG_INFORMIX_NUM_OVERFLOW;
 
 	return ret;
@@ -529,11 +535,10 @@ void
 rtoday(date * d)
 {
 	PGTYPESdate_today(d);
-	return;
 }
 
 int
-rjulmdy(date d, short mdy[3])
+rjulmdy(date d, short *mdy)
 {
 	int			mdy_int[3];
 
@@ -584,7 +589,7 @@ rfmtdate(date d, const char *fmt, char *str)
 }
 
 int
-rmdyjul(short mdy[3], date * d)
+rmdyjul(short *mdy, date * d)
 {
 	int			mdy_int[3];
 
@@ -674,15 +679,10 @@ intoasc(interval * i, char *str)
 	if (!tmp)
 		return -errno;
 
-	memcpy(str, tmp, strlen(tmp));
+	strcpy(str, tmp);
 	free(tmp);
 	return 0;
 }
-
-/*
- *	rfmt.c	-  description
- *	by Carsten Wolff <carsten.wolff@credativ.de>, Wed Apr 2 2003
- */
 
 static struct
 {
@@ -745,7 +745,7 @@ initValue(long lng_val)
 	return 0;
 }
 
-/* return the position oft the right-most dot in some string */
+/* return the position of the right-most dot in some string */
 static int
 getRightMostDot(const char *str)
 {
@@ -811,7 +811,7 @@ rfmtlong(long lng_val, const char *fmt, char *outbuf)
 	/* and fill the temp-string wit '0's up to there. */
 	dotpos = getRightMostDot(fmt);
 
-	/* start to parse the formatstring */
+	/* start to parse the format-string */
 	temp[0] = '\0';
 	k = value.digits - 1;		/* position in the value_string */
 	for (i = fmt_len - 1, j = 0; i >= 0; i--, j++)
@@ -824,7 +824,7 @@ rfmtlong(long lng_val, const char *fmt, char *outbuf)
 				sign = 1;
 			if (leftalign)
 			{
-				/* can't use strncat(,,0) here, Solaris would freek out */
+				/* can't use strncat(,,0) here, Solaris would freak out */
 				if (sign)
 					if (signdone)
 					{
@@ -964,7 +964,6 @@ rupshift(char *str)
 	for (; *str != '\0'; str++)
 		if (islower((unsigned char) *str))
 			*str = toupper((unsigned char) *str);
-	return;
 }
 
 int

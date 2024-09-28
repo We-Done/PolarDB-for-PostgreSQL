@@ -1,18 +1,28 @@
+
+# Copyright (c) 2021-2024, PostgreSQL Global Development Group
+
 # This test checks that constraints work on subscriber
 use strict;
+<<<<<<< HEAD
 use warnings;
 use PostgresNode;
 use TestLib;
 use Test::More tests => 6;
+=======
+use warnings FATAL => 'all';
+use PostgreSQL::Test::Cluster;
+use PostgreSQL::Test::Utils;
+use Test::More;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 # Initialize publisher node
-my $node_publisher = get_new_node('publisher');
+my $node_publisher = PostgreSQL::Test::Cluster->new('publisher');
 $node_publisher->init(allows_streaming => 'logical');
 $node_publisher->start;
 
 # Create subscriber node
-my $node_subscriber = get_new_node('subscriber');
-$node_subscriber->init(allows_streaming => 'logical');
+my $node_subscriber = PostgreSQL::Test::Cluster->new('subscriber');
+$node_subscriber->init;
 $node_subscriber->start;
 
 # Setup structure on publisher
@@ -34,12 +44,11 @@ my $publisher_connstr = $node_publisher->connstr . ' dbname=postgres';
 $node_publisher->safe_psql('postgres',
 	"CREATE PUBLICATION tap_pub FOR ALL TABLES;");
 
-my $appname = 'tap_sub';
 $node_subscriber->safe_psql('postgres',
-	"CREATE SUBSCRIPTION tap_sub CONNECTION '$publisher_connstr application_name=$appname' PUBLICATION tap_pub WITH (copy_data = false)"
+	"CREATE SUBSCRIPTION tap_sub CONNECTION '$publisher_connstr' PUBLICATION tap_pub WITH (copy_data = false)"
 );
 
-$node_publisher->wait_for_catchup($appname);
+$node_publisher->wait_for_catchup('tap_sub');
 
 $node_publisher->safe_psql('postgres',
 	"INSERT INTO tab_fk (bid) VALUES (1);");
@@ -48,7 +57,7 @@ $node_publisher->safe_psql('postgres',
 	"INSERT INTO tab_fk_ref (id, bid, junk) VALUES (1, 1, repeat(pi()::text,20000));"
 );
 
-$node_publisher->wait_for_catchup($appname);
+$node_publisher->wait_for_catchup('tap_sub');
 
 # Check data on subscriber
 my $result = $node_subscriber->safe_psql('postgres',
@@ -66,7 +75,7 @@ $node_publisher->safe_psql('postgres', "DROP TABLE tab_fk CASCADE;");
 $node_publisher->safe_psql('postgres',
 	"INSERT INTO tab_fk_ref (id, bid) VALUES (2, 2);");
 
-$node_publisher->wait_for_catchup($appname);
+$node_publisher->wait_for_catchup('tap_sub');
 
 # FK is not enforced on subscriber
 $result = $node_subscriber->safe_psql('postgres',
@@ -102,7 +111,7 @@ ALTER TABLE tab_fk_ref ENABLE REPLICA TRIGGER filter_basic_dml_trg;
 $node_publisher->safe_psql('postgres',
 	"INSERT INTO tab_fk_ref (id, bid) VALUES (10, 10);");
 
-$node_publisher->wait_for_catchup($appname);
+$node_publisher->wait_for_catchup('tap_sub');
 
 # The trigger should cause the insert to be skipped on subscriber
 $result = $node_subscriber->safe_psql('postgres',
@@ -113,19 +122,32 @@ is($result, qq(2|1|2), 'check replica insert trigger applied on subscriber');
 $node_publisher->safe_psql('postgres',
 	"UPDATE tab_fk_ref SET bid = 2 WHERE bid = 1;");
 
+<<<<<<< HEAD
 $node_publisher->wait_for_catchup($appname);
+=======
+$node_publisher->wait_for_catchup('tap_sub');
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 # The trigger should cause the update to be skipped on subscriber
 $result = $node_subscriber->safe_psql('postgres',
 	"SELECT count(*), min(bid), max(bid) FROM tab_fk_ref;");
+<<<<<<< HEAD
 is($result, qq(2|1|2), 'check replica update column trigger applied on subscriber');
+=======
+is($result, qq(2|1|2),
+	'check replica update column trigger applied on subscriber');
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 # Update on a column not specified in the trigger, but it will trigger
 # anyway because logical replication ships all columns in an update.
 $node_publisher->safe_psql('postgres',
 	"UPDATE tab_fk_ref SET id = 6 WHERE id = 1;");
 
+<<<<<<< HEAD
 $node_publisher->wait_for_catchup($appname);
+=======
+$node_publisher->wait_for_catchup('tap_sub');
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 $result = $node_subscriber->safe_psql('postgres',
 	"SELECT count(*), min(id), max(id) FROM tab_fk_ref;");
@@ -134,3 +156,5 @@ is($result, qq(2|1|2),
 
 $node_subscriber->stop('fast');
 $node_publisher->stop('fast');
+
+done_testing();

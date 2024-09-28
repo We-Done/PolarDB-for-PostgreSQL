@@ -2,12 +2,19 @@
 /array.c
 /binary
 /binary.c
+/bytea
+/bytea.c
 /code100
 /code100.c
 /copystdout
 /copystdout.c
 /createtableas
 /createtableas.c
+<<<<<<< HEAD
+=======
+/declare
+/declare.c
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 /define
 /define.c
 /desc
@@ -34,11 +41,17 @@
 /oldexec.c
 /parser
 /parser.c
+/prepareas
+/prepareas.c
 /quote
 /quote.c
 /show
 /show.c
 /sqlda
 /sqlda.c
+/sqljson
+/sqljson.c
+/sqljson_jsontable
+/sqljson_jsontable.c
 /twophase
 /twophase.c

@@ -4,7 +4,7 @@
  *
  * Declarations for ISpell dictionary
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  *
  * src/include/tsearch/dicts/spell.h
  *
@@ -37,7 +37,7 @@ typedef struct
 
 /*
  * Names of FF_ are correlated with Hunspell options in affix file
- * http://hunspell.sourceforge.net/
+ * https://hunspell.github.io/
  */
 #define FF_COMPOUNDONLY		0x01
 #define FF_COMPOUNDBEGIN	0x02
@@ -66,7 +66,7 @@ typedef struct spell_struct
 		 * flag is filled in by NIImportDictionary(). After
 		 * NISortDictionary(), d is used instead of flag.
 		 */
-		char	   *flag;
+		const char *flag;
 		/* d is used in mkSPNode() */
 		struct
 		{
@@ -86,18 +86,23 @@ typedef struct spell_struct
  */
 typedef struct aff_struct
 {
-	char	   *flag;
+	const char *flag;
 	/* FF_SUFFIX or FF_PREFIX */
 	uint32		type:1,
 				flagflags:7,
 				issimple:1,
 				isregis:1,
 				replen:14;
-	char	   *find;
-	char	   *repl;
+	const char *find;
+	const char *repl;
 	union
 	{
-		regex_t		regex;
+		/*
+		 * Arrays of AFFIX are moved and sorted.  We'll use a pointer to
+		 * regex_t to keep this struct small, and avoid assuming that regex_t
+		 * is movable.
+		 */
+		regex_t    *pregex;
 		Regis		regis;
 	}			reg;
 } AFFIX;
@@ -141,7 +146,7 @@ typedef struct AffixNode
 
 typedef struct
 {
-	char	   *affix;
+	const char *affix;
 	int			len;
 	bool		issuffix;
 } CMPDAffix;
@@ -153,7 +158,7 @@ typedef enum
 {
 	FM_CHAR,					/* one character (like ispell) */
 	FM_LONG,					/* two characters */
-	FM_NUM						/* number, >= 0 and < 65536 */
+	FM_NUM,						/* number, >= 0 and < 65536 */
 } FlagMode;
 
 /*
@@ -165,7 +170,7 @@ typedef struct CompoundAffixFlag
 	union
 	{
 		/* Flag name if flagMode is FM_CHAR or FM_LONG */
-		char	   *s;
+		const char *s;
 		/* Flag name if flagMode is FM_NUM */
 		uint32		i;
 	}			flag;
@@ -187,7 +192,7 @@ typedef struct
 
 	SPNode	   *Dictionary;
 	/* Array of sets of affixes */
-	char	  **AffixData;
+	const char **AffixData;
 	int			lenAffixData;
 	int			nAffixData;
 	bool		useFlagAliases;
@@ -224,7 +229,7 @@ typedef struct
 	size_t		avail;			/* free space remaining at firstfree */
 } IspellDict;
 
-extern TSLexeme *NINormalizeWord(IspellDict *Conf, char *word);
+extern TSLexeme *NINormalizeWord(IspellDict *Conf, const char *word);
 
 extern void NIStartBuild(IspellDict *Conf);
 extern void NIImportAffixes(IspellDict *Conf, const char *filename);

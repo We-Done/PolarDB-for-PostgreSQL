@@ -3,7 +3,7 @@
  * orclauses.c
  *	  Routines to extract restriction OR clauses from join OR clauses
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -15,16 +15,18 @@
 
 #include "postgres.h"
 
-#include "optimizer/clauses.h"
-#include "optimizer/cost.h"
+#include "nodes/makefuncs.h"
+#include "nodes/nodeFuncs.h"
+#include "optimizer/optimizer.h"
 #include "optimizer/orclauses.h"
+#include "optimizer/paths.h"
 #include "optimizer/restrictinfo.h"
 
 
 static bool is_safe_restriction_clause_for(RestrictInfo *rinfo, RelOptInfo *rel);
 static Expr *extract_or_clause(RestrictInfo *or_rinfo, RelOptInfo *rel);
 static void consider_new_or_clause(PlannerInfo *root, RelOptInfo *rel,
-					   Expr *orclause, RestrictInfo *join_or_rinfo);
+								   Expr *orclause, RestrictInfo *join_or_rinfo);
 
 
 /*
@@ -95,18 +97,13 @@ extract_restriction_or_clauses(PlannerInfo *root)
 		 * joinclause that is considered safe to move to this rel by the
 		 * parameterized-path machinery, even though what we are going to do
 		 * with it is not exactly a parameterized path.
-		 *
-		 * However, it seems best to ignore clauses that have been marked
-		 * redundant (by setting norm_selec > 1).  That likely can't happen
-		 * for OR clauses, but let's be safe.
 		 */
 		foreach(lc, rel->joininfo)
 		{
 			RestrictInfo *rinfo = (RestrictInfo *) lfirst(lc);
 
 			if (restriction_is_or_clause(rinfo) &&
-				join_clause_is_movable_to(rinfo, rel) &&
-				rinfo->norm_selec <= 1)
+				join_clause_is_movable_to(rinfo, rel))
 			{
 				/* Try to extract a qual for this rel only */
 				Expr	   *orclause = extract_or_clause(rinfo, rel);
@@ -173,7 +170,7 @@ extract_or_clause(RestrictInfo *or_rinfo, RelOptInfo *rel)
 	 * selectivity and other cached data is computed exactly the same way for
 	 * a restriction clause as for a join clause, which seems undesirable.
 	 */
-	Assert(or_clause((Node *) or_rinfo->orclause));
+	Assert(is_orclause(or_rinfo->orclause));
 	foreach(lc, ((BoolExpr *) or_rinfo->orclause)->args)
 	{
 		Node	   *orarg = (Node *) lfirst(lc);
@@ -181,7 +178,7 @@ extract_or_clause(RestrictInfo *or_rinfo, RelOptInfo *rel)
 		Node	   *subclause;
 
 		/* OR arguments should be ANDs or sub-RestrictInfos */
-		if (and_clause(orarg))
+		if (is_andclause(orarg))
 		{
 			List	   *andargs = ((BoolExpr *) orarg)->args;
 			ListCell   *lc2;
@@ -231,9 +228,9 @@ extract_or_clause(RestrictInfo *or_rinfo, RelOptInfo *rel)
 		 * to preserve AND/OR flatness (ie, no OR directly underneath OR).
 		 */
 		subclause = (Node *) make_ands_explicit(subclauses);
-		if (or_clause(subclause))
+		if (is_orclause(subclause))
 			clauselist = list_concat(clauselist,
-									 list_copy(((BoolExpr *) subclause)->args));
+									 ((BoolExpr *) subclause)->args);
 		else
 			clauselist = lappend(clauselist, subclause);
 	}
@@ -265,8 +262,10 @@ consider_new_or_clause(PlannerInfo *root, RelOptInfo *rel,
 	 * Build a RestrictInfo from the new OR clause.  We can assume it's valid
 	 * as a base restriction clause.
 	 */
-	or_rinfo = make_restrictinfo(orclause,
+	or_rinfo = make_restrictinfo(root,
+								 orclause,
 								 true,
+								 false,
 								 false,
 								 false,
 								 join_or_rinfo->security_level,
@@ -327,20 +326,10 @@ consider_new_or_clause(PlannerInfo *root, RelOptInfo *rel,
 		 * Make up a SpecialJoinInfo for JOIN_INNER semantics.  (Compare
 		 * approx_tuple_count() in costsize.c.)
 		 */
-		sjinfo.type = T_SpecialJoinInfo;
-		sjinfo.min_lefthand = bms_difference(join_or_rinfo->clause_relids,
-											 rel->relids);
-		sjinfo.min_righthand = rel->relids;
-		sjinfo.syn_lefthand = sjinfo.min_lefthand;
-		sjinfo.syn_righthand = sjinfo.min_righthand;
-		sjinfo.jointype = JOIN_INNER;
-		/* we don't bother trying to make the remaining fields valid */
-		sjinfo.lhs_strict = false;
-		sjinfo.delay_upper_joins = false;
-		sjinfo.semi_can_btree = false;
-		sjinfo.semi_can_hash = false;
-		sjinfo.semi_operators = NIL;
-		sjinfo.semi_rhs_exprs = NIL;
+		init_dummy_sjinfo(&sjinfo,
+						  bms_difference(join_or_rinfo->clause_relids,
+										 rel->relids),
+						  rel->relids);
 
 		/* Compute inner-join size */
 		orig_selec = clause_selectivity(root, (Node *) join_or_rinfo,
@@ -348,7 +337,7 @@ consider_new_or_clause(PlannerInfo *root, RelOptInfo *rel,
 
 		/* And hack cached selectivity so join size remains the same */
 		join_or_rinfo->norm_selec = orig_selec / or_selec;
-		/* ensure result stays in sane range, in particular not "redundant" */
+		/* ensure result stays in sane range */
 		if (join_or_rinfo->norm_selec > 1)
 			join_or_rinfo->norm_selec = 1;
 		/* as explained above, we don't touch outer_selec */

@@ -53,6 +53,7 @@ static const char wildabbr[] = WILDABBR;
 static const char gmt[] = "GMT";
 
 /*
+<<<<<<< HEAD
  * PG: We cache the result of trying to load the TZDEFRULES zone here.
  * tzdefrules_loaded is 0 if not tried yet, +1 if good, -1 if failed.
  */
@@ -61,6 +62,9 @@ static int	tzdefrules_loaded = 0;
 
 /*
  * The DST rules to use if TZ has no rules and we can't load TZDEFRULES.
+=======
+ * The DST rules to use if a POSIX TZ string has no rules.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  * Default to US rules as of 2017-05-07.
  * POSIX does not specify the default DST rules;
  * for historical reasons, US rules are a common default.
@@ -73,7 +77,7 @@ enum r_type
 {
 	JULIAN_DAY,					/* Jn = Julian day */
 	DAY_OF_YEAR,				/* n = day of year */
-	MONTH_NTH_DAY_OF_WEEK		/* Mm.n.d = month, week, day of week */
+	MONTH_NTH_DAY_OF_WEEK,		/* Mm.n.d = month, week, day of week */
 };
 
 struct rule
@@ -89,6 +93,7 @@ struct rule
  * Prototypes for static functions.
  */
 
+<<<<<<< HEAD
 static struct pg_tm *gmtsub(pg_time_t const *, int32, struct pg_tm *);
 static bool increment_overflow(int *, int);
 static bool increment_overflow_time(pg_time_t *, int32);
@@ -96,6 +101,17 @@ static int64 leapcorr(struct state const *, pg_time_t);
 static struct pg_tm *timesub(pg_time_t const *, int32, struct state const *,
 							 struct pg_tm *);
 static bool typesequiv(struct state const *, int, int);
+=======
+static struct pg_tm *gmtsub(pg_time_t const *timep, int32 offset,
+							struct pg_tm *tmp);
+static bool increment_overflow(int *ip, int j);
+static bool increment_overflow_time(pg_time_t *tp, int32 j);
+static int64 leapcorr(struct state const *sp, pg_time_t t);
+static struct pg_tm *timesub(pg_time_t const *timep,
+							 int32 offset, struct state const *sp,
+							 struct pg_tm *tmp);
+static bool typesequiv(struct state const *sp, int a, int b);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 
 /*
@@ -986,6 +1002,7 @@ tzparse(const char *name, struct state *sp, bool lastditch)
 		return false;
 
 	/*
+<<<<<<< HEAD
 	 * The IANA code always tries tzload(TZDEFRULES) here.  We do not want to
 	 * do that; it would be bad news in the lastditch case, where we can't
 	 * assume pg_open_tzfile() is sane yet.  Moreover, the only reason to do
@@ -994,6 +1011,17 @@ tzparse(const char *name, struct state *sp, bool lastditch)
 	 * TZDEFRULES if the zone name specifies DST but doesn't incorporate a
 	 * POSIX-style transition date rule, which is not a common case.
 	 */
+=======
+	 * The IANA code always tries to tzload(TZDEFRULES) here.  We do not want
+	 * to do that; it would be bad news in the lastditch case, where we can't
+	 * assume pg_open_tzfile() is sane yet.  Moreover, if we did load it and
+	 * it contains leap-second-dependent info, that would cause problems too.
+	 * Finally, IANA has deprecated the TZDEFRULES feature, so it presumably
+	 * will die at some point.  Desupporting it now seems like good
+	 * future-proofing.
+	 */
+	load_ok = false;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	sp->goback = sp->goahead = false;	/* simulate failed tzload() */
 	sp->leapcnt = 0;			/* intentionally assume no leap seconds */
 
@@ -1368,7 +1396,11 @@ localsub(struct state const *sp, pg_time_t const *timep,
 	if (result)
 	{
 		result->tm_isdst = ttisp->tt_isdst;
+<<<<<<< HEAD
 		result->tm_zone = (char *) &sp->chars[ttisp->tt_desigidx];
+=======
+		result->tm_zone = unconstify(char *, &sp->chars[ttisp->tt_desigidx]);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 	return result;
 }

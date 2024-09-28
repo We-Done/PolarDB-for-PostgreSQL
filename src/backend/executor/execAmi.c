@@ -3,7 +3,7 @@
  * execAmi.c
  *	  miscellaneous executor access method routines
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *	src/backend/executor/execAmi.c
@@ -14,7 +14,7 @@
 
 #include "access/amapi.h"
 #include "access/htup_details.h"
-#include "executor/execdebug.h"
+#include "catalog/pg_class.h"
 #include "executor/nodeAgg.h"
 #include "executor/nodeAppend.h"
 #include "executor/nodeBitmapAnd.h"
@@ -28,14 +28,15 @@
 #include "executor/nodeGather.h"
 #include "executor/nodeGatherMerge.h"
 #include "executor/nodeGroup.h"
-#include "executor/nodeGroup.h"
 #include "executor/nodeHash.h"
 #include "executor/nodeHashjoin.h"
+#include "executor/nodeIncrementalSort.h"
 #include "executor/nodeIndexonlyscan.h"
 #include "executor/nodeIndexscan.h"
 #include "executor/nodeLimit.h"
 #include "executor/nodeLockRows.h"
 #include "executor/nodeMaterial.h"
+#include "executor/nodeMemoize.h"
 #include "executor/nodeMergeAppend.h"
 #include "executor/nodeMergejoin.h"
 #include "executor/nodeModifyTable.h"
@@ -51,16 +52,17 @@
 #include "executor/nodeSubplan.h"
 #include "executor/nodeSubqueryscan.h"
 #include "executor/nodeTableFuncscan.h"
+#include "executor/nodeTidrangescan.h"
 #include "executor/nodeTidscan.h"
 #include "executor/nodeUnique.h"
 #include "executor/nodeValuesscan.h"
 #include "executor/nodeWindowAgg.h"
 #include "executor/nodeWorktablescan.h"
-#include "nodes/nodeFuncs.h"
-#include "nodes/relation.h"
-#include "utils/rel.h"
+#include "nodes/extensible.h"
+#include "nodes/pathnodes.h"
 #include "utils/syscache.h"
 
+<<<<<<< HEAD
 /* POLAR px */
 #include "executor/nodeAssertOp.h"
 #include "executor/nodeMotion_px.h"
@@ -69,6 +71,8 @@
 #include "executor/nodePartitionSelector.h"
 /* POLAR end */
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 static bool IndexSupportsBackwardScan(Oid indexid);
 
 
@@ -140,11 +144,11 @@ ExecReScan(PlanState *node)
 			if (splan->plan->extParam != NULL)
 				UpdateChangedParamSet(splan, node->chgParam);
 		}
-		/* Well. Now set chgParam for left/right trees. */
-		if (node->lefttree != NULL)
-			UpdateChangedParamSet(node->lefttree, node->chgParam);
-		if (node->righttree != NULL)
-			UpdateChangedParamSet(node->righttree, node->chgParam);
+		/* Well. Now set chgParam for child trees. */
+		if (outerPlanState(node) != NULL)
+			UpdateChangedParamSet(outerPlanState(node), node->chgParam);
+		if (innerPlanState(node) != NULL)
+			UpdateChangedParamSet(innerPlanState(node), node->chgParam);
 	}
 
 	/* Call expression callbacks */
@@ -228,6 +232,10 @@ ExecReScan(PlanState *node)
 			ExecReScanTidScan((TidScanState *) node);
 			break;
 
+		case T_TidRangeScanState:
+			ExecReScanTidRangeScan((TidRangeScanState *) node);
+			break;
+
 		case T_SubqueryScanState:
 			ExecReScanSubqueryScan((SubqueryScanState *) node);
 			break;
@@ -285,8 +293,16 @@ ExecReScan(PlanState *node)
 			ExecReScanMaterial((MaterialState *) node);
 			break;
 
+		case T_MemoizeState:
+			ExecReScanMemoize((MemoizeState *) node);
+			break;
+
 		case T_SortState:
 			ExecReScanSort((SortState *) node);
+			break;
+
+		case T_IncrementalSortState:
+			ExecReScanIncrementalSort((IncrementalSortState *) node);
 			break;
 
 		case T_GroupState:
@@ -464,6 +480,12 @@ ExecSupportsMarkRestore(Path *pathnode)
 	{
 		case T_IndexScan:
 		case T_IndexOnlyScan:
+
+			/*
+			 * Not all index types support mark/restore.
+			 */
+			return castNode(IndexPath, pathnode)->indexinfo->amcanmarkpos;
+
 		case T_Material:
 		case T_Sort:
 		/* POLAR px */
@@ -471,13 +493,10 @@ ExecSupportsMarkRestore(Path *pathnode)
 			return true;
 
 		case T_CustomScan:
-			{
-				CustomPath *customPath = castNode(CustomPath, pathnode);
+			if (castNode(CustomPath, pathnode)->flags & CUSTOMPATH_SUPPORT_MARK_RESTORE)
+				return true;
+			return false;
 
-				if (customPath->flags & CUSTOMPATH_SUPPORT_MARK_RESTORE)
-					return true;
-				return false;
-			}
 		case T_Result:
 
 			/*
@@ -490,10 +509,43 @@ ExecSupportsMarkRestore(Path *pathnode)
 				return ExecSupportsMarkRestore(((ProjectionPath *) pathnode)->subpath);
 			else if (IsA(pathnode, MinMaxAggPath))
 				return false;	/* childless Result */
+			else if (IsA(pathnode, GroupResultPath))
+				return false;	/* childless Result */
 			else
 			{
-				Assert(IsA(pathnode, ResultPath));
+				/* Simple RTE_RESULT base relation */
+				Assert(IsA(pathnode, Path));
 				return false;	/* childless Result */
+			}
+
+		case T_Append:
+			{
+				AppendPath *appendPath = castNode(AppendPath, pathnode);
+
+				/*
+				 * If there's exactly one child, then there will be no Append
+				 * in the final plan, so we can handle mark/restore if the
+				 * child plan node can.
+				 */
+				if (list_length(appendPath->subpaths) == 1)
+					return ExecSupportsMarkRestore((Path *) linitial(appendPath->subpaths));
+				/* Otherwise, Append can't handle it */
+				return false;
+			}
+
+		case T_MergeAppend:
+			{
+				MergeAppendPath *mapath = castNode(MergeAppendPath, pathnode);
+
+				/*
+				 * Like the Append case above, single-subpath MergeAppends
+				 * won't be in the final plan, so just return the child's
+				 * mark/restore ability.
+				 */
+				if (list_length(mapath->subpaths) == 1)
+					return ExecSupportsMarkRestore((Path *) linitial(mapath->subpaths));
+				/* Otherwise, MergeAppend can't handle it */
+				return false;
 			}
 
 		default:
@@ -537,6 +589,10 @@ ExecSupportsBackwardScan(Plan *node)
 			{
 				ListCell   *l;
 
+				/* With async, tuples may be interleaved, so can't back up. */
+				if (((Append *) node)->nasyncplans > 0)
+					return false;
+
 				foreach(l, ((Append *) node)->appendplans)
 				{
 					if (!ExecSupportsBackwardScan((Plan *) lfirst(l)))
@@ -567,22 +623,28 @@ ExecSupportsBackwardScan(Plan *node)
 			return true;
 
 		case T_CustomScan:
-			{
-				uint32		flags = ((CustomScan *) node)->flags;
-
-				if (flags & CUSTOMPATH_SUPPORT_BACKWARD_SCAN)
-					return true;
-			}
+			if (((CustomScan *) node)->flags & CUSTOMPATH_SUPPORT_BACKWARD_SCAN)
+				return true;
 			return false;
 
 		case T_SeqScan:
 		case T_TidScan:
+		case T_TidRangeScan:
 		case T_FunctionScan:
 		case T_ValuesScan:
 		case T_CteScan:
 		case T_Material:
 		case T_Sort:
+			/* these don't evaluate tlist */
 			return true;
+
+		case T_IncrementalSort:
+
+			/*
+			 * Unlike full sort, incremental sort keeps only a single group of
+			 * tuples in memory, so it can't scan backwards.
+			 */
+			return false;
 
 		case T_LockRows:
 		case T_Limit:

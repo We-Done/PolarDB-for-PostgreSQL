@@ -8,7 +8,7 @@
  * referenced by storage/checksum.h.  (Note: you may need to redefine
  * Assert() as empty to compile this successfully externally.)
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/checksum_impl.h
@@ -191,7 +191,11 @@ pg_checksum_page(char *page, BlockNumber blkno)
 	uint32		checksum;
 
 	/* We only calculate the checksum for properly-initialized pages */
+<<<<<<< HEAD
 	Assert(!PageIsNew(&cpage->phdr));
+=======
+	Assert(!PageIsNew((Page) page));
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/*
 	 * Save pd_checksum and temporarily set it to zero, so that the checksum
@@ -211,5 +215,5 @@ pg_checksum_page(char *page, BlockNumber blkno)
 	 * Reduce to a uint16 (to fit in the pd_checksum field) with an offset of
 	 * one. That avoids checksums of zero, which seems like a good idea.
 	 */
-	return (checksum % 65535) + 1;
+	return (uint16) ((checksum % 65535) + 1);
 }

@@ -1,7 +1,14 @@
+<<<<<<< HEAD
+=======
+
+# Copyright (c) 2021-2024, PostgreSQL Global Development Group
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #
 # Tests related to WAL archiving and recovery.
 #
 use strict;
+<<<<<<< HEAD
 use warnings;
 use PostgresNode;
 use TestLib;
@@ -11,6 +18,16 @@ use Config;
 my $primary = get_new_node('master');
 $primary->init(
 	has_archiving    => 1,
+=======
+use warnings FATAL => 'all';
+use PostgreSQL::Test::Cluster;
+use PostgreSQL::Test::Utils;
+use Test::More;
+
+my $primary = PostgreSQL::Test::Cluster->new('primary');
+$primary->init(
+	has_archiving => 1,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	allows_streaming => 1);
 $primary->append_conf('postgresql.conf', 'autovacuum = off');
 $primary->start;
@@ -24,7 +41,11 @@ my $primary_data = $primary->data_dir;
 # a portable solution, use an archive command based on a command known to
 # work but will fail: copy with an incorrect original path.
 my $incorrect_command =
+<<<<<<< HEAD
   $TestLib::windows_os
+=======
+  $PostgreSQL::Test::Utils::windows_os
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
   ? qq{copy "%p_does_not_exist" "%f_does_not_exist"}
   : qq{cp "%p_does_not_exist" "%f_does_not_exist"};
 $primary->safe_psql(
@@ -37,9 +58,15 @@ $primary->safe_psql(
 # This will be used to track the activity of the archiver.
 my $segment_name_1 = $primary->safe_psql('postgres',
 	q{SELECT pg_walfile_name(pg_current_wal_lsn())});
+<<<<<<< HEAD
 my $segment_path_1       = "pg_wal/archive_status/$segment_name_1";
 my $segment_path_1_ready = "$segment_path_1.ready";
 my $segment_path_1_done  = "$segment_path_1.done";
+=======
+my $segment_path_1 = "pg_wal/archive_status/$segment_name_1";
+my $segment_path_1_ready = "$segment_path_1.ready";
+my $segment_path_1_done = "$segment_path_1.done";
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 $primary->safe_psql(
 	'postgres', q{
 	CREATE TABLE mine AS SELECT generate_series(1,10) AS x;
@@ -64,7 +91,11 @@ is( $primary->safe_psql(
 		FROM pg_stat_archiver
 	}),
 	"0|$segment_name_1",
+<<<<<<< HEAD
 	'pg_stat_archiver failed to archive $segment_name_1');
+=======
+	"pg_stat_archiver failed to archive $segment_name_1");
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 # Crash the cluster for the next test in charge of checking that non-archived
 # WAL segments are not removed.
@@ -72,7 +103,11 @@ $primary->stop('immediate');
 
 # Recovery tests for the archiving with a standby partially check
 # the recovery behavior when restoring a backup taken using a
+<<<<<<< HEAD
 # snapshot with no pg_start/stop_backup.  In this situation,
+=======
+# snapshot with no pg_backup_start/stop.  In this situation,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 # the recovered standby should enter first crash recovery then
 # switch to regular archive recovery.  Note that the base backup
 # is taken here so as archive_command will fail.  This is necessary
@@ -113,6 +148,7 @@ is( $primary->safe_psql(
 # with existing status files.
 my $segment_name_2 = $primary->safe_psql('postgres',
 	q{SELECT pg_walfile_name(pg_current_wal_lsn())});
+<<<<<<< HEAD
 my $segment_path_2       = "pg_wal/archive_status/$segment_name_2";
 my $segment_path_2_ready = "$segment_path_2.ready";
 my $segment_path_2_done  = "$segment_path_2.done";
@@ -123,42 +159,110 @@ $primary->safe_psql(
 	CHECKPOINT;
 });
 
+=======
+my $segment_path_2 = "pg_wal/archive_status/$segment_name_2";
+my $segment_path_2_ready = "$segment_path_2.ready";
+my $segment_path_2_done = "$segment_path_2.done";
+$primary->safe_psql(
+	'postgres', q{
+	INSERT INTO mine SELECT generate_series(10,20) AS x;
+	CHECKPOINT;
+});
+
+# Switch to a new segment and use the returned LSN to make sure that
+# standbys have caught up to this point.
+my $primary_lsn = $primary->safe_psql(
+	'postgres', q{
+	SELECT pg_switch_wal();
+});
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 $primary->poll_query_until('postgres',
 	q{ SELECT last_archived_wal FROM pg_stat_archiver },
 	$segment_name_2)
   or die "Timed out while waiting for archiving to finish";
 
 # Test standby with archive_mode = on.
+<<<<<<< HEAD
 my $standby1 = get_new_node('standby');
+=======
+my $standby1 = PostgreSQL::Test::Cluster->new('standby');
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 $standby1->init_from_backup($primary, 'backup', has_restoring => 1);
 $standby1->append_conf('postgresql.conf', "archive_mode = on");
 my $standby1_data = $standby1->data_dir;
 $standby1->start;
+<<<<<<< HEAD
 $standby1->safe_psql('postgres', q{CHECKPOINT});
 
+=======
+
+# Wait for the replay of the segment switch done previously, ensuring
+# that all segments needed are restored from the archives.
+$standby1->poll_query_until('postgres',
+	qq{ SELECT pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '$primary_lsn') >= 0 }
+) or die "Timed out while waiting for xlog replay on standby1";
+
+$standby1->safe_psql('postgres', q{CHECKPOINT});
+
+# Recovery with archive_mode=on does not keep .ready signal files inherited
+# from backup.  Note that this WAL segment existed in the backup.
+ok( !-f "$standby1_data/$segment_path_1_ready",
+	".ready file for WAL segment $segment_name_1 present in backup got removed with archive_mode=on on standby"
+);
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 # Recovery with archive_mode=on should not create .ready files.
 # Note that this segment did not exist in the backup.
 ok( !-f "$standby1_data/$segment_path_2_ready",
 	".ready file for WAL segment $segment_name_2 not created on standby when archive_mode=on on standby"
 );
 
+<<<<<<< HEAD
+=======
+# Recovery with archive_mode = on creates .done files.
+ok( -f "$standby1_data/$segment_path_2_done",
+	".done file for WAL segment $segment_name_2 created when archive_mode=on on standby"
+);
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 # Test recovery with archive_mode = always, which should always keep
 # .ready files if archiving is enabled, though here we want the archive
 # command to fail to persist the .ready files.  Note that this node
 # has inherited the archive command of the previous cold backup that
 # will cause archiving failures.
+<<<<<<< HEAD
 my $standby2 = get_new_node('standby2');
+=======
+my $standby2 = PostgreSQL::Test::Cluster->new('standby2');
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 $standby2->init_from_backup($primary, 'backup', has_restoring => 1);
 $standby2->append_conf('postgresql.conf', 'archive_mode = always');
 my $standby2_data = $standby2->data_dir;
 $standby2->start;
 
+<<<<<<< HEAD
+=======
+# Wait for the replay of the segment switch done previously, ensuring
+# that all segments needed are restored from the archives.
+$standby2->poll_query_until('postgres',
+	qq{ SELECT pg_wal_lsn_diff(pg_last_wal_replay_lsn(), '$primary_lsn') >= 0 }
+) or die "Timed out while waiting for xlog replay on standby2";
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 $standby2->safe_psql('postgres', q{CHECKPOINT});
 
 ok( -f "$standby2_data/$segment_path_1_ready",
 	".ready file for WAL segment $segment_name_1 existing in backup is kept with archive_mode=always on standby"
 );
 
+<<<<<<< HEAD
+=======
+ok( -f "$standby2_data/$segment_path_2_ready",
+	".ready file for WAL segment $segment_name_2 created with archive_mode=always on standby"
+);
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 # Reset statistics of the archiver for the next checks.
 $standby2->safe_psql('postgres', q{SELECT pg_stat_reset_shared('archiver')});
 
@@ -197,3 +301,36 @@ ok( -f "$standby2_data/$segment_path_1_done"
 	  && -f "$standby2_data/$segment_path_2_done",
 	".done files created after archive success with archive_mode=always on standby"
 );
+<<<<<<< HEAD
+=======
+
+# Check that the archiver process calls the shell archive module's shutdown
+# callback.
+$standby2->append_conf('postgresql.conf', "log_min_messages = debug1");
+$standby2->reload;
+
+# Run a query to make sure that the reload has taken effect.
+$standby2->safe_psql('postgres', q{SELECT 1});
+my $log_location = -s $standby2->logfile;
+
+$standby2->stop;
+my $logfile = slurp_file($standby2->logfile, $log_location);
+ok( $logfile =~ qr/archiver process shutting down/,
+	'check shutdown callback of shell archive module');
+
+# Test that we can enter and leave backup mode without crashes
+my ($stderr, $cmdret);
+$cmdret = $primary->psql(
+	'postgres',
+	"SELECT pg_backup_start('onebackup'); "
+	  . "SELECT pg_backup_stop();"
+	  . "SELECT pg_backup_start(repeat('x', 1026))",
+	stderr => \$stderr);
+is($cmdret, 3, "psql fails correctly");
+like($stderr, qr/backup label too long/, "pg_backup_start fails gracefully");
+$primary->safe_psql('postgres',
+	"SELECT pg_backup_start('onebackup'); SELECT pg_backup_stop();");
+$primary->safe_psql('postgres', "SELECT pg_backup_start('twobackup')");
+
+done_testing();
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

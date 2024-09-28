@@ -9,7 +9,7 @@ PostgreSQL documentation
  </indexterm>
 
  <refmeta>
-  <refentrytitle>pg_restore</refentrytitle>
+  <refentrytitle><application>pg_restore</application></refentrytitle>
   <manvolnum>1</manvolnum>
   <refmiscinfo>Application</refmiscinfo>
  </refmeta>
@@ -111,10 +111,12 @@ PostgreSQL documentation
       <term><option>--clean</option></term>
       <listitem>
        <para>
-        Clean (drop) database objects before recreating them.
-        (Unless <option>--if-exists</option> is used,
-        this might generate some harmless error messages, if any objects
-        were not present in the destination database.)
+        Before restoring database objects, issue commands
+        to <command>DROP</command> all the objects that will be restored.
+        This option is useful for overwriting an existing database.
+        If any of the objects do not exist in the destination database,
+        ignorable error messages will be reported,
+        unless <option>--if-exists</option> is also specified.
        </para>
       </listitem>
      </varlistentry>
@@ -156,7 +158,10 @@ PostgreSQL documentation
        <para>
         Connect to database <replaceable
         class="parameter">dbname</replaceable> and restore directly
-        into the database.
+        into the database.  The <replaceable>dbname</replaceable> can
+        be a <link linkend="libpq-connstring">connection string</link>.
+        If so, connection string parameters will override any conflicting
+        command line options.
        </para>
       </listitem>
      </varlistentry>
@@ -180,8 +185,92 @@ PostgreSQL documentation
        <para>
         Specify output file for generated script, or for the listing
         when used with <option>-l</option>. Use <literal>-</literal>
+<<<<<<< HEAD
         for the standard output, which is also the default.
+=======
+        for <systemitem>stdout</systemitem>.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
        </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>--filter=<replaceable class="parameter">filename</replaceable></option></term>
+      <listitem>
+       <para>
+        Specify a filename from which to read patterns for objects excluded
+        or included from restore. The patterns are interpreted according to the
+        same rules as
+        <option>-n</option>/<option>--schema</option> for including objects in schemas,
+        <option>-N</option>/<option>--exclude-schema</option>for excluding objects in schemas,
+        <option>-P</option>/<option>--function</option> for restoring named functions,
+        <option>-I</option>/<option>--index</option> for restoring named indexes,
+        <option>-t</option>/<option>--table</option> for restoring named tables
+        or <option>-T</option>/<option>--trigger</option> for restoring triggers.
+        To read from <literal>STDIN</literal>, use <filename>-</filename> as the
+        filename.  The <option>--filter</option> option can be specified in
+        conjunction with the above listed options for including or excluding
+        objects, and can also be specified more than once for multiple filter
+        files.
+       </para>
+
+       <para>
+        The file lists one database pattern per row, with the following format:
+<synopsis>
+{ include | exclude } { function | index | schema | table | trigger } <replaceable class="parameter">PATTERN</replaceable>
+</synopsis>
+       </para>
+
+       <para>
+        The first keyword specifies whether the objects matched by the pattern
+        are to be included or excluded. The second keyword specifies the type
+        of object to be filtered using the pattern:
+        <itemizedlist>
+         <listitem>
+          <para>
+           <literal>function</literal>: functions, works like the
+           <option>-P</option>/<option>--function</option> option. This keyword
+           can only be used with the <literal>include</literal> keyword.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>index</literal>: indexes, works like the
+           <option>-I</option>/<option>--indexes</option> option. This keyword
+           can only be used with the <literal>include</literal> keyword.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>schema</literal>: schemas, works like the
+           <option>-n</option>/<option>--schema</option> and
+           <option>-N</option>/<option>--exclude-schema</option> options.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>table</literal>: tables, works like the
+           <option>-t</option>/<option>--table</option> option. This keyword
+           can only be used with the <literal>include</literal> keyword.
+          </para>
+         </listitem>
+         <listitem>
+          <para>
+           <literal>trigger</literal>: triggers, works like the
+           <option>-T</option>/<option>--trigger</option> option. This keyword
+           can only be used with the <literal>include</literal> keyword.
+          </para>
+         </listitem>
+        </itemizedlist>
+       </para>
+
+       <para>
+        Lines starting with <literal>#</literal> are considered comments and
+        ignored. Comments can be placed after an object pattern row as well.
+        Blank lines are also ignored. See <xref linkend="app-psql-patterns"/>
+        for how to perform quoting in patterns.
+       </para>
+
       </listitem>
      </varlistentry>
 
@@ -246,12 +335,14 @@ PostgreSQL documentation
       <term><option>--jobs=<replaceable class="parameter">number-of-jobs</replaceable></option></term>
       <listitem>
        <para>
-        Run the most time-consuming parts
-        of <application>pg_restore</application> &mdash; those which load data,
-        create indexes, or create constraints &mdash; using multiple
-        concurrent jobs.  This option can dramatically reduce the time
+        Run the most time-consuming steps
+        of <application>pg_restore</application> &mdash; those that load data,
+        create indexes, or create constraints &mdash; concurrently, using up
+        to <replaceable class="parameter">number-of-jobs</replaceable>
+        concurrent sessions.  This option can dramatically reduce the time
         to restore a large database to a server running on a
-        multiprocessor machine.
+        multiprocessor machine.  This option is ignored when emitting a script
+        rather than connecting directly to a database server.
        </para>
 
        <para>
@@ -274,8 +365,7 @@ PostgreSQL documentation
         Only the custom and directory archive formats are supported
         with this option.
         The input must be a regular file or directory (not, for example, a
-        pipe).  This option is ignored when emitting a script rather
-        than connecting directly to a database server.  Also, multiple
+        pipe or standard input).  Also, multiple
         jobs cannot be used together with the
         option <option>--single-transaction</option>.
        </para>
@@ -482,7 +572,12 @@ PostgreSQL documentation
       <term><option>--verbose</option></term>
       <listitem>
        <para>
-        Specifies verbose mode.
+        Specifies verbose mode.  This will cause
+        <application>pg_restore</application> to output detailed object
+        comments and start/stop times to the output file, and progress
+        messages to standard error.
+        Repeating the option causes additional debug-level messages
+        to appear on standard error.
        </para>
       </listitem>
      </varlistentry>
@@ -529,9 +624,9 @@ PostgreSQL documentation
         This option is relevant only when performing a data-only restore.
         It instructs <application>pg_restore</application> to execute commands
         to temporarily disable triggers on the target tables while
-        the data is reloaded.  Use this if you have referential
+        the data is restored.  Use this if you have referential
         integrity checks or other triggers on the tables that you
-        do not want to invoke during data reload.
+        do not want to invoke during data restore.
        </para>
 
        <para>
@@ -571,9 +666,11 @@ PostgreSQL documentation
       <term><option>--if-exists</option></term>
       <listitem>
        <para>
-        Use conditional commands (i.e. add an <literal>IF EXISTS</literal>
-        clause) to drop database objects.  This option is not valid
-        unless <option>--clean</option> is also specified.
+        Use <literal>DROP ... IF EXISTS</literal> commands to drop objects
+        in <option>--clean</option> mode.  This suppresses <quote>does not
+        exist</quote> errors that might otherwise be reported.  This
+        option is not valid unless <option>--clean</option> is also
+        specified.
        </para>
       </listitem>
      </varlistentry>
@@ -641,6 +738,17 @@ PostgreSQL documentation
      </varlistentry>
 
      <varlistentry>
+      <term><option>--no-table-access-method</option></term>
+      <listitem>
+       <para>
+        Do not output commands to select table access methods.
+        With this option, all objects will be created with whichever
+        table access method is the default during restore.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
       <term><option>--no-tablespaces</option></term>
       <listitem>
        <para>
@@ -677,7 +785,31 @@ PostgreSQL documentation
         Require that each schema
         (<option>-n</option>/<option>--schema</option>) and table
         (<option>-t</option>/<option>--table</option>) qualifier match at
-        least one schema/table in the backup file.
+        least one schema/table in the file to be restored.
+       </para>
+      </listitem>
+     </varlistentry>
+
+     <varlistentry>
+      <term><option>--transaction-size=<replaceable class="parameter">N</replaceable></option></term>
+      <listitem>
+       <para>
+        Execute the restore as a series of transactions, each processing
+        up to <replaceable class="parameter">N</replaceable> database
+        objects.  This option implies <option>--exit-on-error</option>.
+       </para>
+       <para>
+        <option>--transaction-size</option> offers an intermediate choice
+        between the default behavior (one transaction per SQL command)
+        and <option>-1</option>/<option>--single-transaction</option>
+        (one transaction for all restored objects).
+        While <option>--single-transaction</option> has the least
+        overhead, it may be impractical for large databases because the
+        transaction will take a lock on each restored object, possibly
+        exhausting the server's lock table space.
+        Using <option>--transaction-size</option> with a size of a few
+        thousand objects offers nearly the same performance benefits while
+        capping the amount of lock table space needed.
        </para>
       </listitem>
      </varlistentry>
@@ -825,6 +957,17 @@ PostgreSQL documentation
      </para>
     </listitem>
    </varlistentry>
+
+   <varlistentry>
+    <term><envar>PG_COLOR</envar></term>
+    <listitem>
+     <para>
+      Specifies whether to use color in diagnostic messages. Possible values
+      are <literal>always</literal>, <literal>auto</literal> and
+      <literal>never</literal>.
+     </para>
+    </listitem>
+   </varlistentry>
   </variablelist>
 
   <para>
@@ -938,7 +1081,7 @@ CREATE DATABASE foo WITH TEMPLATE template0;
   </para>
 
   <para>
-   To reload the dump into a new database called <literal>newdb</literal>:
+   To restore the dump into a new database called <literal>newdb</literal>:
 
 <screen>
 <prompt>$</prompt> <userinput>createdb -T template0 newdb</userinput>

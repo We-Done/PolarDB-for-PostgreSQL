@@ -3,7 +3,7 @@
  * pg_prewarm.c
  *		  prewarming utilities
  *
- * Copyright (c) 2010-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2010-2024, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *		  contrib/pg_prewarm/pg_prewarm.c
@@ -15,10 +15,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "access/heapam.h"
+#include "access/relation.h"
 #include "fmgr.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
+#include "storage/read_stream.h"
 #include "storage/smgr.h"
 #include "utils/acl.h"
 #include "utils/builtins.h"
@@ -33,10 +34,14 @@ typedef enum
 {
 	PREWARM_PREFETCH,
 	PREWARM_READ,
-	PREWARM_BUFFER
+	PREWARM_BUFFER,
 } PrewarmType;
 
+<<<<<<< HEAD
 static PGAlignedBlock blockbuffer;
+=======
+static PGIOAlignedBlock blockbuffer;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /*
  * pg_prewarm(regclass, mode text, fork text,
@@ -77,7 +82,7 @@ pg_prewarm(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(1))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 (errmsg("prewarm type cannot be null"))));
+				 errmsg("prewarm type cannot be null")));
 	type = PG_GETARG_TEXT_PP(1);
 	ttype = text_to_cstring(type);
 	if (strcmp(ttype, "prefetch") == 0)
@@ -97,7 +102,7 @@ pg_prewarm(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(2))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 (errmsg("relation fork cannot be null"))));
+				 errmsg("relation fork cannot be null")));
 	forkName = PG_GETARG_TEXT_PP(2);
 	forkString = text_to_cstring(forkName);
 	forkNumber = forkname_to_number(forkString);
@@ -109,8 +114,7 @@ pg_prewarm(PG_FUNCTION_ARGS)
 		aclcheck_error(aclresult, get_relkind_objtype(rel->rd_rel->relkind), get_rel_name(relOid));
 
 	/* Check that the fork exists. */
-	RelationOpenSmgr(rel);
-	if (!smgrexists(rel->rd_smgr, forkNumber))
+	if (!smgrexists(RelationGetSmgr(rel), forkNumber))
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 				 errmsg("fork \"%s\" does not exist for this relation",
@@ -126,8 +130,8 @@ pg_prewarm(PG_FUNCTION_ARGS)
 		if (first_block < 0 || first_block >= nblocks)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("starting block number must be between 0 and " INT64_FORMAT,
-							nblocks - 1)));
+					 errmsg("starting block number must be between 0 and %lld",
+							(long long) (nblocks - 1))));
 	}
 	if (PG_ARGISNULL(4))
 		last_block = nblocks - 1;
@@ -137,8 +141,8 @@ pg_prewarm(PG_FUNCTION_ARGS)
 		if (last_block < 0 || last_block >= nblocks)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-					 errmsg("ending block number must be between 0 and " INT64_FORMAT,
-							nblocks - 1)));
+					 errmsg("ending block number must be between 0 and %lld",
+							(long long) (nblocks - 1))));
 	}
 
 	/* Now we're ready to do the real work. */
@@ -178,24 +182,46 @@ pg_prewarm(PG_FUNCTION_ARGS)
 		for (block = first_block; block <= last_block; ++block)
 		{
 			CHECK_FOR_INTERRUPTS();
+<<<<<<< HEAD
 			smgrread(rel->rd_smgr, forkNumber, block, blockbuffer.data);
+=======
+			smgrread(RelationGetSmgr(rel), forkNumber, block, blockbuffer.data);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 			++blocks_done;
 		}
 	}
 	else if (ptype == PREWARM_BUFFER)
 	{
+		BlockRangeReadStreamPrivate p;
+		ReadStream *stream;
+
 		/*
 		 * In buffer mode, we actually pull the data into shared_buffers.
 		 */
+
+		/* Set up the private state for our streaming buffer read callback. */
+		p.current_blocknum = first_block;
+		p.last_exclusive = last_block + 1;
+
+		stream = read_stream_begin_relation(READ_STREAM_FULL,
+											NULL,
+											rel,
+											forkNumber,
+											block_range_read_stream_cb,
+											&p,
+											0);
+
 		for (block = first_block; block <= last_block; ++block)
 		{
 			Buffer		buf;
 
 			CHECK_FOR_INTERRUPTS();
-			buf = ReadBufferExtended(rel, forkNumber, block, RBM_NORMAL, NULL);
+			buf = read_stream_next_buffer(stream, NULL);
 			ReleaseBuffer(buf);
 			++blocks_done;
 		}
+		Assert(read_stream_next_buffer(stream, NULL) == InvalidBuffer);
+		read_stream_end(stream);
 	}
 
 	/* Close relation, release lock. */

@@ -1,15 +1,18 @@
-use strict;
-use warnings;
 
-use PostgresNode;
-use TestLib;
-use Test::More tests => 14;
+# Copyright (c) 2021-2024, PostgreSQL Global Development Group
+
+use strict;
+use warnings FATAL => 'all';
+
+use PostgreSQL::Test::Cluster;
+use PostgreSQL::Test::Utils;
+use Test::More;
 
 program_help_ok('clusterdb');
 program_version_ok('clusterdb');
 program_options_handling_ok('clusterdb');
 
-my $node = get_new_node('main');
+my $node = PostgreSQL::Test::Cluster->new('main');
 $node->init;
 $node->append_conf('postgresql.conf', 'polar_enable_multi_syslogger = off');
 $node->start;
@@ -32,3 +35,5 @@ $node->issues_sql_like(
 
 $node->command_ok([qw(clusterdb --echo --verbose dbname=template1)],
 	'clusterdb with connection string');
+
+done_testing();

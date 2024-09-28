@@ -3,7 +3,7 @@
  * blinsert.c
  *		Bloom index build and insert functions.
  *
- * Copyright (c) 2016-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2016-2024, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  contrib/bloom/blinsert.c
@@ -14,6 +14,8 @@
 
 #include "access/genam.h"
 #include "access/generic_xlog.h"
+#include "access/tableam.h"
+#include "bloom.h"
 #include "catalog/index.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
@@ -21,8 +23,6 @@
 #include "storage/smgr.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
-
-#include "bloom.h"
 
 PG_MODULE_MAGIC;
 
@@ -63,16 +63,19 @@ flushCachedPage(Relation index, BloomBuildState *buildstate)
 static void
 initCachedPage(BloomBuildState *buildstate)
 {
+<<<<<<< HEAD
 	memset(buildstate->data.data, 0, BLCKSZ);
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	BloomInitPage(buildstate->data.data, 0);
 	buildstate->count = 0;
 }
 
 /*
- * Per-tuple callback from IndexBuildHeapScan.
+ * Per-tuple callback for table_index_build_scan.
  */
 static void
-bloomBuildCallback(Relation index, HeapTuple htup, Datum *values,
+bloomBuildCallback(Relation index, ItemPointer tid, Datum *values,
 				   bool *isnull, bool tupleIsAlive, void *state)
 {
 	BloomBuildState *buildstate = (BloomBuildState *) state;
@@ -81,7 +84,7 @@ bloomBuildCallback(Relation index, HeapTuple htup, Datum *values,
 
 	oldCtx = MemoryContextSwitchTo(buildstate->tmpCtx);
 
-	itup = BloomFormTuple(&buildstate->blstate, &htup->t_self, values, isnull);
+	itup = BloomFormTuple(&buildstate->blstate, tid, values, isnull);
 
 	/* Try to add next item to cached page */
 	if (BloomPageAddItem(&buildstate->blstate, buildstate->data.data, itup))
@@ -133,7 +136,7 @@ blbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 	}
 
 	/* Initialize the meta page */
-	BloomInitMetapage(index);
+	BloomInitMetapage(index, MAIN_FORKNUM);
 
 	/* Initialize the bloom build state */
 	memset(&buildstate, 0, sizeof(buildstate));
@@ -144,9 +147,9 @@ blbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 	initCachedPage(&buildstate);
 
 	/* Do the heap scan */
-	reltuples = IndexBuildHeapScan(heap, index, indexInfo, true,
-								   bloomBuildCallback, (void *) &buildstate,
-								   NULL);
+	reltuples = table_index_build_scan(heap, index, indexInfo, true, true,
+									   bloomBuildCallback, (void *) &buildstate,
+									   NULL);
 
 	/* Flush last page if needed (it will be, unless heap was empty) */
 	if (buildstate.count > 0)
@@ -167,6 +170,7 @@ blbuild(Relation heap, Relation index, IndexInfo *indexInfo)
 void
 blbuildempty(Relation index)
 {
+<<<<<<< HEAD
 	Page		metapage;
 
 	/* Construct metapage. */
@@ -193,6 +197,10 @@ blbuildempty(Relation index)
 	 * checkpoint may have moved the redo pointer past our xlog record.
 	 */
 	smgrimmedsync(index->rd_smgr, INIT_FORKNUM);
+=======
+	/* Initialize the meta page */
+	BloomInitMetapage(index, INIT_FORKNUM);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
@@ -202,6 +210,7 @@ bool
 blinsert(Relation index, Datum *values, bool *isnull,
 		 ItemPointer ht_ctid, Relation heapRel,
 		 IndexUniqueCheck checkUnique,
+		 bool indexUnchanged,
 		 IndexInfo *indexInfo)
 {
 	BloomState	blstate;
@@ -236,8 +245,6 @@ blinsert(Relation index, Datum *values, bool *isnull,
 
 	if (metaData->nEnd > metaData->nStart)
 	{
-		Page		page;
-
 		blkno = metaData->notFullPage[metaData->nStart];
 		Assert(blkno != InvalidBlockNumber);
 

@@ -1,5 +1,9 @@
+<<<<<<< HEAD
 # dsa_test extension
 comment = 'Tests for DSA'
+=======
+comment = 'Test code for dynamic shared memory areas'
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 default_version = '1.0'
 module_pathname = '$libdir/test_dsa'
 relocatable = true

@@ -31,16 +31,16 @@
 
 #include "postgres.h"
 
-#include "lib/stringinfo.h"
 #include "catalog/pg_type.h"
-#include "mb/pg_wchar.h"
-#include "utils/builtins.h"
-#include "utils/array.h"
+#include "common/string.h"
 #include "funcapi.h"
-
+#include "lib/stringinfo.h"
+#include "mb/pg_wchar.h"
 #include "mbuf.h"
-#include "px.h"
 #include "pgp.h"
+#include "px.h"
+#include "utils/array.h"
+#include "utils/builtins.h"
 
 /*
  * public functions
@@ -91,19 +91,6 @@ static text *
 convert_to_utf8(text *src)
 {
 	return convert_charset(src, GetDatabaseEncoding(), PG_UTF8);
-}
-
-static bool
-string_is_ascii(const char *str)
-{
-	const char *p;
-
-	for (p = str; *p; p++)
-	{
-		if (IS_HIGHBIT_SET(*p))
-			return false;
-	}
-	return true;
 }
 
 static void
@@ -566,15 +553,15 @@ decrypt_internal(int is_pubenc, int need_text, text *data,
 Datum
 pgp_sym_encrypt_bytea(PG_FUNCTION_ARGS)
 {
-	bytea	   *data,
-			   *key;
+	bytea	   *data;
 	text	   *arg = NULL;
-	text	   *res;
+	text	   *res,
+			   *key;
 
 	data = PG_GETARG_BYTEA_PP(0);
-	key = PG_GETARG_BYTEA_PP(1);
+	key = PG_GETARG_TEXT_PP(1);
 	if (PG_NARGS() > 2)
-		arg = PG_GETARG_BYTEA_PP(2);
+		arg = PG_GETARG_TEXT_PP(2);
 
 	res = encrypt_internal(0, 0, data, key, arg);
 
@@ -588,15 +575,15 @@ pgp_sym_encrypt_bytea(PG_FUNCTION_ARGS)
 Datum
 pgp_sym_encrypt_text(PG_FUNCTION_ARGS)
 {
-	bytea	   *data,
+	text	   *data,
 			   *key;
 	text	   *arg = NULL;
 	text	   *res;
 
-	data = PG_GETARG_BYTEA_PP(0);
-	key = PG_GETARG_BYTEA_PP(1);
+	data = PG_GETARG_TEXT_PP(0);
+	key = PG_GETARG_TEXT_PP(1);
 	if (PG_NARGS() > 2)
-		arg = PG_GETARG_BYTEA_PP(2);
+		arg = PG_GETARG_TEXT_PP(2);
 
 	res = encrypt_internal(0, 1, data, key, arg);
 
@@ -611,15 +598,15 @@ pgp_sym_encrypt_text(PG_FUNCTION_ARGS)
 Datum
 pgp_sym_decrypt_bytea(PG_FUNCTION_ARGS)
 {
-	bytea	   *data,
-			   *key;
+	bytea	   *data;
 	text	   *arg = NULL;
-	text	   *res;
+	text	   *res,
+			   *key;
 
 	data = PG_GETARG_BYTEA_PP(0);
-	key = PG_GETARG_BYTEA_PP(1);
+	key = PG_GETARG_TEXT_PP(1);
 	if (PG_NARGS() > 2)
-		arg = PG_GETARG_BYTEA_PP(2);
+		arg = PG_GETARG_TEXT_PP(2);
 
 	res = decrypt_internal(0, 0, data, key, NULL, arg);
 
@@ -633,15 +620,15 @@ pgp_sym_decrypt_bytea(PG_FUNCTION_ARGS)
 Datum
 pgp_sym_decrypt_text(PG_FUNCTION_ARGS)
 {
-	bytea	   *data,
-			   *key;
+	bytea	   *data;
 	text	   *arg = NULL;
-	text	   *res;
+	text	   *res,
+			   *key;
 
 	data = PG_GETARG_BYTEA_PP(0);
-	key = PG_GETARG_BYTEA_PP(1);
+	key = PG_GETARG_TEXT_PP(1);
 	if (PG_NARGS() > 2)
-		arg = PG_GETARG_BYTEA_PP(2);
+		arg = PG_GETARG_TEXT_PP(2);
 
 	res = decrypt_internal(0, 1, data, key, NULL, arg);
 
@@ -667,7 +654,7 @@ pgp_pub_encrypt_bytea(PG_FUNCTION_ARGS)
 	data = PG_GETARG_BYTEA_PP(0);
 	key = PG_GETARG_BYTEA_PP(1);
 	if (PG_NARGS() > 2)
-		arg = PG_GETARG_BYTEA_PP(2);
+		arg = PG_GETARG_TEXT_PP(2);
 
 	res = encrypt_internal(1, 0, data, key, arg);
 
@@ -681,15 +668,15 @@ pgp_pub_encrypt_bytea(PG_FUNCTION_ARGS)
 Datum
 pgp_pub_encrypt_text(PG_FUNCTION_ARGS)
 {
-	bytea	   *data,
-			   *key;
+	bytea	   *key;
 	text	   *arg = NULL;
-	text	   *res;
+	text	   *res,
+			   *data;
 
-	data = PG_GETARG_BYTEA_PP(0);
+	data = PG_GETARG_TEXT_PP(0);
 	key = PG_GETARG_BYTEA_PP(1);
 	if (PG_NARGS() > 2)
-		arg = PG_GETARG_BYTEA_PP(2);
+		arg = PG_GETARG_TEXT_PP(2);
 
 	res = encrypt_internal(1, 1, data, key, arg);
 
@@ -713,9 +700,9 @@ pgp_pub_decrypt_bytea(PG_FUNCTION_ARGS)
 	data = PG_GETARG_BYTEA_PP(0);
 	key = PG_GETARG_BYTEA_PP(1);
 	if (PG_NARGS() > 2)
-		psw = PG_GETARG_BYTEA_PP(2);
+		psw = PG_GETARG_TEXT_PP(2);
 	if (PG_NARGS() > 3)
-		arg = PG_GETARG_BYTEA_PP(3);
+		arg = PG_GETARG_TEXT_PP(3);
 
 	res = decrypt_internal(1, 0, data, key, psw, arg);
 
@@ -740,9 +727,9 @@ pgp_pub_decrypt_text(PG_FUNCTION_ARGS)
 	data = PG_GETARG_BYTEA_PP(0);
 	key = PG_GETARG_BYTEA_PP(1);
 	if (PG_NARGS() > 2)
-		psw = PG_GETARG_BYTEA_PP(2);
+		psw = PG_GETARG_TEXT_PP(2);
 	if (PG_NARGS() > 3)
-		arg = PG_GETARG_BYTEA_PP(3);
+		arg = PG_GETARG_TEXT_PP(3);
 
 	res = decrypt_internal(1, 1, data, key, psw, arg);
 
@@ -761,7 +748,7 @@ pgp_pub_decrypt_text(PG_FUNCTION_ARGS)
  */
 
 /*
- * Helper function for pgp_armor. Converts arrays of keys and values into
+ * Helper function for pg_armor. Converts arrays of keys and values into
  * plain C arrays, and checks that they don't contain invalid characters.
  */
 static int
@@ -787,13 +774,8 @@ parse_key_value_arrays(ArrayType *key_array, ArrayType *val_array,
 	if (nkdims == 0)
 		return 0;
 
-	deconstruct_array(key_array,
-					  TEXTOID, -1, false, 'i',
-					  &key_datums, &key_nulls, &key_count);
-
-	deconstruct_array(val_array,
-					  TEXTOID, -1, false, 'i',
-					  &val_datums, &val_nulls, &val_count);
+	deconstruct_array_builtin(key_array, TEXTOID, &key_datums, &key_nulls, &key_count);
+	deconstruct_array_builtin(val_array, TEXTOID, &val_datums, &val_nulls, &val_count);
 
 	if (key_count != val_count)
 		ereport(ERROR,
@@ -815,7 +797,7 @@ parse_key_value_arrays(ArrayType *key_array, ArrayType *val_array,
 
 		v = TextDatumGetCString(key_datums[i]);
 
-		if (!string_is_ascii(v))
+		if (!pg_is_ascii(v))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("header key must not contain non-ASCII characters")));
@@ -837,7 +819,7 @@ parse_key_value_arrays(ArrayType *key_array, ArrayType *val_array,
 
 		v = TextDatumGetCString(val_datums[i]);
 
-		if (!string_is_ascii(v))
+		if (!pg_is_ascii(v))
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					 errmsg("header value must not contain non-ASCII characters")));

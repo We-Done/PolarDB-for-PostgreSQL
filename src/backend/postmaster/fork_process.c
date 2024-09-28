@@ -4,22 +4,22 @@
  *	 EXEC_BACKEND case; it might be extended to do so, but it would be
  *	 considerably more complex.
  *
- * Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Copyright (c) 1996-2024, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/postmaster/fork_process.c
  */
 #include "postgres.h"
-#include "postmaster/fork_process.h"
 
 #include <fcntl.h>
+#include <signal.h>
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
-#ifdef USE_OPENSSL
-#include <openssl/rand.h>
-#endif
+
+#include "libpq/pqsignal.h"
+#include "postmaster/fork_process.h"
 
 #ifndef WIN32
 
@@ -28,13 +28,15 @@ static pid_t polar_fetch_tpid(pid_t pid);
 /*
  * Wrapper for fork(). Return values are the same as those for fork():
  * -1 if the fork failed, 0 in the child process, and the PID of the
- * child in the parent process.
+ * child in the parent process.  Signals are blocked while forking, so
+ * the child must unblock.
  */
 pid_t
 fork_process(void)
 {
 	pid_t		result;
 	const char *oomfilename;
+	sigset_t	save_mask;
 
 #ifdef LINUX_PROFILE
 	struct itimerval prof_itimer;
@@ -42,13 +44,8 @@ fork_process(void)
 
 	/*
 	 * Flush stdio channels just before fork, to avoid double-output problems.
-	 * Ideally we'd use fflush(NULL) here, but there are still a few non-ANSI
-	 * stdio libraries out there (like SunOS 4.1.x) that coredump if we do.
-	 * Presently stdout and stderr are the only stdio output channels used by
-	 * the postmaster, so fflush'ing them should be sufficient.
 	 */
-	fflush(stdout);
-	fflush(stderr);
+	fflush(NULL);
 
 #ifdef LINUX_PROFILE
 
@@ -61,6 +58,13 @@ fork_process(void)
 	getitimer(ITIMER_PROF, &prof_itimer);
 #endif
 
+	/*
+	 * We start postmaster children with signals blocked.  This allows them to
+	 * install their own handlers before unblocking, to avoid races where they
+	 * might run the postmaster's handler and miss an important control
+	 * signal. With more analysis this could potentially be relaxed.
+	 */
+	sigprocmask(SIG_SETMASK, &BlockSig, &save_mask);
 	result = fork();
 	if (result == 0)
 	{
@@ -110,12 +114,13 @@ fork_process(void)
 			}
 		}
 
-		/*
-		 * Make sure processes do not share OpenSSL randomness state.
-		 */
-#ifdef USE_OPENSSL
-		RAND_cleanup();
-#endif
+		/* do post-fork initialization for random number generation */
+		pg_strong_random_init();
+	}
+	else
+	{
+		/* in parent, restore signal mask */
+		sigprocmask(SIG_SETMASK, &save_mask, NULL);
 	}
 	else if(result > 0)
 	{

@@ -11,23 +11,20 @@
  */
 #include "postgres_fe.h"
 
-#include "dumputils.h"
-#include "fe_utils/connect.h"
-#include "fe_utils/string_utils.h"
-#include "parallel.h"
-#include "pg_backup_archiver.h"
-#include "pg_backup_db.h"
-#include "pg_backup_utils.h"
-
 #include <unistd.h>
 #include <ctype.h>
 #ifdef HAVE_TERMIOS_H
 #include <termios.h>
 #endif
 
-
-/* translator: this is a module name */
-static const char *modulename = gettext_noop("archiver (db)");
+#include "common/connect.h"
+#include "common/string.h"
+#include "dumputils.h"
+#include "fe_utils/string_utils.h"
+#include "parallel.h"
+#include "pg_backup_archiver.h"
+#include "pg_backup_db.h"
+#include "pg_backup_utils.h"
 
 static void _check_database_version(ArchiveHandle *AH);
 static void notice_processor(void *arg, const char *message);
@@ -42,7 +39,7 @@ _check_database_version(ArchiveHandle *AH)
 	remoteversion_str = PQparameterStatus(AH->connection, "server_version");
 	remoteversion = PQserverVersion(AH->connection);
 	if (remoteversion == 0 || !remoteversion_str)
-		exit_horribly(modulename, "could not get server_version from libpq\n");
+		pg_fatal("could not get \"server_version\" from libpq");
 
 	AH->public.remoteVersionStr = pg_strdup(remoteversion_str);
 	AH->public.remoteVersion = remoteversion;
@@ -53,24 +50,20 @@ _check_database_version(ArchiveHandle *AH)
 		&& (remoteversion < AH->public.minRemoteVersion ||
 			remoteversion > AH->public.maxRemoteVersion))
 	{
-		write_msg(NULL, "server version: %s; %s version: %s\n",
-				  remoteversion_str, progname, PG_VERSION);
-		exit_horribly(NULL, "aborting because of server version mismatch\n");
+		pg_log_error("aborting because of server version mismatch");
+		pg_log_error_detail("server version: %s; %s version: %s",
+							remoteversion_str, progname, PG_VERSION);
+		exit(1);
 	}
 
 	/*
-	 * When running against 9.0 or later, check if we are in recovery mode,
-	 * which means we are on a hot standby.
+	 * Check if server is in recovery mode, which means we are on a hot
+	 * standby.
 	 */
-	if (remoteversion >= 90000)
-	{
-		res = ExecuteSqlQueryForSingleRow((Archive *) AH, "SELECT pg_catalog.pg_is_in_recovery()");
-
-		AH->public.isStandby = (strcmp(PQgetvalue(res, 0, 0), "t") == 0);
-		PQclear(res);
-	}
-	else
-		AH->public.isStandby = false;
+	res = ExecuteSqlQueryForSingleRow((Archive *) AH,
+									  "SELECT pg_catalog.pg_is_in_recovery()");
+	AH->public.isStandby = (strcmp(PQgetvalue(res, 0, 0), "t") == 0);
+	PQclear(res);
 }
 
 /*
@@ -121,11 +114,13 @@ ConnectDatabase(Archive *AHX,
 	ArchiveHandle *AH = (ArchiveHandle *) AHX;
 	trivalue	prompt_password;
 	char	   *password;
-	char		passbuf[100];
 	bool		new_pass;
 
 	if (AH->connection)
-		exit_horribly(modulename, "already connected to a database\n");
+		pg_fatal("already connected to a database");
+
+	/* Never prompt for a password during a reconnection */
+	prompt_password = isReconnect ? TRI_NO : cparams->promptPassword;
 
 	/* Never prompt for a password during a reconnection */
 	prompt_password = isReconnect ? TRI_NO : cparams->promptPassword;
@@ -133,10 +128,14 @@ ConnectDatabase(Archive *AHX,
 	password = AH->savedPassword;
 
 	if (prompt_password == TRI_YES && password == NULL)
+<<<<<<< HEAD
 	{
 		simple_prompt("Password: ", passbuf, sizeof(passbuf), false);
 		password = passbuf;
 	}
+=======
+		password = simple_prompt("Password: ", false);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/*
 	 * Start the connection.  Loop until we have a password if requested by
@@ -178,7 +177,7 @@ ConnectDatabase(Archive *AHX,
 		AH->connection = PQconnectdbParams(keywords, values, true);
 
 		if (!AH->connection)
-			exit_horribly(modulename, "failed to connect to database\n");
+			pg_fatal("could not connect to database");
 
 		if (PQstatus(AH->connection) == CONNECTION_BAD &&
 			PQconnectionNeedsPassword(AH->connection) &&
@@ -186,8 +185,7 @@ ConnectDatabase(Archive *AHX,
 			prompt_password != TRI_NO)
 		{
 			PQfinish(AH->connection);
-			simple_prompt("Password: ", passbuf, sizeof(passbuf), false);
-			password = passbuf;
+			password = simple_prompt("Password: ", false);
 			new_pass = true;
 		}
 	} while (new_pass);
@@ -196,6 +194,7 @@ ConnectDatabase(Archive *AHX,
 	if (PQstatus(AH->connection) == CONNECTION_BAD)
 	{
 		if (isReconnect)
+<<<<<<< HEAD
 			exit_horribly(modulename, "reconnection to database \"%s\" failed: %s",
 						  PQdb(AH->connection) ? PQdb(AH->connection) : "",
 						  PQerrorMessage(AH->connection));
@@ -203,11 +202,21 @@ ConnectDatabase(Archive *AHX,
 			exit_horribly(modulename, "connection to database \"%s\" failed: %s",
 						  PQdb(AH->connection) ? PQdb(AH->connection) : "",
 						  PQerrorMessage(AH->connection));
+=======
+			pg_fatal("reconnection failed: %s",
+					 PQerrorMessage(AH->connection));
+		else
+			pg_fatal("%s",
+					 PQerrorMessage(AH->connection));
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
 	/* Start strict; later phases may override this. */
 	PQclear(ExecuteSqlQueryForSingleRow((Archive *) AH,
 										ALWAYS_SECURE_SEARCH_PATH_SQL));
+
+	if (password && password != AH->savedPassword)
+		free(password);
 
 	/*
 	 * We want to remember connection's actual password, whether or not we got
@@ -215,8 +224,7 @@ ConnectDatabase(Archive *AHX,
 	 */
 	if (PQconnectionUsedPassword(AH->connection))
 	{
-		if (AH->savedPassword)
-			free(AH->savedPassword);
+		free(AH->savedPassword);
 		AH->savedPassword = pg_strdup(PQpass(AH->connection));
 	}
 
@@ -247,7 +255,7 @@ DisconnectDatabase(Archive *AHX)
 		/*
 		 * If we have an active query, send a cancel before closing, ignoring
 		 * any errors.  This is of no use for a normal exit, but might be
-		 * helpful during exit_horribly().
+		 * helpful during pg_fatal().
 		 */
 		if (PQtransactionStatus(AH->connection) == PQTRANS_ACTIVE)
 			(void) PQcancel(AH->connCancel, errbuf, sizeof(errbuf));
@@ -273,16 +281,17 @@ GetConnection(Archive *AHX)
 static void
 notice_processor(void *arg, const char *message)
 {
-	write_msg(NULL, "%s", message);
+	pg_log_info("%s", message);
 }
 
-/* Like exit_horribly(), but with a complaint about a particular query. */
+/* Like pg_fatal(), but with a complaint about a particular query. */
 static void
-die_on_query_failure(ArchiveHandle *AH, const char *modulename, const char *query)
+die_on_query_failure(ArchiveHandle *AH, const char *query)
 {
-	write_msg(modulename, "query failed: %s",
-			  PQerrorMessage(AH->connection));
-	exit_horribly(modulename, "query was: %s\n", query);
+	pg_log_error("query failed: %s",
+				 PQerrorMessage(AH->connection));
+	pg_log_error_detail("Query was: %s", query);
+	exit(1);
 }
 
 void
@@ -293,7 +302,7 @@ ExecuteSqlStatement(Archive *AHX, const char *query)
 
 	res = PQexec(AH->connection, query);
 	if (PQresultStatus(res) != PGRES_COMMAND_OK)
-		die_on_query_failure(AH, modulename, query);
+		die_on_query_failure(AH, query);
 	PQclear(res);
 }
 
@@ -305,7 +314,7 @@ ExecuteSqlQuery(Archive *AHX, const char *query, ExecStatusType status)
 
 	res = PQexec(AH->connection, query);
 	if (PQresultStatus(res) != status)
-		die_on_query_failure(AH, modulename, query);
+		die_on_query_failure(AH, query);
 	return res;
 }
 
@@ -323,11 +332,10 @@ ExecuteSqlQueryForSingleRow(Archive *fout, const char *query)
 	/* Expecting a single result only */
 	ntups = PQntuples(res);
 	if (ntups != 1)
-		exit_horribly(NULL,
-					  ngettext("query returned %d row instead of one: %s\n",
-							   "query returned %d rows instead of one: %s\n",
-							   ntups),
-					  ntups, query);
+		pg_fatal(ngettext("query returned %d row instead of one: %s",
+						  "query returned %d rows instead of one: %s",
+						  ntups),
+				 ntups, query);
 
 	return res;
 }
@@ -360,7 +368,7 @@ ExecuteSqlCommand(ArchiveHandle *AH, const char *qry, const char *desc)
 			break;
 		default:
 			/* trouble */
-			warn_or_exit_horribly(AH, modulename, "%s: %s    Command was: %s\n",
+			warn_or_exit_horribly(AH, "%s: %sCommand was: %s",
 								  desc, PQerrorMessage(conn), qry);
 			break;
 	}
@@ -469,8 +477,8 @@ ExecuteSqlCommandBuf(Archive *AHX, const char *buf, size_t bufLen)
 		 */
 		if (AH->pgCopyIn &&
 			PQputCopyData(AH->connection, buf, bufLen) <= 0)
-			exit_horribly(modulename, "error returned by PQputCopyData: %s",
-						  PQerrorMessage(AH->connection));
+			pg_fatal("error returned by PQputCopyData: %s",
+					 PQerrorMessage(AH->connection));
 	}
 	else if (AH->outputKind == OUTPUT_OTHERDATA)
 	{
@@ -518,20 +526,20 @@ EndDBCopyMode(Archive *AHX, const char *tocEntryTag)
 		PGresult   *res;
 
 		if (PQputCopyEnd(AH->connection, NULL) <= 0)
-			exit_horribly(modulename, "error returned by PQputCopyEnd: %s",
-						  PQerrorMessage(AH->connection));
+			pg_fatal("error returned by PQputCopyEnd: %s",
+					 PQerrorMessage(AH->connection));
 
 		/* Check command status and return to normal libpq state */
 		res = PQgetResult(AH->connection);
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
-			warn_or_exit_horribly(AH, modulename, "COPY failed for table \"%s\": %s",
+			warn_or_exit_horribly(AH, "COPY failed for table \"%s\": %s",
 								  tocEntryTag, PQerrorMessage(AH->connection));
 		PQclear(res);
 
 		/* Do this to ensure we've pumped libpq back to idle state */
 		if (PQgetResult(AH->connection) != NULL)
-			write_msg(NULL, "WARNING: unexpected extra results during COPY of table \"%s\"\n",
-					  tocEntryTag);
+			pg_log_warning("unexpected extra results during COPY of table \"%s\"",
+						   tocEntryTag);
 
 		AH->pgCopyIn = false;
 	}
@@ -553,29 +561,140 @@ CommitTransaction(Archive *AHX)
 	ExecuteSqlCommand(AH, "COMMIT", "could not commit database transaction");
 }
 
+/*
+ * Issue per-blob commands for the large object(s) listed in the TocEntry
+ *
+ * The TocEntry's defn string is assumed to consist of large object OIDs,
+ * one per line.  Wrap these in the given SQL command fragments and issue
+ * the commands.  (cmdEnd need not include a semicolon.)
+ */
 void
-DropBlobIfExists(ArchiveHandle *AH, Oid oid)
+IssueCommandPerBlob(ArchiveHandle *AH, TocEntry *te,
+					const char *cmdBegin, const char *cmdEnd)
 {
+	/* Make a writable copy of the command string */
+	char	   *buf = pg_strdup(te->defn);
+	RestoreOptions *ropt = AH->public.ropt;
+	char	   *st;
+	char	   *en;
+
+	st = buf;
+	while ((en = strchr(st, '\n')) != NULL)
+	{
+		*en++ = '\0';
+		ahprintf(AH, "%s%s%s;\n", cmdBegin, st, cmdEnd);
+
+		/* In --transaction-size mode, count each command as an action */
+		if (ropt && ropt->txn_size > 0)
+		{
+			if (++AH->txnCount >= ropt->txn_size)
+			{
+				if (AH->connection)
+				{
+					CommitTransaction(&AH->public);
+					StartTransaction(&AH->public);
+				}
+				else
+					ahprintf(AH, "COMMIT;\nBEGIN;\n\n");
+				AH->txnCount = 0;
+			}
+		}
+
+		st = en;
+	}
+	ahprintf(AH, "\n");
+	pg_free(buf);
+}
+
+/*
+ * Process a "LARGE OBJECTS" ACL TocEntry.
+ *
+ * To save space in the dump file, the TocEntry contains only one copy
+ * of the required GRANT/REVOKE commands, written to apply to the first
+ * blob in the group (although we do not depend on that detail here).
+ * We must expand the text to generate commands for all the blobs listed
+ * in the associated BLOB METADATA entry.
+ */
+void
+IssueACLPerBlob(ArchiveHandle *AH, TocEntry *te)
+{
+	TocEntry   *blobte = getTocEntryByDumpId(AH, te->dependencies[0]);
+	char	   *buf;
+	char	   *st;
+	char	   *st2;
+	char	   *en;
+	bool		inquotes;
+
+	if (!blobte)
+		pg_fatal("could not find entry for ID %d", te->dependencies[0]);
+	Assert(strcmp(blobte->desc, "BLOB METADATA") == 0);
+
+	/* Make a writable copy of the ACL commands string */
+	buf = pg_strdup(te->defn);
+
 	/*
-	 * If we are not restoring to a direct database connection, we have to
-	 * guess about how to detect whether the blob exists.  Assume new-style.
+	 * We have to parse out the commands sufficiently to locate the blob OIDs
+	 * and find the command-ending semicolons.  The commands should not
+	 * contain anything hard to parse except for double-quoted role names,
+	 * which are easy to ignore.  Once we've split apart the first and second
+	 * halves of a command, apply IssueCommandPerBlob.  (This means the
+	 * updates on the blobs are interleaved if there's multiple commands, but
+	 * that should cause no trouble.)
 	 */
-	if (AH->connection == NULL ||
-		PQserverVersion(AH->connection) >= 90000)
+	inquotes = false;
+	st = en = buf;
+	st2 = NULL;
+	while (*en)
 	{
-		ahprintf(AH,
-				 "SELECT pg_catalog.lo_unlink(oid) "
-				 "FROM pg_catalog.pg_largeobject_metadata "
-				 "WHERE oid = '%u';\n",
-				 oid);
+		/* Ignore double-quoted material */
+		if (*en == '"')
+			inquotes = !inquotes;
+		if (inquotes)
+		{
+			en++;
+			continue;
+		}
+		/* If we found "LARGE OBJECT", that's the end of the first half */
+		if (strncmp(en, "LARGE OBJECT ", 13) == 0)
+		{
+			/* Terminate the first-half string */
+			en += 13;
+			Assert(isdigit((unsigned char) *en));
+			*en++ = '\0';
+			/* Skip the rest of the blob OID */
+			while (isdigit((unsigned char) *en))
+				en++;
+			/* Second half starts here */
+			Assert(st2 == NULL);
+			st2 = en;
+		}
+		/* If we found semicolon, that's the end of the second half */
+		else if (*en == ';')
+		{
+			/* Terminate the second-half string */
+			*en++ = '\0';
+			Assert(st2 != NULL);
+			/* Issue this command for each blob */
+			IssueCommandPerBlob(AH, blobte, st, st2);
+			/* For neatness, skip whitespace before the next command */
+			while (isspace((unsigned char) *en))
+				en++;
+			/* Reset for new command */
+			st = en;
+			st2 = NULL;
+		}
+		else
+			en++;
 	}
-	else
-	{
-		/* Restoring to pre-9.0 server, so do it the old way */
-		ahprintf(AH,
-				 "SELECT CASE WHEN EXISTS("
-				 "SELECT 1 FROM pg_catalog.pg_largeobject WHERE loid = '%u'"
-				 ") THEN pg_catalog.lo_unlink('%u') END;\n",
-				 oid, oid);
-	}
+	pg_free(buf);
+}
+
+void
+DropLOIfExists(ArchiveHandle *AH, Oid oid)
+{
+	ahprintf(AH,
+			 "SELECT pg_catalog.lo_unlink(oid) "
+			 "FROM pg_catalog.pg_largeobject_metadata "
+			 "WHERE oid = '%u';\n",
+			 oid);
 }

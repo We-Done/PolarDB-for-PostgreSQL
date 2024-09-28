@@ -17,9 +17,15 @@ all: pg_config.h pg_config_ext.h pg_config_os.h
 
 
 # Subdirectories containing installable headers
+<<<<<<< HEAD
 SUBDIRS = access bootstrap catalog commands common datatype \
 	executor fe_utils foreign jit \
 	lib libpq mb nodes optimizer parser partitioning polar_dma postmaster \
+=======
+SUBDIRS = access archive bootstrap catalog commands common datatype \
+	executor fe_utils foreign jit \
+	lib libpq mb nodes optimizer parser partitioning postmaster \
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	regex replication rewrite \
 	statistics storage tcop snowball snowball/libstemmer tsearch \
 	tsearch/dicts utils port port/atomics port/win32 port/win32_msvc \
@@ -41,30 +47,32 @@ install: all installdirs
 	$(INSTALL_DATA) $(srcdir)/port.h         '$(DESTDIR)$(includedir_internal)'
 	$(INSTALL_DATA) $(srcdir)/postgres_fe.h  '$(DESTDIR)$(includedir_internal)'
 	$(INSTALL_DATA) $(srcdir)/libpq/pqcomm.h '$(DESTDIR)$(includedir_internal)/libpq'
+	$(INSTALL_DATA) $(srcdir)/libpq/protocol.h '$(DESTDIR)$(includedir_internal)/libpq'
 # These headers are needed for server-side development
 	$(INSTALL_DATA) pg_config.h     '$(DESTDIR)$(includedir_server)'
 	$(INSTALL_DATA) pg_config_ext.h '$(DESTDIR)$(includedir_server)'
 	$(INSTALL_DATA) pg_config_os.h  '$(DESTDIR)$(includedir_server)'
+	$(INSTALL_DATA) nodes/nodetags.h '$(DESTDIR)$(includedir_server)/nodes'
 	$(INSTALL_DATA) utils/errcodes.h '$(DESTDIR)$(includedir_server)/utils'
 	$(INSTALL_DATA) utils/fmgroids.h '$(DESTDIR)$(includedir_server)/utils'
 	$(INSTALL_DATA) utils/fmgrprotos.h '$(DESTDIR)$(includedir_server)/utils'
+<<<<<<< HEAD
 # We don't use INSTALL_DATA for performance reasons --- there are a lot of files
 # (in fact, we have to take some pains to avoid overlength shell commands here)
 	cp $(srcdir)/*.h '$(DESTDIR)$(includedir_server)'/
 	cp -fr $(srcdir)/px_optimizer_util '$(DESTDIR)$(includedir_server)'/
+=======
+	$(INSTALL_DATA) $(srcdir)/*.h '$(DESTDIR)$(includedir_server)'
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	for dir in $(SUBDIRS); do \
-	  cp $(srcdir)/$$dir/*.h '$(DESTDIR)$(includedir_server)'/$$dir/ || exit; \
+	  $(INSTALL_DATA) $(srcdir)/$$dir/*.h '$(DESTDIR)$(includedir_server)'/$$dir || exit; \
 	done
 ifeq ($(vpath_build),yes)
-	for file in dynloader.h catalog/schemapg.h catalog/pg_*_d.h parser/gram.h storage/lwlocknames.h utils/probes.h; do \
-	  cp $$file '$(DESTDIR)$(includedir_server)'/$$file || exit; \
+	for file in storage/lwlocknames.h utils/probes.h utils/wait_event_types.h; do \
+	  $(INSTALL_DATA) $$file '$(DESTDIR)$(includedir_server)'/$$file || exit; \
 	done
 endif
-	cd '$(DESTDIR)$(includedir_server)' && chmod $(INSTALL_DATA_MODE) *.h
-	for dir in $(SUBDIRS); do \
-	  cd '$(DESTDIR)$(includedir_server)'/$$dir || exit; \
-	  chmod $(INSTALL_DATA_MODE) *.h || exit; \
-	done
+	$(MAKE) -C catalog install
 
 installdirs:
 	$(MKDIR_P) '$(DESTDIR)$(includedir)/libpq' '$(DESTDIR)$(includedir_internal)/libpq'
@@ -73,15 +81,17 @@ installdirs:
 
 uninstall:
 	rm -f $(addprefix '$(DESTDIR)$(includedir)'/, pg_config.h pg_config_ext.h pg_config_os.h pg_config_manual.h postgres_ext.h libpq/libpq-fs.h)
-	rm -f $(addprefix '$(DESTDIR)$(includedir_internal)'/, c.h port.h postgres_fe.h libpq/pqcomm.h)
+	rm -f $(addprefix '$(DESTDIR)$(includedir_internal)'/, c.h port.h postgres_fe.h libpq/pqcomm.h libpq/protocol.h)
 # heuristic...
 	rm -rf $(addprefix '$(DESTDIR)$(includedir_server)'/, $(SUBDIRS) *.h)
+	$(MAKE) -C catalog uninstall
 
 
 clean:
 	rm -f utils/fmgroids.h utils/fmgrprotos.h utils/errcodes.h utils/header-stamp
-	rm -f parser/gram.h storage/lwlocknames.h utils/probes.h
-	rm -f catalog/schemapg.h catalog/pg_*_d.h catalog/header-stamp
+	rm -f storage/lwlocknames.h utils/probes.h utils/wait_event_types.h
+	rm -f nodes/nodetags.h nodes/header-stamp
+	$(MAKE) -C catalog clean
 
-distclean maintainer-clean: clean
-	rm -f pg_config.h pg_config_ext.h pg_config_os.h dynloader.h stamp-h stamp-ext-h
+distclean: clean
+	rm -f pg_config.h pg_config_ext.h pg_config_os.h stamp-h stamp-ext-h

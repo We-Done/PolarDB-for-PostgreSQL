@@ -13,7 +13,7 @@
  *
  * Author: Andreas Pflug <pgadmin@pse-consulting.de>
  *
- * Copyright (c) 2004-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2004-2024, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -38,7 +38,8 @@
 #include "nodes/pg_list.h"
 #include "pgstat.h"
 #include "pgtime.h"
-#include "postmaster/fork_process.h"
+#include "port/pg_bitutils.h"
+#include "postmaster/interrupt.h"
 #include "postmaster/postmaster.h"
 #include "postmaster/syslogger.h"
 #include "storage/dsm.h"
@@ -48,8 +49,8 @@
 #include "storage/pg_shmem.h"
 #include "tcop/tcopprot.h"
 #include "utils/guc.h"
+#include "utils/memutils.h"
 #include "utils/ps_status.h"
-#include "utils/timestamp.h"
 
 /* POLAR */
 #include <sys/socket.h>
@@ -63,6 +64,9 @@
  */
 /* POLAR: enlarge this */
 #define READ_BUF_SIZE (200 * PIPE_CHUNK_SIZE)
+
+/* Log rotation signal file path, relative to $PGDATA */
+#define LOGROTATE_SIGNAL_FILE	"logrotate"
 
 
 /*
@@ -78,6 +82,7 @@ bool		Log_truncate_on_rotation = false;
 int			Log_file_mode = S_IRUSR | S_IWUSR;
 
 /*
+<<<<<<< HEAD
  * Globally visible state (used by elog.c)
  */
 bool		am_syslogger = false;
@@ -113,6 +118,8 @@ int 		polar_num_of_sysloggers = DEFAULT_SYSLOGGER_NUM;
 extern bool redirection_done;
 
 /*
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  * Private state
  */
 static pg_time_t next_rotation_time;
@@ -120,9 +127,11 @@ static bool pipe_eof_seen = false;
 static bool rotation_disabled = false;
 static FILE *syslogFile = NULL;
 static FILE *csvlogFile = NULL;
+static FILE *jsonlogFile = NULL;
 NON_EXEC_STATIC pg_time_t first_syslogger_file_time = 0;
-static char *last_file_name = NULL;
+static char *last_sys_file_name = NULL;
 static char *last_csv_file_name = NULL;
+static char *last_json_file_name = NULL;
 
 /* POLAR: private */
 static FILE *auditlogFile = NULL;
@@ -175,27 +184,35 @@ static CRITICAL_SECTION sysloggerSection;
 /*
  * Flags set by interrupt handlers for later service in the main loop.
  */
-static volatile sig_atomic_t got_SIGHUP = false;
 static volatile sig_atomic_t rotation_requested = false;
 
 
 /* Local subroutines */
 #ifdef EXEC_BACKEND
-static pid_t syslogger_forkexec(void);
-static void syslogger_parseArgs(int argc, char *argv[]);
+static int	syslogger_fdget(FILE *file);
+static FILE *syslogger_fdopen(int fd);
 #endif
-NON_EXEC_STATIC void SysLoggerMain(int argc, char *argv[]) pg_attribute_noreturn();
 static void process_pipe_input(char *logbuffer, int *bytes_in_logbuffer);
 static void flush_pipe_input(char *logbuffer, int *bytes_in_logbuffer);
+<<<<<<< HEAD
 static FILE *logfile_open(const char *filename, const char *mode, 
 						bool allow_errors);
+=======
+static FILE *logfile_open(const char *filename, const char *mode,
+						  bool allow_errors);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #ifdef WIN32
 static unsigned int __stdcall pipeThread(void *arg);
 #endif
 static void logfile_rotate(bool time_based_rotation, int size_rotation_for);
+static bool logfile_rotate_dest(bool time_based_rotation,
+								int size_rotation_for, pg_time_t fntime,
+								int target_dest, char **last_file_name,
+								FILE **logFile);
 static char *logfile_getname(pg_time_t timestamp, const char *suffix);
 static void set_next_rotation_time(void);
+<<<<<<< HEAD
 static void polar_remove_old_syslog_files(void);
 static void polar_remove_log_file(const char *path);
 static void sigHupHandler(SIGNAL_ARGS);
@@ -208,13 +225,24 @@ static FILE *logfile_open_with_buffer_mode(const char *filename, const char *mod
 static int get_dest_from_flag(char flag);
 static FILE *get_logfile_from_dest(int destination);
 /* POLAR end */
+=======
+static void sigUsr1Handler(SIGNAL_ARGS);
+static void update_metainfo_datafile(void);
+
+typedef struct
+{
+	int			syslogFile;
+	int			csvlogFile;
+	int			jsonlogFile;
+} SysloggerStartupData;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /*
  * Main entry point for syslogger process
  * argc/argv parameters are valid only in EXEC_BACKEND case.
  */
-NON_EXEC_STATIC void
-SysLoggerMain(int argc, char *argv[])
+void
+SysLoggerMain(char *startup_data, size_t startup_data_len)
 {
 #ifndef WIN32
 	/* POLAR: allocate it on heap because we enlarge the READ_BUF_SIZE */
@@ -225,6 +253,37 @@ SysLoggerMain(int argc, char *argv[])
 	char	   *currentLogFilename;
 	int			currentLogRotationAge;
 	pg_time_t	now;
+	WaitEventSet *wes;
+
+	/*
+	 * Re-open the error output files that were opened by SysLogger_Start().
+	 *
+	 * We expect this will always succeed, which is too optimistic, but if it
+	 * fails there's not a lot we can do to report the problem anyway.  As
+	 * coded, we'll just crash on a null pointer dereference after failure...
+	 */
+#ifdef EXEC_BACKEND
+	{
+		SysloggerStartupData *slsdata = (SysloggerStartupData *) startup_data;
+
+		Assert(startup_data_len == sizeof(*slsdata));
+		syslogFile = syslogger_fdopen(slsdata->syslogFile);
+		csvlogFile = syslogger_fdopen(slsdata->csvlogFile);
+		jsonlogFile = syslogger_fdopen(slsdata->jsonlogFile);
+	}
+#else
+	Assert(startup_data_len == 0);
+#endif
+
+	/*
+	 * Now that we're done reading the startup data, release postmaster's
+	 * working memory context.
+	 */
+	if (PostmasterContext)
+	{
+		MemoryContextDelete(PostmasterContext);
+		PostmasterContext = NULL;
+	}
 
 	/* POLAR */
 	int 		i = 0;
@@ -244,6 +303,7 @@ SysLoggerMain(int argc, char *argv[])
 
 	now = MyStartTime;
 
+<<<<<<< HEAD
 #ifdef EXEC_BACKEND
 	// TODO(wormhole.gl): argv
 	syslogger_parseArgs(argc, argv);
@@ -252,6 +312,10 @@ SysLoggerMain(int argc, char *argv[])
 	am_syslogger = true;
 
 	init_ps_display("logger", "", "", loggerIndexStr);
+=======
+	MyBackendType = B_LOGGER;
+	init_ps_display(NULL);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/*
 	 * If we restarted, our stderr is already redirected into our own input
@@ -275,12 +339,12 @@ SysLoggerMain(int argc, char *argv[])
 		 * if they fail then presumably the file descriptors are closed and
 		 * any writes will go into the bitbucket anyway.
 		 */
-		close(fileno(stdout));
-		close(fileno(stderr));
+		close(STDOUT_FILENO);
+		close(STDERR_FILENO);
 		if (fd != -1)
 		{
-			(void) dup2(fd, fileno(stdout));
-			(void) dup2(fd, fileno(stderr));
+			(void) dup2(fd, STDOUT_FILENO);
+			(void) dup2(fd, STDERR_FILENO);
 			close(fd);
 		}
 	}
@@ -292,7 +356,7 @@ SysLoggerMain(int argc, char *argv[])
 	 */
 #ifdef WIN32
 	else
-		_setmode(_fileno(stderr), _O_TEXT);
+		_setmode(STDERR_FILENO, _O_TEXT);
 #endif
 
 	/*
@@ -347,7 +411,8 @@ SysLoggerMain(int argc, char *argv[])
 	 * broken backends...
 	 */
 
-	pqsignal(SIGHUP, sigHupHandler);	/* set flag to read config file */
+	pqsignal(SIGHUP, SignalHandlerForConfigReload); /* set flag to read config
+													 * file */
 	pqsignal(SIGINT, SIG_IGN);
 	pqsignal(SIGTERM, SIG_IGN);
 	pqsignal(SIGQUIT, SIG_IGN);
@@ -360,12 +425,8 @@ SysLoggerMain(int argc, char *argv[])
 	 * Reset some signals that are accepted by postmaster but not here
 	 */
 	pqsignal(SIGCHLD, SIG_DFL);
-	pqsignal(SIGTTIN, SIG_DFL);
-	pqsignal(SIGTTOU, SIG_DFL);
-	pqsignal(SIGCONT, SIG_DFL);
-	pqsignal(SIGWINCH, SIG_DFL);
 
-	PG_SETMASK(&UnBlockSig);
+	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 #ifdef WIN32
 	/* Fire up separate data transfer thread */
@@ -382,6 +443,7 @@ SysLoggerMain(int argc, char *argv[])
 	 * time because passing down just the pg_time_t is a lot cheaper than
 	 * passing a whole file path in the EXEC_BACKEND case.
 	 */
+<<<<<<< HEAD
 	last_file_name = logfile_getname(first_syslogger_file_time, SYSLOG_SUFFIX);
 	if (csvlogFile != NULL)
 		last_csv_file_name = logfile_getname(first_syslogger_file_time, ".csv");
@@ -391,6 +453,13 @@ SysLoggerMain(int argc, char *argv[])
 	if (slowlogFile != NULL)
 		polar_last_slowlog_file_name = logfile_getname(first_syslogger_file_time, SLOWLOG_SUFFIX);
 	/* POLAR end */
+=======
+	last_sys_file_name = logfile_getname(first_syslogger_file_time, NULL);
+	if (csvlogFile != NULL)
+		last_csv_file_name = logfile_getname(first_syslogger_file_time, ".csv");
+	if (jsonlogFile != NULL)
+		last_json_file_name = logfile_getname(first_syslogger_file_time, ".json");
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/* remember active logfile parameters */
 	currentLogDir = pstrdup(Log_directory);
@@ -407,6 +476,7 @@ SysLoggerMain(int argc, char *argv[])
 	 */
 	whereToSendOutput = DestNone;
 
+<<<<<<< HEAD
 	/* POLAR: move create wait event out of loop begin */
 	set = CreateWaitEventSet(CurrentMemoryContext, 3);
 	AddWaitEventToSet(set, WL_LATCH_SET, PGINVALID_SOCKET,
@@ -414,6 +484,23 @@ SysLoggerMain(int argc, char *argv[])
 	wait_event_id = AddWaitEventToSet(set, WL_SOCKET_READABLE, 
 								GET_LOG_CHANNEL_FD(0), NULL, NULL);
 	/* POLAR end */
+=======
+	/*
+	 * Set up a reusable WaitEventSet object we'll use to wait for our latch,
+	 * and (except on Windows) our socket.
+	 *
+	 * Unlike all other postmaster child processes, we'll ignore postmaster
+	 * death because we want to collect final log output from all backends and
+	 * then exit last.  We'll do that by running until we see EOF on the
+	 * syslog pipe, which implies that all other backends have exited
+	 * (including the postmaster).
+	 */
+	wes = CreateWaitEventSet(NULL, 2);
+	AddWaitEventToSet(wes, WL_LATCH_SET, PGINVALID_SOCKET, MyLatch, NULL);
+#ifndef WIN32
+	AddWaitEventToSet(wes, WL_SOCKET_READABLE, syslogPipe[0], NULL, NULL);
+#endif
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/* main worker loop */
 	for (;;)
@@ -421,7 +508,7 @@ SysLoggerMain(int argc, char *argv[])
 		bool		time_based_rotation = false;
 		int			size_rotation_for = 0;
 		long		cur_timeout;
-		int			cur_flags;
+		WaitEvent	event;
 
 #ifndef WIN32
 		int			rc;
@@ -434,9 +521,9 @@ SysLoggerMain(int argc, char *argv[])
 		/*
 		 * Process any requests or signals received recently.
 		 */
-		if (got_SIGHUP)
+		if (ConfigReloadPending)
 		{
-			got_SIGHUP = false;
+			ConfigReloadPending = false;
 			ProcessConfigFile(PGC_SIGHUP);
 
 			/*
@@ -469,6 +556,7 @@ SysLoggerMain(int argc, char *argv[])
 			if (((Log_destination & LOG_DESTINATION_CSVLOG) != 0) !=
 				(csvlogFile != NULL))
 				rotation_requested = true;
+<<<<<<< HEAD
 			
 			/* POLAR */
 			if (((Log_destination & LOG_DESTINATION_POLAR_AUDITLOG) != 0) !=
@@ -479,6 +567,16 @@ SysLoggerMain(int argc, char *argv[])
 				(slowlogFile != NULL))
 				rotation_requested = true;
 			/* POLAR end */
+=======
+
+			/*
+			 * Force a rotation if JSONLOG output was just turned on or off
+			 * and we need to open or close jsonlogFile accordingly.
+			 */
+			if (((Log_destination & LOG_DESTINATION_JSONLOG) != 0) !=
+				(jsonlogFile != NULL))
+				rotation_requested = true;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 			/*
 			 * If rotation time parameter changed, reset next rotation time,
@@ -530,6 +628,7 @@ SysLoggerMain(int argc, char *argv[])
 				rotation_requested = true;
 				size_rotation_for |= LOG_DESTINATION_CSVLOG;
 			}
+<<<<<<< HEAD
 			/* POLAR */
 			if (auditlogFile != NULL &&
 				ftell(auditlogFile) >= Log_RotationSize * 1024L)
@@ -544,6 +643,14 @@ SysLoggerMain(int argc, char *argv[])
 				size_rotation_for |= LOG_DESTINATION_POLAR_SLOWLOG;
 			}
 			/* POLAR end */
+=======
+			if (jsonlogFile != NULL &&
+				ftell(jsonlogFile) >= Log_RotationSize * 1024L)
+			{
+				rotation_requested = true;
+				size_rotation_for |= LOG_DESTINATION_JSONLOG;
+			}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		}
 
 		if (rotation_requested)
@@ -555,11 +662,17 @@ SysLoggerMain(int argc, char *argv[])
 
 			/*
 			 * Force rotation when both values are zero. It means the request
-			 * was sent by pg_rotate_logfile.
+			 * was sent by pg_rotate_logfile() or "pg_ctl logrotate".
 			 */
 			if (!time_based_rotation && size_rotation_for == 0)
+<<<<<<< HEAD
 				size_rotation_for = LOG_DESTINATION_STDERR | LOG_DESTINATION_CSVLOG |
 									LOG_DESTINATION_POLAR_AUDITLOG | LOG_DESTINATION_POLAR_SLOWLOG;
+=======
+				size_rotation_for = LOG_DESTINATION_STDERR |
+					LOG_DESTINATION_CSVLOG |
+					LOG_DESTINATION_JSONLOG;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 			logfile_rotate(time_based_rotation, size_rotation_for);
 		}
 
@@ -588,13 +701,9 @@ SysLoggerMain(int argc, char *argv[])
 			}
 			else
 				cur_timeout = 0;
-			cur_flags = WL_TIMEOUT;
 		}
 		else
-		{
 			cur_timeout = -1L;
-			cur_flags = 0;
-		}
 
 		/* POLAR optimized */
 		ModifyWaitEvent(set, wait_event_id, WL_SOCKET_READABLE | cur_flags, NULL);
@@ -603,14 +712,19 @@ SysLoggerMain(int argc, char *argv[])
 		 * Sleep until there's something to do
 		 */
 #ifndef WIN32
+<<<<<<< HEAD
 		ret = WaitEventSetWait(set, cur_timeout, &event, 1, WAIT_EVENT_SYSLOGGER_MAIN);
 
 		if (ret == 0)
 			rc = WL_TIMEOUT;
 		else
 			rc = event.events & (WL_LATCH_SET | WL_POSTMASTER_DEATH | WL_SOCKET_MASK);
+=======
+		rc = WaitEventSetWait(wes, cur_timeout, &event, 1,
+							  WAIT_EVENT_SYSLOGGER_MAIN);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-		if (rc & WL_SOCKET_READABLE)
+		if (rc == 1 && event.events == WL_SOCKET_READABLE)
 		{
 			int			bytesRead;
 
@@ -663,10 +777,8 @@ SysLoggerMain(int argc, char *argv[])
 		 */
 		LeaveCriticalSection(&sysloggerSection);
 
-		(void) WaitLatch(MyLatch,
-						 WL_LATCH_SET | cur_flags,
-						 cur_timeout,
-						 WAIT_EVENT_SYSLOGGER_MAIN);
+		(void) WaitEventSetWait(wes, cur_timeout, &event, 1,
+								WAIT_EVENT_SYSLOGGER_MAIN);
 
 		EnterCriticalSection(&sysloggerSection);
 #endif							/* WIN32 */
@@ -678,7 +790,7 @@ SysLoggerMain(int argc, char *argv[])
 			 * it DEBUG1 to suppress in normal use.
 			 */
 			ereport(DEBUG1,
-					(errmsg("logger shutting down")));
+					(errmsg_internal("logger shutting down")));
 
 			/*
 			 * Normal exit from the syslogger is here.  Note that we
@@ -702,6 +814,9 @@ SysLogger_Start(int loggerIndex)
 {
 	pid_t		sysloggerPid;
 	char	   *filename;
+#ifdef EXEC_BACKEND
+	SysloggerStartupData startup_data;
+#endif							/* EXEC_BACKEND */
 
 	if (!Logging_collector)
 		return 0;
@@ -717,10 +832,16 @@ SysLogger_Start(int loggerIndex)
 	 * This means the postmaster must continue to hold the read end of the
 	 * pipe open, so we can pass it down to the reincarnated syslogger. This
 	 * is a bit klugy but we have little choice.
+	 *
+	 * Also note that we don't bother counting the pipe FDs by calling
+	 * Reserve/ReleaseExternalFD.  There's no real need to account for them
+	 * accurately in the postmaster or syslogger process, and both ends of the
+	 * pipe will wind up closed in all other postmaster children.
 	 */
 #ifndef WIN32
 	if (!polar_syslog_channel_is_inited)
 	{
+<<<<<<< HEAD
 		memset(syslogChannels, -1, MAX_SYSLOGGER_NUM * 2);
 		polar_syslog_channel_is_inited = true;
 	}
@@ -745,6 +866,12 @@ SysLogger_Start(int loggerIndex)
 						(errcode_for_socket_access(),
 						(errmsg("could not create channels for syslog: %m"))));
 		}
+=======
+		if (pipe(syslogPipe) < 0)
+			ereport(FATAL,
+					(errcode_for_socket_access(),
+					 errmsg("could not create pipe for syslog: %m")));
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 #else
 	// TODO(wormhole.gl): for WIN32
@@ -759,7 +886,7 @@ SysLogger_Start(int loggerIndex)
 		if (!CreatePipe(&syslogPipe[0], &syslogPipe[1], &sa, 32768))
 			ereport(FATAL,
 					(errcode_for_file_access(),
-					 (errmsg("could not create pipe for syslog: %m"))));
+					 errmsg("could not create pipe for syslog: %m")));
 	}
 #endif
 
@@ -782,7 +909,11 @@ SysLogger_Start(int loggerIndex)
 	 */
 	first_syslogger_file_time = time(NULL);
 
+<<<<<<< HEAD
 	filename = logfile_getname(first_syslogger_file_time, SYSLOG_SUFFIX);
+=======
+	filename = logfile_getname(first_syslogger_file_time, NULL);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	syslogFile = logfile_open(filename, "a", false);
 
@@ -794,6 +925,7 @@ SysLogger_Start(int loggerIndex)
 	 * since some code paths will write to syslogFile anyway.)
 	 */
 	if (Log_destination & LOG_DESTINATION_CSVLOG)
+<<<<<<< HEAD
 	{
 		filename = logfile_getname(first_syslogger_file_time, ".csv");
 
@@ -826,17 +958,14 @@ SysLogger_Start(int loggerIndex)
 #else
 	switch ((sysloggerPid = fork_process()))
 #endif
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	{
-		case -1:
-			ereport(LOG,
-					(errmsg("could not fork system logger: %m")));
-			return 0;
+		filename = logfile_getname(first_syslogger_file_time, ".csv");
 
-#ifndef EXEC_BACKEND
-		case 0:
-			/* in postmaster child ... */
-			InitPostmasterChild();
+		csvlogFile = logfile_open(filename, "a", false);
 
+<<<<<<< HEAD
 			/* Close the postmaster's sockets */
 			ClosePostmasterPorts(true);
 
@@ -943,22 +1072,129 @@ SysLogger_Start(int loggerIndex)
 			}
 			/* POLAR end */
 			return (int) sysloggerPid;
+=======
+		pfree(filename);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
-	/* we should never reach here */
-	return 0;
+	/*
+	 * Likewise for the initial JSON log file, if that's enabled.  (Note that
+	 * we open syslogFile even when only JSON output is nominally enabled,
+	 * since some code paths will write to syslogFile anyway.)
+	 */
+	if (Log_destination & LOG_DESTINATION_JSONLOG)
+	{
+		filename = logfile_getname(first_syslogger_file_time, ".json");
+
+		jsonlogFile = logfile_open(filename, "a", false);
+
+		pfree(filename);
+	}
+
+#ifdef EXEC_BACKEND
+	startup_data.syslogFile = syslogger_fdget(syslogFile);
+	startup_data.csvlogFile = syslogger_fdget(csvlogFile);
+	startup_data.jsonlogFile = syslogger_fdget(jsonlogFile);
+	sysloggerPid = postmaster_child_launch(B_LOGGER, (char *) &startup_data, sizeof(startup_data), NULL);
+#else
+	sysloggerPid = postmaster_child_launch(B_LOGGER, NULL, 0, NULL);
+#endif							/* EXEC_BACKEND */
+
+	if (sysloggerPid == -1)
+	{
+		ereport(LOG,
+				(errmsg("could not fork system logger: %m")));
+		return 0;
+	}
+
+	/* success, in postmaster */
+
+	/* now we redirect stderr, if not done already */
+	if (!redirection_done)
+	{
+#ifdef WIN32
+		int			fd;
+#endif
+
+		/*
+		 * Leave a breadcrumb trail when redirecting, in case the user forgets
+		 * that redirection is active and looks only at the original stderr
+		 * target file.
+		 */
+		ereport(LOG,
+				(errmsg("redirecting log output to logging collector process"),
+				 errhint("Future log output will appear in directory \"%s\".",
+						 Log_directory)));
+
+#ifndef WIN32
+		fflush(stdout);
+		if (dup2(syslogPipe[1], STDOUT_FILENO) < 0)
+			ereport(FATAL,
+					(errcode_for_file_access(),
+					 errmsg("could not redirect stdout: %m")));
+		fflush(stderr);
+		if (dup2(syslogPipe[1], STDERR_FILENO) < 0)
+			ereport(FATAL,
+					(errcode_for_file_access(),
+					 errmsg("could not redirect stderr: %m")));
+		/* Now we are done with the write end of the pipe. */
+		close(syslogPipe[1]);
+		syslogPipe[1] = -1;
+#else
+
+		/*
+		 * open the pipe in binary mode and make sure stderr is binary after
+		 * it's been dup'ed into, to avoid disturbing the pipe chunking
+		 * protocol.
+		 */
+		fflush(stderr);
+		fd = _open_osfhandle((intptr_t) syslogPipe[1],
+							 _O_APPEND | _O_BINARY);
+		if (dup2(fd, STDERR_FILENO) < 0)
+			ereport(FATAL,
+					(errcode_for_file_access(),
+					 errmsg("could not redirect stderr: %m")));
+		close(fd);
+		_setmode(STDERR_FILENO, _O_BINARY);
+
+		/*
+		 * Now we are done with the write end of the pipe.  CloseHandle() must
+		 * not be called because the preceding close() closes the underlying
+		 * handle.
+		 */
+		syslogPipe[1] = 0;
+#endif
+		redirection_done = true;
+	}
+
+	/* postmaster will never write the file(s); close 'em */
+	fclose(syslogFile);
+	syslogFile = NULL;
+	if (csvlogFile != NULL)
+	{
+		fclose(csvlogFile);
+		csvlogFile = NULL;
+	}
+	if (jsonlogFile != NULL)
+	{
+		fclose(jsonlogFile);
+		jsonlogFile = NULL;
+	}
+	return (int) sysloggerPid;
 }
 
 #ifdef EXEC_BACKEND
 
 /*
- * syslogger_forkexec() -
+ * syslogger_fdget() -
  *
- * Format up the arglist for, then fork and exec, a syslogger process
+ * Utility wrapper to grab the file descriptor of an opened error output
+ * file.  Used when building the command to fork the logging collector.
  */
-static pid_t
-syslogger_forkexec(void)
+static int
+syslogger_fdget(FILE *file)
 {
+<<<<<<< HEAD
 	char	   *av[10];
 	int			ac = 0;
 	char		filenobuf[32];
@@ -969,19 +1205,20 @@ syslogger_forkexec(void)
 	av[ac++] = NULL;			/* filled in by postmaster_forkexec */
 
 	/* static variables (those not passed by write_backend_variables) */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #ifndef WIN32
-	if (syslogFile != NULL)
-		snprintf(filenobuf, sizeof(filenobuf), "%d",
-				 fileno(syslogFile));
+	if (file != NULL)
+		return fileno(file);
 	else
-		strcpy(filenobuf, "-1");
-#else							/* WIN32 */
-	if (syslogFile != NULL)
-		snprintf(filenobuf, sizeof(filenobuf), "%ld",
-				 (long) _get_osfhandle(_fileno(syslogFile)));
+		return -1;
+#else
+	if (file != NULL)
+		return (int) _get_osfhandle(_fileno(file));
 	else
-		strcpy(filenobuf, "0");
+		return 0;
 #endif							/* WIN32 */
+<<<<<<< HEAD
 	av[ac++] = filenobuf;
 
 #ifndef WIN32
@@ -1003,20 +1240,27 @@ syslogger_forkexec(void)
 	Assert(ac < lengthof(av));
 
 	return postmaster_forkexec(ac, av);
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
- * syslogger_parseArgs() -
+ * syslogger_fdopen() -
  *
- * Extract data from the arglist for exec'ed syslogger process
+ * Utility wrapper to re-open an error output file, using the given file
+ * descriptor.  Used when parsing arguments in a forked logging collector.
  */
-static void
-syslogger_parseArgs(int argc, char *argv[])
+static FILE *
+syslogger_fdopen(int fd)
 {
+<<<<<<< HEAD
 	int			fd;
 
 	Assert(argc == 5);
 	argv += 3;
+=======
+	FILE	   *file = NULL;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/*
 	 * Re-open the error output files that were opened by SysLogger_Start().
@@ -1026,11 +1270,10 @@ syslogger_parseArgs(int argc, char *argv[])
 	 * coded, we'll just crash on a null pointer dereference after failure...
 	 */
 #ifndef WIN32
-	fd = atoi(*argv++);
 	if (fd != -1)
 	{
-		syslogFile = fdopen(fd, "a");
-		setvbuf(syslogFile, NULL, PG_IOLBF, 0);
+		file = fdopen(fd, "a");
+		setvbuf(file, NULL, PG_IOLBF, 0);
 	}
 	fd = atoi(*argv++);
 	if (fd != -1)
@@ -1039,14 +1282,13 @@ syslogger_parseArgs(int argc, char *argv[])
 		setvbuf(csvlogFile, NULL, PG_IOLBF, 0);
 	}
 #else							/* WIN32 */
-	fd = atoi(*argv++);
 	if (fd != 0)
 	{
 		fd = _open_osfhandle(fd, _O_APPEND | _O_TEXT);
 		if (fd > 0)
 		{
-			syslogFile = fdopen(fd, "a");
-			setvbuf(syslogFile, NULL, PG_IOLBF, 0);
+			file = fdopen(fd, "a");
+			setvbuf(file, NULL, PG_IOLBF, 0);
 		}
 	}
 	fd = atoi(*argv++);
@@ -1060,6 +1302,8 @@ syslogger_parseArgs(int argc, char *argv[])
 		}
 	}
 #endif							/* WIN32 */
+
+	return file;
 }
 #endif							/* EXEC_BACKEND */
 
@@ -1104,17 +1348,25 @@ process_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 	{
 		PipeProtoHeader p;
 		int			chunklen;
+		bits8		dest_flags;
 
 		/* Do we have a valid header? */
 		/* POLAR: p.len is only uint16, not do any sanity check */
 		memcpy(&p, cursor, offsetof(PipeProtoHeader, data));
+		dest_flags = p.flags & (PIPE_PROTO_DEST_STDERR |
+								PIPE_PROTO_DEST_CSVLOG |
+								PIPE_PROTO_DEST_JSONLOG);
 		if (p.nuls[0] == '\0' && p.nuls[1] == '\0' &&
 			p.len > 0 &&
 			p.pid != 0 &&
+<<<<<<< HEAD
 			(p.is_last == 't' || p.is_last == 'f' ||
 			 p.is_last == 'T' || p.is_last == 'F' ||
 			 p.is_last == AUDITLOG_CHUNK || p.is_last == AUDITLOG_LAST_CHUNK ||
 			 p.is_last == SLOWLOG_CHUNK || p.is_last == SLOWLOG_LAST_CHUNK))
+=======
+			pg_number_of_ones[dest_flags] == 1)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		{
 			List	   *buffer_list;
 			ListCell   *cell;
@@ -1128,7 +1380,21 @@ process_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 			if (count < chunklen)
 				break;
 
+<<<<<<< HEAD
 			dest = get_dest_from_flag(p.is_last);
+=======
+			if ((p.flags & PIPE_PROTO_DEST_STDERR) != 0)
+				dest = LOG_DESTINATION_STDERR;
+			else if ((p.flags & PIPE_PROTO_DEST_CSVLOG) != 0)
+				dest = LOG_DESTINATION_CSVLOG;
+			else if ((p.flags & PIPE_PROTO_DEST_JSONLOG) != 0)
+				dest = LOG_DESTINATION_JSONLOG;
+			else
+			{
+				/* this should never happen as of the header validation */
+				Assert(false);
+			}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 			/* Locate any existing buffer for this source pid */
 			buffer_list = buffer_lists[p.pid % NBUFFER_LISTS];
@@ -1145,8 +1411,12 @@ process_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 					free_slot = buf;
 			}
 
+<<<<<<< HEAD
 			if (p.is_last == 'f' || p.is_last == 'F' ||
 				p.is_last == AUDITLOG_CHUNK || p.is_last == SLOWLOG_CHUNK)
+=======
+			if ((p.flags & PIPE_PROTO_IS_LAST) == 0)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 			{
 				/*
 				 * Save a complete non-final chunk in a per-pid buffer
@@ -1307,7 +1577,7 @@ flush_pipe_input(char *logbuffer, int *bytes_in_logbuffer)
 /*
  * Write text to the currently open logfile
  *
- * This is exported so that elog.c can call it when am_syslogger is true.
+ * This is exported so that elog.c can call it when MyBackendType is B_LOGGER.
  * This allows the syslogger process to record elog messages of its own,
  * even though its stderr does not point at the syslog pipe.
  */
@@ -1318,6 +1588,7 @@ write_syslogger_file(const char *buffer, int count, int destination)
 	FILE	   *logfile;
 
 	/*
+<<<<<<< HEAD
 	 * If we're told to write to csvlogFile, but it's not open, dump the data
 	 * to syslogFile (which is always open) instead.  This can happen if CSV
 	 * output is enabled after postmaster start and we've been unable to open
@@ -1330,6 +1601,26 @@ write_syslogger_file(const char *buffer, int count, int destination)
 	 * failure in that would lead to recursion.
 	 */
 	logfile = get_logfile_from_dest(destination);
+=======
+	 * If we're told to write to a structured log file, but it's not open,
+	 * dump the data to syslogFile (which is always open) instead.  This can
+	 * happen if structured output is enabled after postmaster start and we've
+	 * been unable to open logFile.  There are also race conditions during a
+	 * parameter change whereby backends might send us structured output
+	 * before we open the logFile or after we close it.  Writing formatted
+	 * output to the regular log file isn't great, but it beats dropping log
+	 * output on the floor.
+	 *
+	 * Think not to improve this by trying to open logFile on-the-fly.  Any
+	 * failure in that would lead to recursion.
+	 */
+	if ((destination & LOG_DESTINATION_CSVLOG) && csvlogFile != NULL)
+		logfile = csvlogFile;
+	else if ((destination & LOG_DESTINATION_JSONLOG) && jsonlogFile != NULL)
+		logfile = jsonlogFile;
+	else
+		logfile = syslogFile;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	rc = fwrite(buffer, 1, count, logfile);
 
@@ -1340,7 +1631,7 @@ write_syslogger_file(const char *buffer, int count, int destination)
 	 * to our input pipe which would result in a different sort of looping.
 	 */
 	if (rc != count)
-		write_stderr("could not write to log file: %s\n", strerror(errno));
+		write_stderr("could not write to log file: %m\n");
 }
 
 #ifdef WIN32
@@ -1348,7 +1639,7 @@ write_syslogger_file(const char *buffer, int count, int destination)
 /*
  * Worker thread to transfer data from the pipe to the current logfile.
  *
- * We need this because on Windows, WaitforMultipleObjects does not work on
+ * We need this because on Windows, WaitForMultipleObjects does not work on
  * unnamed pipes: it always reports "signaled", so the blocking ReadFile won't
  * allow for SIGHUP; and select is for sockets only.
  */
@@ -1400,7 +1691,8 @@ pipeThread(void *arg)
 		if (Log_RotationSize > 0)
 		{
 			if (ftell(syslogFile) >= Log_RotationSize * 1024L ||
-				(csvlogFile != NULL && ftell(csvlogFile) >= Log_RotationSize * 1024L))
+				(csvlogFile != NULL && ftell(csvlogFile) >= Log_RotationSize * 1024L) ||
+				(jsonlogFile != NULL && ftell(jsonlogFile) >= Log_RotationSize * 1024L))
 				SetLatch(MyLatch);
 		}
 		LeaveCriticalSection(&sysloggerSection);
@@ -1466,19 +1758,125 @@ logfile_open(const char *filename, const char *mode, bool allow_errors)
 }
 
 /*
+ * Do logfile rotation for a single destination, as specified by target_dest.
+ * The information stored in *last_file_name and *logFile is updated on a
+ * successful file rotation.
+ *
+ * Returns false if the rotation has been stopped, or true to move on to
+ * the processing of other formats.
+ */
+static bool
+logfile_rotate_dest(bool time_based_rotation, int size_rotation_for,
+					pg_time_t fntime, int target_dest,
+					char **last_file_name, FILE **logFile)
+{
+	char	   *logFileExt = NULL;
+	char	   *filename;
+	FILE	   *fh;
+
+	/*
+	 * If the target destination was just turned off, close the previous file
+	 * and unregister its data.  This cannot happen for stderr as syslogFile
+	 * is assumed to be always opened even if stderr is disabled in
+	 * log_destination.
+	 */
+	if ((Log_destination & target_dest) == 0 &&
+		target_dest != LOG_DESTINATION_STDERR)
+	{
+		if (*logFile != NULL)
+			fclose(*logFile);
+		*logFile = NULL;
+		if (*last_file_name != NULL)
+			pfree(*last_file_name);
+		*last_file_name = NULL;
+		return true;
+	}
+
+	/*
+	 * Leave if it is not time for a rotation or if the target destination has
+	 * no need to do a rotation based on the size of its file.
+	 */
+	if (!time_based_rotation && (size_rotation_for & target_dest) == 0)
+		return true;
+
+	/* file extension depends on the destination type */
+	if (target_dest == LOG_DESTINATION_STDERR)
+		logFileExt = NULL;
+	else if (target_dest == LOG_DESTINATION_CSVLOG)
+		logFileExt = ".csv";
+	else if (target_dest == LOG_DESTINATION_JSONLOG)
+		logFileExt = ".json";
+	else
+	{
+		/* cannot happen */
+		Assert(false);
+	}
+
+	/* build the new file name */
+	filename = logfile_getname(fntime, logFileExt);
+
+	/*
+	 * Decide whether to overwrite or append.  We can overwrite if (a)
+	 * Log_truncate_on_rotation is set, (b) the rotation was triggered by
+	 * elapsed time and not something else, and (c) the computed file name is
+	 * different from what we were previously logging into.
+	 */
+	if (Log_truncate_on_rotation && time_based_rotation &&
+		*last_file_name != NULL &&
+		strcmp(filename, *last_file_name) != 0)
+		fh = logfile_open(filename, "w", true);
+	else
+		fh = logfile_open(filename, "a", true);
+
+	if (!fh)
+	{
+		/*
+		 * ENFILE/EMFILE are not too surprising on a busy system; just keep
+		 * using the old file till we manage to get a new one.  Otherwise,
+		 * assume something's wrong with Log_directory and stop trying to
+		 * create files.
+		 */
+		if (errno != ENFILE && errno != EMFILE)
+		{
+			ereport(LOG,
+					(errmsg("disabling automatic rotation (use SIGHUP to re-enable)")));
+			rotation_disabled = true;
+		}
+
+		if (filename)
+			pfree(filename);
+		return false;
+	}
+
+	/* fill in the new information */
+	if (*logFile != NULL)
+		fclose(*logFile);
+	*logFile = fh;
+
+	/* instead of pfree'ing filename, remember it for next time */
+	if (*last_file_name != NULL)
+		pfree(*last_file_name);
+	*last_file_name = filename;
+
+	return true;
+}
+
+/*
  * perform logfile rotation
  */
 static void
 logfile_rotate(bool time_based_rotation, int size_rotation_for)
 {
+<<<<<<< HEAD
 	char	   *filename;
 	char	   *csvfilename = NULL;
 	/* POLAR */
 	char       *auditfilename = NULL;
 	char       *slowlogfilename = NULL;
 	/* POLAR end */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	pg_time_t	fntime;
-	FILE	   *fh;
 
 	rotation_requested = false;
 
@@ -1491,6 +1889,7 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 		fntime = next_rotation_time;
 	else
 		fntime = time(NULL);
+<<<<<<< HEAD
 	filename = logfile_getname(fntime, SYSLOG_SUFFIX);
 	if (Log_destination & LOG_DESTINATION_CSVLOG)
 		csvfilename = logfile_getname(fntime, ".csv");
@@ -1500,39 +1899,22 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 	if (Log_destination & LOG_DESTINATION_POLAR_SLOWLOG)
 		slowlogfilename = logfile_getname(fntime, SLOWLOG_SUFFIX);
 	/* POLAR end */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-	/*
-	 * Decide whether to overwrite or append.  We can overwrite if (a)
-	 * Log_truncate_on_rotation is set, (b) the rotation was triggered by
-	 * elapsed time and not something else, and (c) the computed file name is
-	 * different from what we were previously logging into.
-	 *
-	 * Note: last_file_name should never be NULL here, but if it is, append.
-	 */
-	if (time_based_rotation || (size_rotation_for & LOG_DESTINATION_STDERR))
-	{
-		if (Log_truncate_on_rotation && time_based_rotation &&
-			last_file_name != NULL &&
-			strcmp(filename, last_file_name) != 0)
-			fh = logfile_open(filename, "w", true);
-		else
-			fh = logfile_open(filename, "a", true);
+	/* file rotation for stderr */
+	if (!logfile_rotate_dest(time_based_rotation, size_rotation_for, fntime,
+							 LOG_DESTINATION_STDERR, &last_sys_file_name,
+							 &syslogFile))
+		return;
 
-		if (!fh)
-		{
-			/*
-			 * ENFILE/EMFILE are not too surprising on a busy system; just
-			 * keep using the old file till we manage to get a new one.
-			 * Otherwise, assume something's wrong with Log_directory and stop
-			 * trying to create files.
-			 */
-			if (errno != ENFILE && errno != EMFILE)
-			{
-				ereport(LOG,
-						(errmsg("disabling automatic rotation (use SIGHUP to re-enable)")));
-				rotation_disabled = true;
-			}
+	/* file rotation for csvlog */
+	if (!logfile_rotate_dest(time_based_rotation, size_rotation_for, fntime,
+							 LOG_DESTINATION_CSVLOG, &last_csv_file_name,
+							 &csvlogFile))
+		return;
 
+<<<<<<< HEAD
 			if (filename)
 				pfree(filename);
 			if (csvfilename)
@@ -1741,6 +2123,13 @@ logfile_rotate(bool time_based_rotation, int size_rotation_for)
 		pfree(filename);
 	if (csvfilename)
 		pfree(csvfilename);
+=======
+	/* file rotation for jsonlog */
+	if (!logfile_rotate_dest(time_based_rotation, size_rotation_for, fntime,
+							 LOG_DESTINATION_JSONLOG, &last_json_file_name,
+							 &jsonlogFile))
+		return;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	update_metainfo_datafile();
 
@@ -1840,6 +2229,7 @@ update_metainfo_datafile(void)
 {
 	FILE	   *fh;
 	mode_t		oumask;
+<<<<<<< HEAD
 
 	/* POLAR */
 	if (MyLoggerIndex != 0)
@@ -1850,6 +2240,12 @@ update_metainfo_datafile(void)
 		!(Log_destination & LOG_DESTINATION_CSVLOG) &&
 		!(Log_destination & LOG_DESTINATION_POLAR_AUDITLOG) &&
 		!(Log_destination & LOG_DESTINATION_POLAR_SLOWLOG))
+=======
+
+	if (!(Log_destination & LOG_DESTINATION_STDERR) &&
+		!(Log_destination & LOG_DESTINATION_CSVLOG) &&
+		!(Log_destination & LOG_DESTINATION_JSONLOG))
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	{
 		if (unlink(LOG_METAINFO_DATAFILE) < 0 && errno != ENOENT)
 			ereport(LOG,
@@ -1882,9 +2278,9 @@ update_metainfo_datafile(void)
 		return;
 	}
 
-	if (last_file_name && (Log_destination & LOG_DESTINATION_STDERR))
+	if (last_sys_file_name && (Log_destination & LOG_DESTINATION_STDERR))
 	{
-		if (fprintf(fh, "stderr %s\n", last_file_name) < 0)
+		if (fprintf(fh, "stderr %s\n", last_sys_file_name) < 0)
 		{
 			ereport(LOG,
 					(errcode_for_file_access(),
@@ -1908,10 +2304,16 @@ update_metainfo_datafile(void)
 		}
 	}
 
+<<<<<<< HEAD
 	/* POLAR */
 	if (polar_last_audit_file_name && (Log_destination & LOG_DESTINATION_POLAR_AUDITLOG))
 	{
 		if (fprintf(fh, "auditlog %s\n", polar_last_audit_file_name) < 0)
+=======
+	if (last_json_file_name && (Log_destination & LOG_DESTINATION_JSONLOG))
+	{
+		if (fprintf(fh, "jsonlog %s\n", last_json_file_name) < 0)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		{
 			ereport(LOG,
 					(errcode_for_file_access(),
@@ -1921,6 +2323,7 @@ update_metainfo_datafile(void)
 			return;
 		}
 	}
+<<<<<<< HEAD
 
 	if (polar_last_slowlog_file_name && (Log_destination & LOG_DESTINATION_POLAR_SLOWLOG))
 	{
@@ -1935,6 +2338,8 @@ update_metainfo_datafile(void)
 		}
 	}
 	/* POLAR end */
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	fclose(fh);
 
 	if (rename(LOG_METAINFO_DATAFILE_TMP, LOG_METAINFO_DATAFILE) != 0)
@@ -1949,28 +2354,36 @@ update_metainfo_datafile(void)
  * --------------------------------
  */
 
-/* SIGHUP: set flag to reload config file */
-static void
-sigHupHandler(SIGNAL_ARGS)
+/*
+ * Check to see if a log rotation request has arrived.  Should be
+ * called by postmaster after receiving SIGUSR1.
+ */
+bool
+CheckLogrotateSignal(void)
 {
-	int			save_errno = errno;
+	struct stat stat_buf;
 
-	got_SIGHUP = true;
-	SetLatch(MyLatch);
+	if (stat(LOGROTATE_SIGNAL_FILE, &stat_buf) == 0)
+		return true;
 
-	errno = save_errno;
+	return false;
+}
+
+/*
+ * Remove the file signaling a log rotation request.
+ */
+void
+RemoveLogrotateSignalFiles(void)
+{
+	unlink(LOGROTATE_SIGNAL_FILE);
 }
 
 /* SIGUSR1: set flag to rotate logfile */
 static void
 sigUsr1Handler(SIGNAL_ARGS)
 {
-	int			save_errno = errno;
-
 	rotation_requested = true;
 	SetLatch(MyLatch);
-
-	errno = save_errno;
 }
 
 /*

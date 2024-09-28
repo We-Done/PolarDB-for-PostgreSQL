@@ -8,7 +8,7 @@
  *
  * This code is released under the terms of the PostgreSQL License.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/test/regress/pg_regress_main.c
@@ -18,6 +18,7 @@
 
 #include "postgres_fe.h"
 
+#include "lib/stringinfo.h"
 #include "pg_regress.h"
 
 /* POLAR */
@@ -38,8 +39,7 @@ psql_start_test(const char *testname,
 	char		infile[MAXPGPATH];
 	char		outfile[MAXPGPATH];
 	char		expectfile[MAXPGPATH];
-	char		psql_cmd[MAXPGPATH * 3];
-	size_t		offset = 0;
+	StringInfoData psql_cmd;
 	char	   *appnameenv;
 
 	/* POLAR */
@@ -61,6 +61,7 @@ psql_start_test(const char *testname,
 	snprintf(outfile, sizeof(outfile), "%s/results/%s.out",
 			 outputdir, testname);
 
+<<<<<<< HEAD
 	/* POLAR */
 	snprintf(polar_replicaoutfile, sizeof(polar_replicaoutfile), "%s/results/%s.out.replica",
 			 outputdir, testname);
@@ -78,6 +79,11 @@ psql_start_test(const char *testname,
 		snprintf(expectfile, sizeof(expectfile), "%s", polar_expectfile);
 	else
 	{
+=======
+	snprintf(expectfile, sizeof(expectfile), "%s/expected/%s.out",
+			 expecteddir, testname);
+	if (!file_exists(expectfile))
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		snprintf(expectfile, sizeof(expectfile), "%s/expected/%s.out",
 				outputdir, testname);
 		if (!file_exists(expectfile))
@@ -89,7 +95,10 @@ psql_start_test(const char *testname,
 	add_stringlist_item(resultfiles, outfile);
 	add_stringlist_item(expectfiles, expectfile);
 
+	initStringInfo(&psql_cmd);
+
 	if (launcher)
+<<<<<<< HEAD
 	{
 		offset += snprintf(psql_cmd + offset, sizeof(psql_cmd) - offset,
 						   "%s ", launcher);
@@ -121,6 +130,28 @@ psql_start_test(const char *testname,
 	putenv(appnameenv);
 
 	pid = spawn_process(psql_cmd);
+=======
+		appendStringInfo(&psql_cmd, "%s ", launcher);
+
+	/*
+	 * Use HIDE_TABLEAM to hide different AMs to allow to use regression tests
+	 * against different AMs without unnecessary differences.
+	 */
+	appendStringInfo(&psql_cmd,
+					 "\"%s%spsql\" -X -a -q -d \"%s\" %s < \"%s\" > \"%s\" 2>&1",
+					 bindir ? bindir : "",
+					 bindir ? "/" : "",
+					 dblist->str,
+					 "-v HIDE_TABLEAM=on -v HIDE_TOAST_COMPRESSION=on",
+					 infile,
+					 outfile);
+
+	appnameenv = psprintf("pg_regress/%s", testname);
+	setenv("PGAPPNAME", appnameenv, 1);
+	free(appnameenv);
+
+	pid = spawn_process(psql_cmd.data);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	if (pid == INVALID_PID)
 	{
@@ -130,7 +161,8 @@ psql_start_test(const char *testname,
 	}
 
 	unsetenv("PGAPPNAME");
-	free(appnameenv);
+
+	pfree(psql_cmd.data);
 
 	return pid;
 }
@@ -145,5 +177,8 @@ psql_init(int argc, char **argv)
 int
 main(int argc, char *argv[])
 {
-	return regression_main(argc, argv, psql_init, psql_start_test);
+	return regression_main(argc, argv,
+						   psql_init,
+						   psql_start_test,
+						   NULL /* no postfunc needed */ );
 }

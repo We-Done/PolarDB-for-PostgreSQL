@@ -1,15 +1,15 @@
+
+# Copyright (c) 2021-2024, PostgreSQL Global Development Group
+
 use strict;
-use warnings;
+use warnings FATAL => 'all';
 
-use Config;
-use Fcntl ':mode';
-use File::stat qw{lstat};
-use PostgresNode;
-use TestLib;
-use Test::More tests => 24;
+use PostgreSQL::Test::Cluster;
+use PostgreSQL::Test::Utils;
+use Test::More;
 
-my $tempdir       = TestLib::tempdir;
-my $tempdir_short = TestLib::tempdir_short;
+my $tempdir = PostgreSQL::Test::Utils::tempdir;
+my $tempdir_short = PostgreSQL::Test::Utils::tempdir_short;
 
 program_help_ok('pg_ctl');
 program_version_ok('pg_ctl');
@@ -22,6 +22,7 @@ command_ok([ 'pg_ctl', 'initdb', '-D', "$tempdir/data", '-o', '-N' ],
 	'pg_ctl initdb');
 command_ok([ $ENV{PG_REGRESS}, '--config-auth', "$tempdir/data" ],
 	'configure authentication');
+<<<<<<< HEAD
 my $node_port = get_free_port();
 open my $conf, '>>', "$tempdir/data/postgresql.conf";
 print $conf "fsync = off\n";
@@ -29,8 +30,19 @@ print $conf "port = $node_port\n";
 print $conf TestLib::slurp_file($ENV{TEMP_CONFIG})
   if defined $ENV{TEMP_CONFIG};
 if (!$windows_os)
+=======
+my $node_port = PostgreSQL::Test::Cluster::get_free_port();
+open my $conf, '>>', "$tempdir/data/postgresql.conf" or die $!;
+print $conf "fsync = off\n";
+print $conf "port = $node_port\n";
+print $conf PostgreSQL::Test::Utils::slurp_file($ENV{TEMP_CONFIG})
+  if defined $ENV{TEMP_CONFIG};
+
+if ($use_unix_sockets)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 {
 	print $conf "listen_addresses = ''\n";
+	$tempdir_short =~ s!\\!/!g if $PostgreSQL::Test::Utils::windows_os;
 	print $conf "unix_socket_directories = '$tempdir_short'\n";
 }
 else
@@ -40,18 +52,9 @@ else
 close $conf;
 my $ctlcmd = [
 	'pg_ctl', 'start', '-D', "$tempdir/data", '-l',
-	"$TestLib::log_path/001_start_stop_server.log"
+	"$PostgreSQL::Test::Utils::log_path/001_start_stop_server.log"
 ];
-if ($Config{osname} ne 'msys')
-{
-	command_like($ctlcmd, qr/done.*server started/s, 'pg_ctl start');
-}
-else
-{
-
-	# use the version of command_like that doesn't hang on Msys here
-	command_like_safe($ctlcmd, qr/done.*server started/s, 'pg_ctl start');
-}
+command_like($ctlcmd, qr/done.*server started/s, 'pg_ctl start');
 
 # sleep here is because Windows builds can't check postmaster.pid exactly,
 # so they may mistake a pre-existing postmaster.pid for one created by the
@@ -86,7 +89,8 @@ $logFileName = "$tempdir/data/perm-test-640.log";
 
 SKIP:
 {
-	skip "group access not supported on Windows", 3 if ($windows_os);
+	skip "group access not supported on Windows", 3
+	  if ($windows_os || $Config::Config{osname} eq 'cygwin');
 
 	system_or_bail 'pg_ctl', 'stop', '-D', "$tempdir/data";
 
@@ -106,3 +110,5 @@ command_ok([ 'pg_ctl', 'restart', '-D', "$tempdir/data" ],
 	'pg_ctl restart with server running');
 
 system_or_bail 'pg_ctl', 'stop', '-D', "$tempdir/data";
+
+done_testing();

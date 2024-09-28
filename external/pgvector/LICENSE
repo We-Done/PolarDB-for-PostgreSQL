@@ -1,4 +1,11 @@
+<<<<<<< HEAD:external/pgvector/LICENSE
 Portions Copyright (c) 1996-2023, PostgreSQL Global Development Group
+=======
+PostgreSQL Database Management System
+(formerly known as Postgres, then as Postgres95)
+
+Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c:COPYRIGHT
 
 Portions Copyright (c) 1994, The Regents of the University of California
 

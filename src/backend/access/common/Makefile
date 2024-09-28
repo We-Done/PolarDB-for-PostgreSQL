@@ -12,8 +12,24 @@ subdir = src/backend/access/common
 top_builddir = ../../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = bufmask.o heaptuple.o indextuple.o printsimple.o printtup.o \
-	reloptions.o scankey.o session.o tupconvert.o tupdesc.o
+OBJS = \
+	attmap.o \
+	bufmask.o \
+	detoast.o \
+	heaptuple.o \
+	indextuple.o \
+	printsimple.o \
+	printtup.o \
+	relation.o \
+	reloptions.o \
+	scankey.o \
+	session.o \
+	syncscan.o \
+	tidstore.o \
+	toast_compression.o \
+	toast_internals.o \
+	tupconvert.o \
+	tupdesc.o
 
 OBJS += memtuple_px.o
 

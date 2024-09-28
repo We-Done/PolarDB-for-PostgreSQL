@@ -7,7 +7,9 @@ subdir = src/bin/pg_archivecleanup
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS	= pg_archivecleanup.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	pg_archivecleanup.o
 
 all: pg_archivecleanup
 
@@ -23,7 +25,7 @@ installdirs:
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/pg_archivecleanup$(X)'
 
-clean distclean maintainer-clean:
+clean distclean:
 	rm -f pg_archivecleanup$(X) $(OBJS)
 	rm -rf tmp_check
 

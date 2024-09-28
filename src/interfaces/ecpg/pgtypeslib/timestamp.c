@@ -4,7 +4,6 @@
 #include "postgres_fe.h"
 
 #include <time.h>
-#include <float.h>
 #include <limits.h>
 #include <math.h>
 
@@ -12,11 +11,11 @@
 #error -ffast-math is known to break this code
 #endif
 
-#include "extern.h"
+#include "common/int.h"
 #include "dt.h"
-#include "pgtypes_timestamp.h"
 #include "pgtypes_date.h"
-
+#include "pgtypes_timestamp.h"
+#include "pgtypeslib_extern.h"
 
 static int64
 time2t(const int hour, const int min, const int sec, const fsec_t fsec)
@@ -50,14 +49,8 @@ tm2timestamp(struct tm *tm, fsec_t fsec, int *tzp, timestamp * result)
 
 	dDate = date2j(tm->tm_year, tm->tm_mon, tm->tm_mday) - date2j(2000, 1, 1);
 	time = time2t(tm->tm_hour, tm->tm_min, tm->tm_sec, fsec);
-	*result = (dDate * USECS_PER_DAY) + time;
-	/* check for major overflow */
-	if ((*result - time) / USECS_PER_DAY != dDate)
-		return -1;
-	/* check for just-barely overflow (okay except time-of-day wraps) */
-	/* caution: we want to allow 1999-12-31 24:00:00 */
-	if ((*result < 0 && dDate > 0) ||
-		(*result > 0 && dDate < -1))
+	if (unlikely(pg_mul_s64_overflow(dDate, USECS_PER_DAY, result) ||
+				 pg_add_s64_overflow(*result, time, result)))
 		return -1;
 	if (tzp != NULL)
 		*result = dt2local(*result, -(*tzp));
@@ -101,7 +94,7 @@ timestamp2tm(timestamp dt, int *tzp, struct tm *tm, fsec_t *fsec, const char **t
 	int64		dDate,
 				date0;
 	int64		time;
-#if defined(HAVE_TM_ZONE) || defined(HAVE_INT_TIMEZONE)
+#if defined(HAVE_STRUCT_TM_TM_ZONE) || defined(HAVE_INT_TIMEZONE)
 	time_t		utime;
 	struct tm  *tx;
 #endif
@@ -135,12 +128,13 @@ timestamp2tm(timestamp dt, int *tzp, struct tm *tm, fsec_t *fsec, const char **t
 		 */
 		if (IS_VALID_UTIME(tm->tm_year, tm->tm_mon, tm->tm_mday))
 		{
-#if defined(HAVE_TM_ZONE) || defined(HAVE_INT_TIMEZONE)
+#if defined(HAVE_STRUCT_TM_TM_ZONE) || defined(HAVE_INT_TIMEZONE)
+			struct tm	tmbuf;
 
 			utime = dt / USECS_PER_SEC +
 				((date0 - date2j(1970, 1, 1)) * INT64CONST(86400));
 
-			tx = localtime(&utime);
+			tx = localtime_r(&utime, &tmbuf);
 			tm->tm_year = tx->tm_year + 1900;
 			tm->tm_mon = tx->tm_mon + 1;
 			tm->tm_mday = tx->tm_mday;
@@ -148,7 +142,7 @@ timestamp2tm(timestamp dt, int *tzp, struct tm *tm, fsec_t *fsec, const char **t
 			tm->tm_min = tx->tm_min;
 			tm->tm_isdst = tx->tm_isdst;
 
-#if defined(HAVE_TM_ZONE)
+#if defined(HAVE_STRUCT_TM_TM_ZONE)
 			tm->tm_gmtoff = tx->tm_gmtoff;
 			tm->tm_zone = tx->tm_zone;
 
@@ -160,7 +154,8 @@ timestamp2tm(timestamp dt, int *tzp, struct tm *tm, fsec_t *fsec, const char **t
 			if (tzn != NULL)
 				*tzn = TZNAME_GLOBAL[(tm->tm_isdst > 0)];
 #endif
-#else							/* not (HAVE_TM_ZONE || HAVE_INT_TIMEZONE) */
+#else							/* not (HAVE_STRUCT_TM_TM_ZONE ||
+								 * HAVE_INT_TIMEZONE) */
 			*tzp = 0;
 			/* Mark this as *no* time zone available */
 			tm->tm_isdst = -1;
@@ -254,10 +249,6 @@ PGTYPEStimestamp_from_asc(char *str, char **endptr)
 			TIMESTAMP_NOBEGIN(result);
 			break;
 
-		case DTK_INVALID:
-			errno = PGTYPES_TS_BAD_TIMESTAMP;
-			return noresult;
-
 		default:
 			errno = PGTYPES_TS_BAD_TIMESTAMP;
 			return noresult;
@@ -280,8 +271,8 @@ PGTYPEStimestamp_to_asc(timestamp tstamp)
 			   *tm = &tt;
 	char		buf[MAXDATELEN + 1];
 	fsec_t		fsec;
-	int			DateStyle = 1;	/* this defaults to ISO_DATES, shall we make
-								 * it an option? */
+	int			DateStyle = 1;	/* this defaults to USE_ISO_DATES, shall we
+								 * make it an option? */
 
 	if (TIMESTAMP_NOT_FINITE(tstamp))
 		EncodeSpecialTimestamp(tstamp, buf);
@@ -303,7 +294,6 @@ PGTYPEStimestamp_current(timestamp * ts)
 	GetCurrentDateTime(&tm);
 	if (errno == 0)
 		tm2timestamp(&tm, 0, NULL, ts);
-	return;
 }
 
 static int
@@ -352,8 +342,8 @@ dttofmtasc_replace(timestamp * ts, date dDate, int dow, struct tm *tm,
 					break;
 
 					/*
-					 * The	preferred  date  and  time	representation	for
-					 * the current locale.
+					 * The preferred date and time representation for the
+					 * current locale.
 					 */
 				case 'c':
 					/* XXX */
@@ -869,8 +859,6 @@ PGTYPEStimestamp_add_interval(timestamp * tin, interval * span, timestamp * tout
 {
 	if (TIMESTAMP_NOT_FINITE(*tin))
 		*tout = *tin;
-
-
 	else
 	{
 		if (span->month != 0)
@@ -878,7 +866,6 @@ PGTYPEStimestamp_add_interval(timestamp * tin, interval * span, timestamp * tout
 			struct tm	tt,
 					   *tm = &tt;
 			fsec_t		fsec;
-
 
 			if (timestamp2tm(*tin, NULL, tm, &fsec, NULL) != 0)
 				return -1;
@@ -904,12 +891,11 @@ PGTYPEStimestamp_add_interval(timestamp * tin, interval * span, timestamp * tout
 				return -1;
 		}
 
-
 		*tin += span->time;
 		*tout = *tin;
 	}
-	return 0;
 
+	return 0;
 }
 
 
@@ -930,7 +916,6 @@ PGTYPEStimestamp_sub_interval(timestamp * tin, interval * span, timestamp * tout
 
 	tspan.month = -span->month;
 	tspan.time = -span->time;
-
 
 	return PGTYPEStimestamp_add_interval(tin, &tspan, tout);
 }

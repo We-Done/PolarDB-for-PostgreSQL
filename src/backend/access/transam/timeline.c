@@ -21,7 +21,7 @@
  * The fields are separated by tabs. Lines beginning with # are comments, and
  * are ignored. Empty lines are also ignored.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/access/transam/timeline.c
@@ -37,6 +37,7 @@
 #include "access/timeline.h"
 #include "access/xlog.h"
 #include "access/xlog_internal.h"
+#include "access/xlogarchive.h"
 #include "access/xlogdefs.h"
 #include "pgstat.h"
 #include "storage/fd.h"
@@ -82,7 +83,11 @@ readTimeLineHistory(TimeLineID targetTLI)
 	List	   *result;
 	char		path[MAXPGPATH];
 	char		histfname[MAXFNAMELEN];
+<<<<<<< HEAD
 	char		fline[MAXPGPATH];
+=======
+	FILE	   *fd;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	TimeLineHistoryEntry *entry;
 	TimeLineID	lasttli = 0;
 	XLogRecPtr	prevend;
@@ -133,14 +138,37 @@ readTimeLineHistory(TimeLineID targetTLI)
 	 * Parse the file...
 	 */
 	prevend = InvalidXLogRecPtr;
+<<<<<<< HEAD
 	while (polar_read_line(fd, fline, sizeof(fline)) > 0)
 	{
+=======
+	for (;;)
+	{
+		char		fline[MAXPGPATH];
+		char	   *res;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		char	   *ptr;
 		TimeLineID	tli;
 		uint32		switchpoint_hi;
 		uint32		switchpoint_lo;
 		int			nfields;
 
+<<<<<<< HEAD
+=======
+		pgstat_report_wait_start(WAIT_EVENT_TIMELINE_HISTORY_READ);
+		res = fgets(fline, sizeof(fline), fd);
+		pgstat_report_wait_end();
+		if (res == NULL)
+		{
+			if (ferror(fd))
+				ereport(ERROR,
+						(errcode_for_file_access(),
+						 errmsg("could not read file \"%s\": %m", path)));
+
+			break;
+		}
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		/* skip leading whitespace and check for # comment */
 		for (ptr = fline; *ptr; ptr++)
 		{
@@ -395,7 +423,11 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 			}
 			pgstat_report_wait_end();
 		}
-		CloseTransientFile(srcfd);
+
+		if (CloseTransientFile(srcfd) != 0)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not close file \"%s\": %m", path)));
 	}
 
 	/*
@@ -408,13 +440,17 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 			 "%s%u\t%X/%X\t%s\n",
 			 (srcfd < 0) ? "" : "\n",
 			 parentTLI,
-			 (uint32) (switchpoint >> 32), (uint32) (switchpoint),
+			 LSN_FORMAT_ARGS(switchpoint),
 			 reason);
 
 	nbytes = strlen(buffer);
 	errno = 0;
 	pgstat_report_wait_start(WAIT_EVENT_TIMELINE_HISTORY_WRITE);
+<<<<<<< HEAD
 	if ((int) polar_write(fd, buffer, nbytes) != nbytes)
+=======
+	if ((int) write(fd, buffer, nbytes) != nbytes)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	{
 		int			save_errno = errno;
 
@@ -432,28 +468,27 @@ writeTimeLineHistory(TimeLineID newTLI, TimeLineID parentTLI,
 	pgstat_report_wait_end();
 
 	pgstat_report_wait_start(WAIT_EVENT_TIMELINE_HISTORY_SYNC);
+<<<<<<< HEAD
 	if (polar_fsync(fd) != 0)
+=======
+	if (pg_fsync(fd) != 0)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		ereport(data_sync_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not fsync file \"%s\": %m", tmppath)));
 	pgstat_report_wait_end();
 
-	if (CloseTransientFile(fd))
+	if (CloseTransientFile(fd) != 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close file \"%s\": %m", tmppath)));
-
 
 	/*
 	 * Now move the completed history file into place with its final name.
 	 */
 	TLHistoryFilePath(path, newTLI);
-
-	/*
-	 * Perform the rename using link if available, paranoidly trying to avoid
-	 * overwriting an existing file (there shouldn't be one).
-	 */
-	durable_link_or_rename(tmppath, path, ERROR);
+	Assert(access(path, F_OK) != 0 && errno == ENOENT);
+	durable_rename(tmppath, path, ERROR);
 
 	/* POLAR: if in dma mode, nofity wal file ready after consensus commit. 
 	 * The history file can be archived immediately. */
@@ -516,28 +551,27 @@ writeTimeLineHistoryFile(TimeLineID tli, char *content, int size)
 	pgstat_report_wait_end();
 
 	pgstat_report_wait_start(WAIT_EVENT_TIMELINE_HISTORY_FILE_SYNC);
+<<<<<<< HEAD
 	if (polar_fsync(fd) != 0)
+=======
+	if (pg_fsync(fd) != 0)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		ereport(data_sync_elevel(ERROR),
 				(errcode_for_file_access(),
 				 errmsg("could not fsync file \"%s\": %m", tmppath)));
 	pgstat_report_wait_end();
 
-	if (CloseTransientFile(fd))
+	if (CloseTransientFile(fd) != 0)
 		ereport(ERROR,
 				(errcode_for_file_access(),
 				 errmsg("could not close file \"%s\": %m", tmppath)));
 
-
 	/*
-	 * Now move the completed history file into place with its final name.
+	 * Now move the completed history file into place with its final name,
+	 * replacing any existing file with the same name.
 	 */
 	TLHistoryFilePath(path, tli);
-
-	/*
-	 * Perform the rename using link if available, paranoidly trying to avoid
-	 * overwriting an existing file (there shouldn't be one).
-	 */
-	durable_link_or_rename(tmppath, path, ERROR);
+	durable_rename(tmppath, path, ERROR);
 }
 
 /*

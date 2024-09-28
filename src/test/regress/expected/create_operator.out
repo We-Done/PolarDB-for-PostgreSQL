@@ -7,40 +7,41 @@ CREATE OPERATOR ## (
    function = path_inter,
    commutator = ##
 );
-CREATE OPERATOR <% (
-   leftarg = point,
-   rightarg = widget,
-   procedure = pt_in_widget,
-   commutator = >% ,
-   negator = >=%
-);
 CREATE OPERATOR @#@ (
-   rightarg = int8,		-- left unary
-   procedure = numeric_fac
-);
-CREATE OPERATOR #@# (
-   leftarg = int8,		-- right unary
-   procedure = numeric_fac
+   rightarg = int8,		-- prefix
+   procedure = factorial
 );
 CREATE OPERATOR #%# (
-   leftarg = int8,		-- right unary
-   procedure = numeric_fac
+   leftarg = int8,		-- fail, postfix is no longer supported
+   procedure = factorial
 );
+ERROR:  operator right argument type must be specified
+DETAIL:  Postfix operators are not supported.
 -- Test operator created above
-SELECT point '(1,2)' <% widget '(0,0,3)' AS t,
-       point '(1,2)' <% widget '(0,0,1)' AS f;
- t | f 
----+---
- t | f
+SELECT @#@ 24;
+         ?column?         
+--------------------------
+ 620448401733239439360000
 (1 row)
 
 -- Test comments
-COMMENT ON OPERATOR ###### (int4, NONE) IS 'bad right unary';
-ERROR:  operator does not exist: integer ######
--- => is disallowed now
+COMMENT ON OPERATOR ###### (NONE, int4) IS 'bad prefix';
+ERROR:  operator does not exist: ###### integer
+COMMENT ON OPERATOR ###### (int4, NONE) IS 'bad postfix';
+ERROR:  postfix operators are not supported
+COMMENT ON OPERATOR ###### (int4, int8) IS 'bad infix';
+ERROR:  operator does not exist: integer ###### bigint
+-- Check that DROP on a nonexistent op behaves sanely, too
+DROP OPERATOR ###### (NONE, int4);
+ERROR:  operator does not exist: ###### integer
+DROP OPERATOR ###### (int4, NONE);
+ERROR:  postfix operators are not supported
+DROP OPERATOR ###### (int4, int8);
+ERROR:  operator does not exist: integer ###### bigint
+-- => is disallowed as an operator name now
 CREATE OPERATOR => (
-   leftarg = int8,		-- right unary
-   procedure = numeric_fac
+   rightarg = int8,
+   procedure = factorial
 );
 ERROR:  syntax error at or near "=>"
 LINE 1: CREATE OPERATOR => (
@@ -49,6 +50,7 @@ LINE 1: CREATE OPERATOR => (
 -- (=> is tested elsewhere)
 -- this is legal because ! is not allowed in sql ops
 CREATE OPERATOR !=- (
+<<<<<<< HEAD
    leftarg = int8,		-- right unary
    procedure = numeric_fac
 );
@@ -58,6 +60,22 @@ SELECT 2 !=-;
         2
 (1 row)
 
+=======
+   rightarg = int8,
+   procedure = factorial
+);
+SELECT !=- 10;
+ ?column? 
+----------
+  3628800
+(1 row)
+
+-- postfix operators don't work anymore
+SELECT 10 !=-;
+ERROR:  syntax error at or near ";"
+LINE 1: SELECT 10 !=-;
+                     ^
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 -- make sure lexer returns != as <> even in edge cases
 SELECT 2 !=/**/ 1, 2 !=/**/ 2;
  ?column? | ?column? 
@@ -127,8 +145,8 @@ GRANT USAGE ON SCHEMA schema_op1 TO PUBLIC;
 REVOKE USAGE ON SCHEMA schema_op1 FROM regress_rol_op1;
 SET ROLE regress_rol_op1;
 CREATE OPERATOR schema_op1.#*# (
-   leftarg = int8,		-- right unary
-   procedure = numeric_fac
+   rightarg = int8,
+   procedure = factorial
 );
 ERROR:  permission denied for schema schema_op1
 ROLLBACK;
@@ -136,7 +154,7 @@ ROLLBACK;
 BEGIN TRANSACTION;
 CREATE OPERATOR #*# (
    leftarg = SETOF int8,
-   procedure = numeric_fac
+   procedure = factorial
 );
 ERROR:  SETOF type not allowed for operator argument
 ROLLBACK;
@@ -144,7 +162,7 @@ ROLLBACK;
 BEGIN TRANSACTION;
 CREATE OPERATOR #*# (
    rightarg = SETOF int8,
-   procedure = numeric_fac
+   procedure = factorial
 );
 ERROR:  SETOF type not allowed for operator argument
 ROLLBACK;
@@ -167,19 +185,19 @@ CREATE OPERATOR === (
 ROLLBACK;
 -- Should fail. Invalid attribute
 CREATE OPERATOR #@%# (
-   leftarg = int8,		-- right unary
-   procedure = numeric_fac,
+   rightarg = int8,
+   procedure = factorial,
    invalid_att = int8
 );
 WARNING:  operator attribute "invalid_att" not recognized
--- Should fail. At least leftarg or rightarg should be mandatorily specified
+-- Should fail. At least rightarg should be mandatorily specified
 CREATE OPERATOR #@%# (
-   procedure = numeric_fac
+   procedure = factorial
 );
-ERROR:  at least one of leftarg or rightarg must be specified
+ERROR:  operator argument types must be specified
 -- Should fail. Procedure should be mandatorily specified
 CREATE OPERATOR #@%# (
-   leftarg = int8
+   rightarg = int8
 );
 ERROR:  operator function must be specified
 -- Should fail. CREATE OPERATOR requires USAGE on TYPE
@@ -254,6 +272,50 @@ CREATE OPERATOR #*# (
 );
 ERROR:  permission denied for type type_op6
 ROLLBACK;
+-- Should fail. An operator cannot be its own negator.
+BEGIN TRANSACTION;
+CREATE OPERATOR === (
+    leftarg = integer,
+    rightarg = integer,
+    procedure = int4eq,
+    negator = ===
+);
+ERROR:  operator cannot be its own negator
+ROLLBACK;
+-- Should fail. An operator cannot be its own negator. Here we check that
+-- this error is detected when replacing a shell operator.
+BEGIN TRANSACTION;
+-- create a shell operator for ===!!! by referencing it as a commutator
+CREATE OPERATOR === (
+    leftarg = integer,
+    rightarg = integer,
+    procedure = int4eq,
+    commutator = ===!!!
+);
+CREATE OPERATOR ===!!! (
+    leftarg = integer,
+    rightarg = integer,
+    procedure = int4ne,
+    negator = ===!!!
+);
+ERROR:  operator cannot be its own negator
+ROLLBACK;
+-- test that we can't use part of an existing commutator or negator pair
+-- as a commutator or negator
+CREATE OPERATOR === (
+    leftarg = integer,
+    rightarg = integer,
+    procedure = int4eq,
+    commutator = =
+);
+ERROR:  commutator operator = is already the commutator of operator =
+CREATE OPERATOR === (
+    leftarg = integer,
+    rightarg = integer,
+    procedure = int4eq,
+    negator = <>
+);
+ERROR:  negator operator <> is already the negator of operator =
 -- invalid: non-lowercase quoted identifiers
 CREATE OPERATOR ===
 (

@@ -2,7 +2,7 @@
 #
 # Makefile for src/bin/pg_controldata
 #
-# Copyright (c) 1998-2018, PostgreSQL Global Development Group
+# Copyright (c) 1998-2024, PostgreSQL Global Development Group
 #
 # src/bin/pg_controldata/Makefile
 #
@@ -15,7 +15,9 @@ subdir = src/bin/pg_controldata
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS= pg_controldata.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	pg_controldata.o
 
 all: pg_controldata
 
@@ -31,7 +33,7 @@ installdirs:
 uninstall:
 	rm -f '$(DESTDIR)$(bindir)/pg_controldata$(X)'
 
-clean distclean maintainer-clean:
+clean distclean:
 	rm -f pg_controldata$(X) $(OBJS)
 	rm -rf tmp_check
 

@@ -1,7 +1,7 @@
 /*
  * psql - the PostgreSQL interactive terminal
  *
- * Copyright (c) 2000-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2000-2024, PostgreSQL Global Development Group
  *
  * src/bin/psql/common.h
  */
@@ -9,32 +9,30 @@
 #define COMMON_H
 
 #include <setjmp.h>
+#include <signal.h>
 
-#include "libpq-fe.h"
 #include "fe_utils/print.h"
 #include "fe_utils/psqlscan.h"
+#include "libpq-fe.h"
 
 extern bool openQueryOutputFile(const char *fname, FILE **fout, bool *is_pipe);
 extern bool setQFout(const char *fname);
 
 extern char *psql_get_variable(const char *varname, PsqlScanQuoteType quote,
-				  void *passthrough);
-
-extern void psql_error(const char *fmt,...) pg_attribute_printf(1, 2);
+							   void *passthrough);
 
 extern void NoticeProcessor(void *arg, const char *message);
 
-extern volatile bool sigint_interrupt_enabled;
+extern volatile sig_atomic_t sigint_interrupt_enabled;
 
 extern sigjmp_buf sigint_interrupt_jmp;
 
-extern void setup_cancel_handler(void);
+extern void psql_setup_cancel_handler(void);
 
-extern void SetCancelConn(void);
-extern void ResetCancelConn(void);
+extern void SetShellResultVariables(int wait_result);
 
 extern PGresult *PSQLexec(const char *query);
-extern int	PSQLexecWatch(const char *query, const printQueryOpt *opt);
+extern int	PSQLexecWatch(const char *query, const printQueryOpt *opt, FILE *printQueryFout, int min_rows);
 
 extern bool SendQuery(const char *query);
 
@@ -43,6 +41,7 @@ extern bool standard_strings(void);
 extern const char *session_username(void);
 
 extern void expand_tilde(char **filename);
+extern void clean_extended_state(void);
 
 extern bool recognized_connection_string(const char *connstr);
 

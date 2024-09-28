@@ -8,25 +8,58 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: pgscripts-cs (PostgreSQL 9.3)\n"
+<<<<<<< HEAD
 "Report-Msgid-Bugs-To: pgsql-bugs@postgresql.org\n"
 "POT-Creation-Date: 2019-09-27 15:23+0000\n"
 "PO-Revision-Date: 2019-09-27 22:36+0200\n"
+=======
+"Report-Msgid-Bugs-To: pgsql-bugs@lists.postgresql.org\n"
+"POT-Creation-Date: 2020-10-31 16:16+0000\n"
+"PO-Revision-Date: 2021-09-16 09:15+0200\n"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 "Last-Translator: Tomas Vondra <tv@fuzzy.cz>\n"
 "Language-Team: Czech <info@cspug.cx>\n"
 "Language: cs\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+<<<<<<< HEAD
 "X-Generator: Poedit 2.2.3\n"
 "Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
 
 #: ../../common/fe_memutils.c:35 ../../common/fe_memutils.c:75
 #: ../../common/fe_memutils.c:98
+=======
+"X-Generator: Poedit 2.4.1\n"
+"Plural-Forms: nplurals=3; plural=(n==1) ? 0 : (n>=2 && n<=4) ? 1 : 2;\n"
+
+#: ../../../src/common/logging.c:236
+#, c-format
+msgid "fatal: "
+msgstr "fatal: "
+
+#: ../../../src/common/logging.c:243
+#, c-format
+msgid "error: "
+msgstr "error: "
+
+#: ../../../src/common/logging.c:250
+#, c-format
+msgid "warning: "
+msgstr "warning: "
+
+#: ../../common/fe_memutils.c:35 ../../common/fe_memutils.c:75
+#: ../../common/fe_memutils.c:98 ../../common/fe_memutils.c:162
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "out of memory\n"
 msgstr "paměť vyčerpána\n"
 
+<<<<<<< HEAD
 #: ../../common/fe_memutils.c:92
+=======
+#: ../../common/fe_memutils.c:92 ../../common/fe_memutils.c:154
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "cannot duplicate null pointer (internal error)\n"
 msgstr "nelze duplikovat nulový ukazatel (interní chyba)\n"
@@ -45,7 +78,24 @@ msgstr "uživatel neexistuje"
 msgid "user name lookup failure: error code %lu"
 msgstr "chyba vyhledávání jména uživatele: chybový kód %lu"
 
+<<<<<<< HEAD
 #: ../../fe_utils/print.c:353
+=======
+#: ../../fe_utils/cancel.c:161 ../../fe_utils/cancel.c:206
+msgid "Cancel request sent\n"
+msgstr "Požadavek na zrušení byl poslán\n"
+
+#: ../../fe_utils/cancel.c:165
+msgid "Could not send cancel request: "
+msgstr "Nelze poslat požadavek na zrušení: "
+
+#: ../../fe_utils/cancel.c:210
+#, c-format
+msgid "Could not send cancel request: %s"
+msgstr "Nelze poslat požadavek na zrušení: %s"
+
+#: ../../fe_utils/print.c:350
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "(%lu row)"
 msgid_plural "(%lu rows)"
@@ -53,34 +103,58 @@ msgstr[0] "(%lu řádka)"
 msgstr[1] "(%lu řádky)"
 msgstr[2] "(%lu řádek)"
 
+<<<<<<< HEAD
 #: ../../fe_utils/print.c:2939
+=======
+#: ../../fe_utils/print.c:3055
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Interrupted\n"
 msgstr "Přerušeno\n"
 
+<<<<<<< HEAD
 #: ../../fe_utils/print.c:3003
+=======
+#: ../../fe_utils/print.c:3119
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Cannot add header to table content: column count of %d exceeded.\n"
 msgstr "Nelze přidat hlavičku k obsahu tabulky: překročen počet sloupců %d.\n"
 
+<<<<<<< HEAD
 #: ../../fe_utils/print.c:3043
+=======
+#: ../../fe_utils/print.c:3159
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Cannot add cell to table content: total cell count of %d exceeded.\n"
 msgstr "Nelze přidat buňku do obsahu tabulky: překročen celkový počet buněk %d.\n"
 
+<<<<<<< HEAD
 #: ../../fe_utils/print.c:3292
+=======
+#: ../../fe_utils/print.c:3414
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "invalid output format (internal error): %d"
 msgstr "specifikován neplatný formát výstupu (interní chyba): %d"
 
+<<<<<<< HEAD
 #: clusterdb.c:111 clusterdb.c:130 createdb.c:119 createdb.c:138
 #: createuser.c:166 createuser.c:181 dropdb.c:94 dropdb.c:103 dropdb.c:111
 #: dropuser.c:90 dropuser.c:105 dropuser.c:120 pg_isready.c:93 pg_isready.c:107
 #: reindexdb.c:131 reindexdb.c:150 vacuumdb.c:215 vacuumdb.c:234
+=======
+#: clusterdb.c:110 clusterdb.c:129 createdb.c:122 createdb.c:141
+#: createuser.c:172 createuser.c:187 dropdb.c:102 dropdb.c:111 dropdb.c:119
+#: dropuser.c:93 dropuser.c:108 dropuser.c:123 pg_isready.c:95 pg_isready.c:109
+#: reindexdb.c:166 reindexdb.c:185 vacuumdb.c:225 vacuumdb.c:244
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Try \"%s --help\" for more information.\n"
 msgstr "Zkuste \"%s --help\" pro více informací.\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:128 createdb.c:136 createuser.c:179 dropdb.c:109 dropuser.c:103
 #: pg_isready.c:105 reindexdb.c:148 vacuumdb.c:232
 #, c-format
@@ -91,28 +165,56 @@ msgstr "%s: příliš mnoho parametrů příkazové řádky (první je \"%s\")\n
 #, c-format
 msgid "%s: cannot cluster all databases and a specific one at the same time\n"
 msgstr "%s: nelze vytvořit cluster ve všech databázích a zároveň specifikovat jen jednu\n"
+=======
+#: clusterdb.c:127 createdb.c:139 createuser.c:185 dropdb.c:117 dropuser.c:106
+#: pg_isready.c:107 reindexdb.c:183 vacuumdb.c:242
+#, c-format
+msgid "too many command-line arguments (first is \"%s\")"
+msgstr "příliš mnoho parametrů příkazové řádky (první je \"%s\")"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #: clusterdb.c:147
 #, c-format
-msgid "%s: cannot cluster specific table(s) in all databases\n"
-msgstr "%s: nelze provést cluster specifické tabulky ve všech databázích\n"
+msgid "cannot cluster all databases and a specific one at the same time"
+msgstr "nelze provést cluster ve všech databázích a zároveň specifikovat jen jednu"
 
+<<<<<<< HEAD
 #: clusterdb.c:216
+=======
+#: clusterdb.c:152
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: clustering of table \"%s\" in database \"%s\" failed: %s"
-msgstr "%s: vytváření clusteru tabulky \"%s\" v databázi \"%s\" selhalo: %s"
+msgid "cannot cluster specific table(s) in all databases"
+msgstr "nelze provést cluster specifické tabulky ve všech databázích"
 
+<<<<<<< HEAD
 #: clusterdb.c:219
+=======
+#: clusterdb.c:218
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: clustering of database \"%s\" failed: %s"
-msgstr "%s: vytváření clusterů databáze \"%s\" selhalo: %s"
+msgid "clustering of table \"%s\" in database \"%s\" failed: %s"
+msgstr "clusterování tabulky \"%s\" v databázi \"%s\" selhalo: %s"
 
+<<<<<<< HEAD
 #: clusterdb.c:252
+=======
+#: clusterdb.c:221
+#, c-format
+msgid "clustering of database \"%s\" failed: %s"
+msgstr "clusterování databáze \"%s\" selhalo: %s"
+
+#: clusterdb.c:249
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: clustering database \"%s\"\n"
 msgstr "%s: provádí se cluster databáze \"%s\"\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:273
+=======
+#: clusterdb.c:265
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "%s clusters all previously clustered tables in a database.\n"
@@ -121,19 +223,33 @@ msgstr ""
 "%s vytváří cluster všech již dříve clusterovaných tabulek v databázi.\n"
 "\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:274 createdb.c:252 createuser.c:343 dropdb.c:156 dropuser.c:161
 #: pg_isready.c:222 reindexdb.c:402 vacuumdb.c:1013
+=======
+#: clusterdb.c:266 createdb.c:266 createuser.c:354 dropdb.c:170 dropuser.c:170
+#: pg_isready.c:224 reindexdb.c:750 vacuumdb.c:911
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Usage:\n"
 msgstr "Použití:\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:275 reindexdb.c:403 vacuumdb.c:1014
+=======
+#: clusterdb.c:267 reindexdb.c:751 vacuumdb.c:912
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  %s [OPTION]... [DBNAME]\n"
 msgstr "  %s [PŘEPÍNAČ]... [DATABÁZE]\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:276 createdb.c:254 createuser.c:345 dropdb.c:158 dropuser.c:163
 #: pg_isready.c:225 reindexdb.c:404 vacuumdb.c:1015
+=======
+#: clusterdb.c:268 createdb.c:268 createuser.c:356 dropdb.c:172 dropuser.c:172
+#: pg_isready.c:227 reindexdb.c:752 vacuumdb.c:913
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "\n"
@@ -142,48 +258,85 @@ msgstr ""
 "\n"
 "Přepínače:\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:277
+=======
+#: clusterdb.c:269
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -a, --all                 cluster all databases\n"
 msgstr "  -a, --all                 clusterovat všechny databáze\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:278
+=======
+#: clusterdb.c:270
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -d, --dbname=DBNAME       database to cluster\n"
 msgstr "  -d, --dbname=DATABÁZE     databáze pro cluster\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:279 createuser.c:349 dropdb.c:159 dropuser.c:164 reindexdb.c:407
+=======
+#: clusterdb.c:271 createuser.c:360 dropdb.c:173 dropuser.c:173 reindexdb.c:756
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -e, --echo                show the commands being sent to the server\n"
 msgstr "  -e, --echo                ukazovat příkazy posílané na server\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:280 reindexdb.c:409
+=======
+#: clusterdb.c:272 reindexdb.c:759
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -q, --quiet               don't write any messages\n"
 msgstr "  -q, --quiet               nevypisovat žádné zprávy\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:281
+=======
+#: clusterdb.c:273
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -t, --table=TABLE         cluster specific table(s) only\n"
 msgstr "  -t, --table=TABULKA       provést cluster pro danou tabulku\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:282 reindexdb.c:413
+=======
+#: clusterdb.c:274 reindexdb.c:763
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -v, --verbose             write a lot of output\n"
 msgstr "  -v, --verbose             vypisovat více informací\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:283 createuser.c:361 dropdb.c:161 dropuser.c:167 reindexdb.c:414
+=======
+#: clusterdb.c:275 createuser.c:372 dropdb.c:176 dropuser.c:176 reindexdb.c:764
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -V, --version             output version information, then exit\n"
 msgstr "  -V, --version             ukáže informaci o verzi a skončí\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:284 createuser.c:366 dropdb.c:163 dropuser.c:169 reindexdb.c:415
+=======
+#: clusterdb.c:276 createuser.c:377 dropdb.c:178 dropuser.c:178 reindexdb.c:765
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -?, --help                show this help, then exit\n"
 msgstr "  -?, --help                ukáže tuto nápovědu a skončí\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:285 createdb.c:265 createuser.c:367 dropdb.c:164 dropuser.c:170
 #: pg_isready.c:231 reindexdb.c:416 vacuumdb.c:1031
+=======
+#: clusterdb.c:277 createdb.c:279 createuser.c:378 dropdb.c:179 dropuser.c:179
+#: pg_isready.c:233 reindexdb.c:766 vacuumdb.c:934
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "\n"
@@ -192,41 +345,73 @@ msgstr ""
 "\n"
 "Parametry spojení:\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:286 createuser.c:368 dropdb.c:165 dropuser.c:171 reindexdb.c:417
 #: vacuumdb.c:1032
+=======
+#: clusterdb.c:278 createuser.c:379 dropdb.c:180 dropuser.c:180 reindexdb.c:767
+#: vacuumdb.c:935
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -h, --host=HOSTNAME       database server host or socket directory\n"
 msgstr "  -h, --host=HOSTNAME       jméno databázového serveru nebo adresáře se soketem\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:287 createuser.c:369 dropdb.c:166 dropuser.c:172 reindexdb.c:418
 #: vacuumdb.c:1033
+=======
+#: clusterdb.c:279 createuser.c:380 dropdb.c:181 dropuser.c:181 reindexdb.c:768
+#: vacuumdb.c:936
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -p, --port=PORT           database server port\n"
-msgstr "  -p, --port=PORT          port databázového serveru\n"
+msgstr "  -p, --port=PORT           port databázového serveru\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:288 dropdb.c:167 reindexdb.c:419 vacuumdb.c:1034
+=======
+#: clusterdb.c:280 dropdb.c:182 reindexdb.c:769 vacuumdb.c:937
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -U, --username=USERNAME   user name to connect as\n"
 msgstr "  -U, --username=UŽIVATEL   jméno uživatele pro spojení se serverem\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:289 createuser.c:371 dropdb.c:168 dropuser.c:174 reindexdb.c:420
 #: vacuumdb.c:1035
+=======
+#: clusterdb.c:281 createuser.c:382 dropdb.c:183 dropuser.c:183 reindexdb.c:770
+#: vacuumdb.c:938
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -w, --no-password         never prompt for password\n"
 msgstr "  -w, --no-password         neptá se na heslo\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:290 createuser.c:372 dropdb.c:169 dropuser.c:175 reindexdb.c:421
 #: vacuumdb.c:1036
+=======
+#: clusterdb.c:282 createuser.c:383 dropdb.c:184 dropuser.c:184 reindexdb.c:771
+#: vacuumdb.c:939
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -W, --password            force password prompt\n"
 msgstr "  -W, --password            vynutí dotaz na heslo\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:291 dropdb.c:170 reindexdb.c:422 vacuumdb.c:1037
+=======
+#: clusterdb.c:283 dropdb.c:185 reindexdb.c:772 vacuumdb.c:940
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  --maintenance-db=DBNAME   alternate maintenance database\n"
 msgstr "  --maintenance-db=DBNAME   alternativní maintenance databáze\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:292
+=======
+#: clusterdb.c:284
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "\n"
@@ -235,16 +420,22 @@ msgstr ""
 "\n"
 "Pro detaily čtěte popis SQL příkazu CLUSTER.\n"
 
+<<<<<<< HEAD
 #: clusterdb.c:293 createdb.c:273 createuser.c:373 dropdb.c:171 dropuser.c:176
 #: pg_isready.c:236 reindexdb.c:424 vacuumdb.c:1039
+=======
+#: clusterdb.c:285 createdb.c:287 createuser.c:384 dropdb.c:186 dropuser.c:185
+#: pg_isready.c:238 reindexdb.c:774 vacuumdb.c:942
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "\n"
-"Report bugs to <pgsql-bugs@postgresql.org>.\n"
+"Report bugs to <%s>.\n"
 msgstr ""
 "\n"
-"Chyby hlaste na adresu <pgsql-bugs@postgresql.org>.\n"
+"Chyby hlašte na <%s>.\n"
 
+<<<<<<< HEAD
 #: common.c:83 common.c:129
 msgid "Password: "
 msgstr "Heslo: "
@@ -255,19 +446,58 @@ msgid "%s: could not connect to database %s: out of memory\n"
 msgstr "%s: nelze navázat spojení s databází %s: nedotatek paměti\n"
 
 #: common.c:143
+=======
+#: clusterdb.c:286 createdb.c:288 createuser.c:385 dropdb.c:187 dropuser.c:186
+#: pg_isready.c:239 reindexdb.c:775 vacuumdb.c:943
 #, c-format
-msgid "%s: could not connect to database %s: %s"
-msgstr "%s: nelze navázat spojení s databází %s: %s"
+msgid "%s home page: <%s>\n"
+msgstr "%s domácí stránka: <%s>\n"
 
+#: common.c:80 common.c:138
+msgid "Password: "
+msgstr "Heslo: "
+
+#: common.c:125
+#, c-format
+msgid "could not connect to database %s: out of memory"
+msgstr "nelze navázat spojení s databází %s: nedotatek paměti"
+
+#: common.c:152
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+#, c-format
+msgid "could not connect to database %s: %s"
+msgstr "nelze navázat spojení s databází %s: %s"
+
+<<<<<<< HEAD
 #: common.c:195 common.c:223
+=======
+#: common.c:231 common.c:256
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: query failed: %s"
-msgstr "%s: dotaz selhal: %s"
+msgid "query failed: %s"
+msgstr "dotaz selhal: %s"
 
+<<<<<<< HEAD
 #: common.c:197 common.c:225
+=======
+#: common.c:232 common.c:257
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: query was: %s\n"
-msgstr "%s: dotaz byl: %s\n"
+msgid "query was: %s"
+msgstr "dotaz byl: %s"
+
+#: common.c:329
+#, c-format
+msgid "processing of database \"%s\" failed: %s"
+msgstr "zpracování databáze \"%s\" selhalo: %s"
+
+#: common.c:423
+#, c-format
+msgid "query returned %d row instead of one: %s"
+msgid_plural "query returned %d rows instead of one: %s"
+msgstr[0] "dotaz vrátil %d řádku namísto jedné: %s"
+msgstr[1] "dotaz vrátil %d řádky namísto jedné: %s"
+msgstr[2] "dotaz vrátil %d řádek namísto jedné: %s"
 
 #: common.c:343
 #, c-format
@@ -279,64 +509,78 @@ msgstr[2] "%s: dotaz vrátil %d řádek namísto jedné: %s\n"
 
 #  translator: Make sure the (y/n) prompts match the translation of this.
 #. translator: abbreviation for "yes"
+<<<<<<< HEAD
 #: common.c:368
+=======
+#: common.c:447
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 msgid "y"
 msgstr "a"
 
 #  translator: Make sure the (y/n) prompts match the translation of this.
 #. translator: abbreviation for "no"
+<<<<<<< HEAD
 #: common.c:370
+=======
+#: common.c:449
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 msgid "n"
 msgstr "n"
 
 #. translator: This is a question followed by the translated options for
 #. "yes" and "no".
+<<<<<<< HEAD
 #: common.c:380
+=======
+#: common.c:459
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s (%s/%s) "
 msgstr "%s (%s/%s) "
 
+<<<<<<< HEAD
 #: common.c:394
+=======
+#: common.c:473
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Please answer \"%s\" or \"%s\".\n"
 msgstr "Prosím odpovězte \"%s\" nebo \"%s\".\n"
 
+<<<<<<< HEAD
 #: common.c:473 common.c:510
+=======
+#: createdb.c:149
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "Cancel request sent\n"
-msgstr "Požadavek na zrušení byl poslán\n"
+msgid "only one of --locale and --lc-ctype can be specified"
+msgstr "--locale a --lc-ctype nelze zvolit současně"
 
+<<<<<<< HEAD
 #: common.c:476 common.c:514
+=======
+#: createdb.c:154
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "Could not send cancel request: %s"
-msgstr "Nelze poslat požadavek na zrušení: %s"
+msgid "only one of --locale and --lc-collate can be specified"
+msgstr "--locale a --lc-collate nelze zvolit současně"
 
-#: createdb.c:146
+#: createdb.c:165
 #, c-format
-msgid "%s: only one of --locale and --lc-ctype can be specified\n"
-msgstr "%s: --locale a --lc-ctype nelze zvolit současně\n"
+msgid "\"%s\" is not a valid encoding name"
+msgstr "\"%s\" není platné jméno kódování znaků"
 
-#: createdb.c:152
+#: createdb.c:228
 #, c-format
-msgid "%s: only one of --locale and --lc-collate can be specified\n"
-msgstr "%s: --locale a --lc-collate nelze zvolit současně\n"
+msgid "database creation failed: %s"
+msgstr "vytvoření databáze selhalo: %s"
 
-#: createdb.c:164
+#: createdb.c:247
 #, c-format
-msgid "%s: \"%s\" is not a valid encoding name\n"
-msgstr "%s: \"%s\" není platné jméno kódování znaků\n"
+msgid "comment creation failed (database was created): %s"
+msgstr "tvorba komentáře selhala (databáze byla vytvořena): %s"
 
-#: createdb.c:213
-#, c-format
-msgid "%s: database creation failed: %s"
-msgstr "%s: vytvoření databáze selhalo: %s"
-
-#: createdb.c:233
-#, c-format
-msgid "%s: comment creation failed (database was created): %s"
-msgstr "%s: tvorba komentáře selhala (databáze byla vytvořena): %s"
-
-#: createdb.c:251
+#: createdb.c:265
 #, c-format
 msgid ""
 "%s creates a PostgreSQL database.\n"
@@ -345,92 +589,92 @@ msgstr ""
 "%s vytvoří PostgreSQL databázi.\n"
 "\n"
 
-#: createdb.c:253
+#: createdb.c:267
 #, c-format
 msgid "  %s [OPTION]... [DBNAME] [DESCRIPTION]\n"
 msgstr "  %s [PŘEPÍNAČ]... [DATABÁZE] [POPIS]\n"
 
-#: createdb.c:255
+#: createdb.c:269
 #, c-format
 msgid "  -D, --tablespace=TABLESPACE  default tablespace for the database\n"
 msgstr "  -D, --tablespace=PROSTOR     výchozí prostor tabulek pro databázi\n"
 
-#: createdb.c:256
+#: createdb.c:270
 #, c-format
 msgid "  -e, --echo                   show the commands being sent to the server\n"
 msgstr "  -e, --echo                   ukázat příkazy posílané na server\n"
 
-#: createdb.c:257
+#: createdb.c:271
 #, c-format
 msgid "  -E, --encoding=ENCODING      encoding for the database\n"
 msgstr "  -E, --encoding=KÓDOVÁNÍ      kódování znaků databáze\n"
 
-#: createdb.c:258
+#: createdb.c:272
 #, c-format
 msgid "  -l, --locale=LOCALE          locale settings for the database\n"
 msgstr "  -l, --locale=LOCALE          nastavení locale pro databázi\n"
 
-#: createdb.c:259
+#: createdb.c:273
 #, c-format
 msgid "      --lc-collate=LOCALE      LC_COLLATE setting for the database\n"
 msgstr "      --lc-collate=LOCALE      nastavení LC_COLLATE pro databázi\n"
 
-#: createdb.c:260
+#: createdb.c:274
 #, c-format
 msgid "      --lc-ctype=LOCALE        LC_CTYPE setting for the database\n"
 msgstr "      --lc-ctype=LOCALE        nastavení LC_CTYPE pro databázi\n"
 
-#: createdb.c:261
+#: createdb.c:275
 #, c-format
 msgid "  -O, --owner=OWNER            database user to own the new database\n"
 msgstr "  -O, --owner=VLASTNÍK         uživatel, který má být vlastníkem nové databáze\n"
 
-#: createdb.c:262
+#: createdb.c:276
 #, c-format
 msgid "  -T, --template=TEMPLATE      template database to copy\n"
 msgstr "  -T, --template=ŠABLONA       šablona databáze ke kopírování\n"
 
-#: createdb.c:263
+#: createdb.c:277
 #, c-format
 msgid "  -V, --version                output version information, then exit\n"
 msgstr "  -V, --version                ukáže informaci o verzi a skončí\n"
 
-#: createdb.c:264
+#: createdb.c:278
 #, c-format
 msgid "  -?, --help                   show this help, then exit\n"
 msgstr "  -?, --help                   ukáže tuto nápovědu a skončí\n"
 
-#: createdb.c:266
+#: createdb.c:280
 #, c-format
 msgid "  -h, --host=HOSTNAME          database server host or socket directory\n"
 msgstr "  -h, --host=HOSTNAME          jméno databázového serveru nebo adresáře se soketem\n"
 
-#: createdb.c:267
+#: createdb.c:281
 #, c-format
 msgid "  -p, --port=PORT              database server port\n"
 msgstr "  -p, --port=PORT              port databázového serveru\n"
 
-#: createdb.c:268
+#: createdb.c:282
 #, c-format
 msgid "  -U, --username=USERNAME      user name to connect as\n"
 msgstr "  -U, --username=UŽIVATEL      jméno uživatele pro spojení se serverem\n"
 
-#: createdb.c:269
+#: createdb.c:283
 #, c-format
 msgid "  -w, --no-password            never prompt for password\n"
 msgstr "  -w, --no-password            neptá se na heslo\n"
 
-#: createdb.c:270
+#: createdb.c:284
 #, c-format
 msgid "  -W, --password               force password prompt\n"
 msgstr "  -W, --password               vynutí dotaz na heslo\n"
 
-#: createdb.c:271
+#: createdb.c:285
 #, c-format
 msgid "  --maintenance-db=DBNAME      alternate maintenance database\n"
 msgstr "  --maintenance-db=DBNAME      alternativní maintenance databáze\n"
 
-#: createdb.c:272
+#: createdb.c:286
 #, c-format
 msgid ""
 "\n"
@@ -439,6 +683,7 @@ msgstr ""
 "\n"
 "Implicitně je vytvořena databáze stejného jména jako je jméno aktuálního uživatele.\n"
 
+<<<<<<< HEAD
 #: createuser.c:189
 msgid "Enter name of role to add: "
 msgstr "Vložte jméno role, kterou chete přidat: "
@@ -452,10 +697,31 @@ msgid "Enter it again: "
 msgstr "Zadejte znova: "
 
 #: createuser.c:211
+=======
+#: createuser.c:151
+#, c-format
+msgid "invalid value for --connection-limit: %s"
+msgstr "chybná hodnota pro volbu --connection-limit: %s"
+
+#: createuser.c:195
+msgid "Enter name of role to add: "
+msgstr "Vložte jméno role, kterou chete přidat: "
+
+#: createuser.c:212
+msgid "Enter password for new role: "
+msgstr "Vložte heslo nové role: "
+
+#: createuser.c:214
+msgid "Enter it again: "
+msgstr "Zadejte znova: "
+
+#: createuser.c:217
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "Passwords didn't match.\n"
 msgstr "Hesla se neshodují.\n"
 
+<<<<<<< HEAD
 #: createuser.c:219
 msgid "Shall the new role be a superuser?"
 msgstr "Má být nová role superuživatel?"
@@ -474,11 +740,35 @@ msgid "%s: password encryption failed: %s"
 msgstr "%s: pašifrování hesla selhalo: %s"
 
 #: createuser.c:327
-#, c-format
-msgid "%s: creation of new role failed: %s"
-msgstr "%s: tvorba nové role selhala: %s"
+=======
+#: createuser.c:225
+msgid "Shall the new role be a superuser?"
+msgstr "Má být nová role superuživatel?"
 
+#: createuser.c:240
+msgid "Shall the new role be allowed to create databases?"
+msgstr "Měla by mít nová role právo vytvářet databáze?"
+
+#: createuser.c:248
+msgid "Shall the new role be allowed to create more new roles?"
+msgstr "Měla by mít nová role právo vytvářet další nové role?"
+
+#: createuser.c:284
+#, c-format
+msgid "password encryption failed: %s"
+msgstr "šifrování hesla selhalo: %s"
+
+#: createuser.c:339
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+#, c-format
+msgid "creation of new role failed: %s"
+msgstr "tvorba nové role selhala: %s"
+
+<<<<<<< HEAD
 #: createuser.c:342
+=======
+#: createuser.c:353
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "%s creates a new PostgreSQL role.\n"
@@ -487,32 +777,56 @@ msgstr ""
 "%s vytvoří novou PostgreSQL roli.\n"
 "\n"
 
+<<<<<<< HEAD
 #: createuser.c:344 dropuser.c:162
+=======
+#: createuser.c:355 dropuser.c:171
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  %s [OPTION]... [ROLENAME]\n"
 msgstr "  %s [PŘEPÍNAČ]... [JMÉNO ROLE]\n"
 
+<<<<<<< HEAD
 #: createuser.c:346
+=======
+#: createuser.c:357
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -c, --connection-limit=N  connection limit for role (default: no limit)\n"
 msgstr "  -c, --connection-limit=N  limit počtu konexí pro role (implicitně: bez limitu)\n"
 
+<<<<<<< HEAD
 #: createuser.c:347
+=======
+#: createuser.c:358
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -d, --createdb            role can create new databases\n"
 msgstr "  -d, --createdb            role může vytvářet nové databáze\n"
 
+<<<<<<< HEAD
 #: createuser.c:348
+=======
+#: createuser.c:359
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -D, --no-createdb         role cannot create databases (default)\n"
 msgstr "  -D, --no-createdb         role nemůže vytvářet nové databáze (výchozí)\n"
 
+<<<<<<< HEAD
 #: createuser.c:350
+=======
+#: createuser.c:361
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -g, --role=ROLE           new role will be a member of this role\n"
 msgstr "  -g, --role=ROLE           nová role bude členem této role\n"
 
+<<<<<<< HEAD
 #: createuser.c:351
+=======
+#: createuser.c:362
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "  -i, --inherit             role inherits privileges of roles it is a\n"
@@ -521,47 +835,83 @@ msgstr ""
 "  -i, --inherit             role dědí práva rolí, kterých je členem\n"
 "                            (implicitně)\n"
 
+<<<<<<< HEAD
 #: createuser.c:353
+=======
+#: createuser.c:364
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -I, --no-inherit          role does not inherit privileges\n"
 msgstr "  -I, --no-inherit          role nedědí práva\n"
 
+<<<<<<< HEAD
 #: createuser.c:354
+=======
+#: createuser.c:365
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -l, --login               role can login (default)\n"
 msgstr "  -l, --login               role se může přihlásit (implicitně)\n"
 
+<<<<<<< HEAD
 #: createuser.c:355
+=======
+#: createuser.c:366
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -L, --no-login            role cannot login\n"
 msgstr "  -L, --no-login            role se nemůže přihlásit\n"
 
+<<<<<<< HEAD
 #: createuser.c:356
+=======
+#: createuser.c:367
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -P, --pwprompt            assign a password to new role\n"
 msgstr "  -P, --pwprompt            nastavit heslo pro novou roli\n"
 
+<<<<<<< HEAD
 #: createuser.c:357
+=======
+#: createuser.c:368
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -r, --createrole          role can create new roles\n"
 msgstr "  -r, --createrole          role může vytvářet nové role\n"
 
+<<<<<<< HEAD
 #: createuser.c:358
+=======
+#: createuser.c:369
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -R, --no-createrole       role cannot create roles (default)\n"
 msgstr "  -R, --no-createrole       role nemůže vytvářet nové role (výchozí)\n"
 
+<<<<<<< HEAD
 #: createuser.c:359
+=======
+#: createuser.c:370
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -s, --superuser           role will be superuser\n"
 msgstr "  -s, --superuser           role bude superuživatel\n"
 
+<<<<<<< HEAD
 #: createuser.c:360
+=======
+#: createuser.c:371
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -S, --no-superuser        role will not be superuser (default)\n"
 msgstr "  -S, --no-superuser        role nebude superuživatel (výchozí)\n"
 
+<<<<<<< HEAD
 #: createuser.c:362
+=======
+#: createuser.c:373
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "  --interactive             prompt for missing role name and attributes rather\n"
@@ -570,41 +920,65 @@ msgstr ""
 "  --interactive             zeptej se na chybějící jméno role a atributy namísto\n"
 "                            použití výchozích hodnot\n"
 
+<<<<<<< HEAD
 #: createuser.c:364
+=======
+#: createuser.c:375
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  --replication             role can initiate replication\n"
 msgstr "  --replication             role může inicializovat replikaci\n"
 
+<<<<<<< HEAD
 #: createuser.c:365
+=======
+#: createuser.c:376
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  --no-replication          role cannot initiate replication\n"
 msgstr "  --no-replication          role nemůže inicializovat  replikaci\n"
 
+<<<<<<< HEAD
 #: createuser.c:370
+=======
+#: createuser.c:381
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -U, --username=USERNAME   user name to connect as (not the one to create)\n"
 msgstr "  -U, --username=UŽIVATEL   jméno uživatele pro spojení (ne pro tvorbu)\n"
 
-#: dropdb.c:102
+#: dropdb.c:110
 #, c-format
-msgid "%s: missing required argument database name\n"
-msgstr "%s: chybí vyžadovaný parametr jméno databáze\n"
+msgid "missing required argument database name"
+msgstr "chybí vyžadovaný parametr jméno databáze"
 
-#: dropdb.c:117
+#: dropdb.c:125
 #, c-format
 msgid "Database \"%s\" will be permanently removed.\n"
 msgstr "Databáze \"%s\" bude trvale odstraněna.\n"
 
+<<<<<<< HEAD
 #: dropdb.c:118 dropuser.c:128
 msgid "Are you sure?"
 msgstr "Určitě?"
 
 #: dropdb.c:140
-#, c-format
-msgid "%s: database removal failed: %s"
-msgstr "%s: odstraňování databáze selhalo: %s"
+=======
+#: dropdb.c:126 dropuser.c:131
+msgid "Are you sure?"
+msgstr "Určitě?"
 
 #: dropdb.c:155
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+#, c-format
+msgid "database removal failed: %s"
+msgstr "odstraňování databáze selhalo: %s"
+
+<<<<<<< HEAD
+#: dropdb.c:155
+=======
+#: dropdb.c:169
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "%s removes a PostgreSQL database.\n"
@@ -613,21 +987,39 @@ msgstr ""
 "%s odstraňuje PostgreSQL databázi.\n"
 "\n"
 
+<<<<<<< HEAD
 #: dropdb.c:157
+=======
+#: dropdb.c:171
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  %s [OPTION]... DBNAME\n"
 msgstr "  %s [PŘEPÍNAČ]... DATABÁZE\n"
 
+<<<<<<< HEAD
 #: dropdb.c:160
+=======
+#: dropdb.c:174
+#, c-format
+msgid "  -f, --force               try to terminate other connections before dropping\n"
+msgstr "  -f, --force               pokus se přerušit ostatní spojení před smazáním\n"
+
+#: dropdb.c:175
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -i, --interactive         prompt before deleting anything\n"
 msgstr "  -i, --interactive         zeptej se před smazáním čehokoli\n"
 
+<<<<<<< HEAD
 #: dropdb.c:162
+=======
+#: dropdb.c:177
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  --if-exists               don't report error if database doesn't exist\n"
 msgstr "  --if-exists               nevypisuj chybu pokud databáze neexistuje\n"
 
+<<<<<<< HEAD
 #: dropuser.c:113
 msgid "Enter name of role to drop: "
 msgstr "Vložte jméno role pro odstranění: "
@@ -638,16 +1030,36 @@ msgid "%s: missing required argument role name\n"
 msgstr "%s: chybí povinný parametr jméno role\n"
 
 #: dropuser.c:127
+=======
+#: dropuser.c:116
+msgid "Enter name of role to drop: "
+msgstr "Vložte jméno role pro odstranění: "
+
+#: dropuser.c:122
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+#, c-format
+msgid "missing required argument role name"
+msgstr "chybí povinný parametr jméno role"
+
+#: dropuser.c:130
 #, c-format
 msgid "Role \"%s\" will be permanently removed.\n"
 msgstr "Role \"%s\" bude trvale odstraněna.\n"
 
+<<<<<<< HEAD
 #: dropuser.c:145
+=======
+#: dropuser.c:154
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: removal of role \"%s\" failed: %s"
-msgstr "%s: odstraňování role \"%s\" selhalo: %s"
+msgid "removal of role \"%s\" failed: %s"
+msgstr "odstraňování role \"%s\" selhalo: %s"
 
+<<<<<<< HEAD
 #: dropuser.c:160
+=======
+#: dropuser.c:169
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "%s removes a PostgreSQL role.\n"
@@ -656,7 +1068,11 @@ msgstr ""
 "%s odstraňuje PostgreSQL roli.\n"
 "\n"
 
+<<<<<<< HEAD
 #: dropuser.c:165
+=======
+#: dropuser.c:174
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "  -i, --interactive         prompt before deleting anything, and prompt for\n"
@@ -665,6 +1081,7 @@ msgstr ""
 "  -i, --interactive         před smazáním čehokoliv se zeptá, a také na jméno\n"
 "                            role pokud není zadáno\n"
 
+<<<<<<< HEAD
 #: dropuser.c:168
 #, c-format
 msgid "  --if-exists               don't report error if user doesn't exist\n"
@@ -676,41 +1093,82 @@ msgid "  -U, --username=USERNAME   user name to connect as (not the one to drop)
 msgstr "  -U, --username=UŽIVATEL   jméno uživatele pro spojení (ne pro odstranění)\n"
 
 #: pg_isready.c:142
+=======
+#: dropuser.c:177
 #, c-format
-msgid "%s: %s"
-msgstr "%s: %s"
+msgid "  --if-exists               don't report error if user doesn't exist\n"
+msgstr "  --if-exists               nevypisuj chybu pokud uživatel neexistuje\n"
 
+#: dropuser.c:182
+#, c-format
+msgid "  -U, --username=USERNAME   user name to connect as (not the one to drop)\n"
+msgstr "  -U, --username=UŽIVATEL   jméno uživatele pro spojení (ne pro odstranění)\n"
+
+#: pg_isready.c:144
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+#, c-format
+msgid "%s"
+msgstr "%s"
+
+<<<<<<< HEAD
 #: pg_isready.c:150
+=======
+#: pg_isready.c:152
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: could not fetch default options\n"
-msgstr "%s: nelze načíst výchozí volby\n"
+msgid "could not fetch default options"
+msgstr "nelze načíst výchozí volby"
 
+<<<<<<< HEAD
 #: pg_isready.c:199
+=======
+#: pg_isready.c:201
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "accepting connections\n"
 msgstr "server přijímá spojení\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:202
+=======
+#: pg_isready.c:204
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "rejecting connections\n"
 msgstr "server odmítá spojení\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:205
+=======
+#: pg_isready.c:207
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "no response\n"
 msgstr "žádná odpověď\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:208
+=======
+#: pg_isready.c:210
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "no attempt\n"
 msgstr "žádný pokus\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:211
+=======
+#: pg_isready.c:213
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "unknown\n"
 msgstr "neznámo\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:221
+=======
+#: pg_isready.c:223
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "%s issues a connection check to a PostgreSQL database.\n"
@@ -719,76 +1177,130 @@ msgstr ""
 "%s provede kontrolu spojení k PostgreSQL databázi.\n"
 "\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:223
+=======
+#: pg_isready.c:225
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  %s [OPTION]...\n"
 msgstr "  %s [PŘEPÍNAČ]...\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:226
+=======
+#: pg_isready.c:228
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -d, --dbname=DBNAME      database name\n"
 msgstr "  -d, --dbname=DATABÁZE     databáze k reindexaci\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:227
+=======
+#: pg_isready.c:229
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -q, --quiet              run quietly\n"
 msgstr "  -q, --quiet               nevypisovat žádné zprávy\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:228
+=======
+#: pg_isready.c:230
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -V, --version            output version information, then exit\n"
 msgstr "  -V, --version             ukáže informaci o verzi a skončí\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:229
+=======
+#: pg_isready.c:231
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -?, --help               show this help, then exit\n"
 msgstr "  -?, --help                ukáže tuto nápovědu a skončí\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:232
+=======
+#: pg_isready.c:234
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -h, --host=HOSTNAME      database server host or socket directory\n"
 msgstr "  -h, --host=HOSTNAME       jméno databázového serveru nebo adresáře se soketem\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:233
+=======
+#: pg_isready.c:235
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -p, --port=PORT          database server port\n"
-msgstr "  -p, --port=PORT          port databázového serveru\n"
+msgstr "  -p, --port=PORT           port databázového serveru\n"
 
+<<<<<<< HEAD
 #: pg_isready.c:234
 #, c-format
 msgid "  -t, --timeout=SECS       seconds to wait when attempting connection, 0 disables (default: %s)\n"
 msgstr "  -t, --timeout=SECS       počet vteřin čekání při pokusu o spojení, 0 toto omezení vypne (výchozí: %s)\n"
 
 #: pg_isready.c:235
+=======
+#: pg_isready.c:236
+#, c-format
+msgid "  -t, --timeout=SECS       seconds to wait when attempting connection, 0 disables (default: %s)\n"
+msgstr "  -t, --timeout=SECS        počet vteřin čekání při pokusu o spojení, 0 toto omezení vypne (výchozí: %s)\n"
+
+#: pg_isready.c:237
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -U, --username=USERNAME  user name to connect as\n"
 msgstr "  -U, --username=UŽIVATEL   jméno uživatele pro připojení\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:160
+=======
+#: reindexdb.c:152 vacuumdb.c:184
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: cannot reindex all databases and a specific one at the same time\n"
-msgstr "%s: nelze reindexovat všechny databáze a současně zvolenou databázi\n"
+msgid "number of parallel jobs must be at least 1"
+msgstr "počet paralelních jobů musí být alespoň 1"
 
+<<<<<<< HEAD
 #: reindexdb.c:165
+=======
+#: reindexdb.c:202
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: cannot reindex all databases and system catalogs at the same time\n"
-msgstr "%s: nelze reindexovat všechny databáze a současně systemový katalog\n"
+msgid "cannot reindex all databases and a specific one at the same time"
+msgstr "nelze reindexovat všechny databáze a současně zvolenou databázi"
 
+<<<<<<< HEAD
 #: reindexdb.c:170
 #, c-format
 msgid "%s: cannot reindex specific schema(s) in all databases\n"
 msgstr "%s: nelze reindexovat vybrané schema ve všech databázích\n"
 
 #: reindexdb.c:175
+=======
+#: reindexdb.c:207
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: cannot reindex specific table(s) in all databases\n"
-msgstr "%s: nelze reindexovat vybranou tabulku ve všech databázích\n"
+msgid "cannot reindex all databases and system catalogs at the same time"
+msgstr "nelze reindexovat všechny databáze a současně systemový katalog"
 
+<<<<<<< HEAD
 #: reindexdb.c:180
+=======
+#: reindexdb.c:212
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: cannot reindex specific index(es) in all databases\n"
-msgstr "%s: nelze reindexovat vybraný index ve všech databázích\n"
+msgid "cannot reindex specific schema(s) in all databases"
+msgstr "nelze reindexovat vybrané schema ve všech databázích"
 
+<<<<<<< HEAD
 #: reindexdb.c:191
 #, c-format
 msgid "%s: cannot reindex specific schema(s) and system catalogs at the same time\n"
@@ -805,36 +1317,111 @@ msgid "%s: cannot reindex specific index(es) and system catalogs at the same tim
 msgstr "%s: nelze reindexovat vybraný index a současně sytémový katalog\n"
 
 #: reindexdb.c:308
+=======
+#: reindexdb.c:217
 #, c-format
-msgid "%s: reindexing of table \"%s\" in database \"%s\" failed: %s"
-msgstr "%s: reindexace tabulky \"%s\" v databázi \"%s\" selhala: %s"
+msgid "cannot reindex specific table(s) in all databases"
+msgstr "nelze reindexovat vybranou tabulku ve všech databázích"
 
+#: reindexdb.c:222
+#, c-format
+msgid "cannot reindex specific index(es) in all databases"
+msgstr "nelze reindexovat vybraný index ve všech databázích"
+
+#: reindexdb.c:235
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+#, c-format
+msgid "cannot reindex specific schema(s) and system catalogs at the same time"
+msgstr "nelze reindexovat vybraná schemata a současně sytémové katalogy"
+
+<<<<<<< HEAD
 #: reindexdb.c:311
+=======
+#: reindexdb.c:240
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: reindexing of index \"%s\" in database \"%s\" failed: %s"
-msgstr "%s: reindexace indexu \"%s\" v databázi \"%s\" selhala: %s"
+msgid "cannot reindex specific table(s) and system catalogs at the same time"
+msgstr "nelze reindexovat vybranou tabulku a současně sytémové katalogy"
 
+<<<<<<< HEAD
 #: reindexdb.c:314
 #, c-format
 msgid "%s: reindexing of schema \"%s\" in database \"%s\" failed: %s"
 msgstr "%s: reindexace schematu \"%s\" v databázi \"%s\" selhala: %s"
 
 #: reindexdb.c:317
+=======
+#: reindexdb.c:245
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
-msgid "%s: reindexing of database \"%s\" failed: %s"
-msgstr "%s: reindexace databáze \"%s\" selhala: %s"
+msgid "cannot reindex specific index(es) and system catalogs at the same time"
+msgstr "nelze reindexovat vybraný index a současně sytémový katalog"
 
+<<<<<<< HEAD
 #: reindexdb.c:350
+=======
+#: reindexdb.c:251
+#, c-format
+msgid "cannot use multiple jobs to reindex system catalogs"
+msgstr "pro reindexování systémových katalogů nelze použít více jobů"
+
+#: reindexdb.c:280
+#, c-format
+msgid "cannot use multiple jobs to reindex indexes"
+msgstr "pro reindexování nelze použít více paralelních jobů"
+
+#: reindexdb.c:344 vacuumdb.c:413 vacuumdb.c:421 vacuumdb.c:428 vacuumdb.c:435
+#: vacuumdb.c:442
+#, c-format
+msgid "cannot use the \"%s\" option on server versions older than PostgreSQL %s"
+msgstr "volbu \"%s\" nelze použít na serverech starších než PostgreSQL %s"
+
+#: reindexdb.c:384
+#, c-format
+msgid "cannot reindex system catalogs concurrently, skipping all"
+msgstr "katalogy nelze reindexovat v \"concurrent\" módu, přeskakuji."
+
+#: reindexdb.c:564
+#, c-format
+msgid "reindexing of database \"%s\" failed: %s"
+msgstr "reindexace databáze \"%s\" selhala: %s"
+
+#: reindexdb.c:568
+#, c-format
+msgid "reindexing of index \"%s\" in database \"%s\" failed: %s"
+msgstr "reindexace indexu \"%s\" v databázi \"%s\" selhala: %s"
+
+#: reindexdb.c:572
+#, c-format
+msgid "reindexing of schema \"%s\" in database \"%s\" failed: %s"
+msgstr "reindexace schematu \"%s\" v databázi \"%s\" selhala: %s"
+
+#: reindexdb.c:576
+#, c-format
+msgid "reindexing of system catalogs in database \"%s\" failed: %s"
+msgstr "reindexování systémových katalogů v databázi \"%s\" selhalo: %s"
+
+#: reindexdb.c:580
+#, c-format
+msgid "reindexing of table \"%s\" in database \"%s\" failed: %s"
+msgstr "reindexace tabulky \"%s\" v databázi \"%s\" selhala: %s"
+
+#: reindexdb.c:732
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: reindexing database \"%s\"\n"
 msgstr "%s: reindexace databáze \"%s\"\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:389
 #, c-format
 msgid "%s: reindexing of system catalogs failed: %s"
 msgstr "%s: reindexace systémového katalogu selhala: %s"
 
 #: reindexdb.c:401
+=======
+#: reindexdb.c:749
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "%s reindexes a PostgreSQL database.\n"
@@ -843,37 +1430,75 @@ msgstr ""
 "%s vytvoří PostgreSQL databázi.\n"
 "\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:405
+=======
+#: reindexdb.c:753
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -a, --all                 reindex all databases\n"
 msgstr "  -a, --all                 reindexovat všechny databáze\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:406
+=======
+#: reindexdb.c:754
+#, c-format
+msgid "      --concurrently        reindex concurrently\n"
+msgstr "      --concurrently        reindex concurrently\n"
+
+#: reindexdb.c:755
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -d, --dbname=DBNAME       database to reindex\n"
 msgstr "  -d, --dbname=DATABÁZE     databáze k reindexaci\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:408
+=======
+#: reindexdb.c:757
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -i, --index=INDEX         recreate specific index(es) only\n"
 msgstr "  -i, --index=JMÉNO         obnovit pouze vybraný index\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:410
+=======
+#: reindexdb.c:758
+#, c-format
+msgid "  -j, --jobs=NUM            use this many concurrent connections to reindex\n"
+msgstr "  -j, --jobs=NUM            použij tento počet paralelních jobů pro reindexování\n"
+
+#: reindexdb.c:760
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -s, --system              reindex system catalogs\n"
 msgstr "  -s, --system              reindexace systémového katalogu\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:411
+=======
+#: reindexdb.c:761
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -S, --schema=SCHEMA       reindex specific schema(s) only\n"
 msgstr "  -S, --schema=SCHEMA       reindexace pouze zadaných schemat\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:412
+=======
+#: reindexdb.c:762
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -t, --table=TABLE         reindex specific table(s) only\n"
 msgstr "  -t, --table=TABULKA       reidexace pouze vybranou tabulku\n"
 
+<<<<<<< HEAD
 #: reindexdb.c:423
+=======
+#: reindexdb.c:773
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "\n"
@@ -882,6 +1507,7 @@ msgstr ""
 "\n"
 "Pro detaily čtěte popis SQL příkazu REINDEX.\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:203
 #, c-format
 msgid "%s: number of parallel jobs must be at least 1\n"
@@ -898,10 +1524,29 @@ msgid "%s: cannot vacuum all databases and a specific one at the same time\n"
 msgstr "%s: nelze provádět VACUUM u všech databází a zároveň specifikovat jen jednu\n"
 
 #: vacuumdb.c:271
+=======
+#: scripts_parallel.c:232
 #, c-format
-msgid "%s: cannot vacuum specific table(s) in all databases\n"
-msgstr "%s: nelze provést VACUUM specifické tabulky ve všech databázích\n"
+msgid "too many jobs for this platform -- try %d"
+msgstr "příliš mnoho jobů pro tuto platformu -- zkuste %d"
 
+#: vacuumdb.c:192
+#, c-format
+msgid "parallel vacuum degree must be a non-negative integer"
+msgstr "parallel vacuum degree musí být nezáporné celé číslo"
+
+#: vacuumdb.c:212
+#, c-format
+msgid "minimum transaction ID age must be at least 1"
+msgstr "minimální stáří transaction ID musí být alespoň 1"
+
+#: vacuumdb.c:220
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
+#, c-format
+msgid "minimum multixact ID age must be at least 1"
+msgstr "minimální stáří multixact ID musí být alespoň 1"
+
+<<<<<<< HEAD
 #: vacuumdb.c:357
 msgid "Generating minimal optimizer statistics (1 target)"
 msgstr "Generuji minimální statistiky optimizéru (1 cíl)"
@@ -915,15 +1560,55 @@ msgid "Generating default (full) optimizer statistics"
 msgstr "Generuji výchozí (plné) statistiky optimizéru"
 
 #: vacuumdb.c:371
+=======
+#: vacuumdb.c:252 vacuumdb.c:258 vacuumdb.c:264 vacuumdb.c:276
+#, c-format
+msgid "cannot use the \"%s\" option when performing only analyze"
+msgstr "při provádění jen analyze nelze použít volbu \"%s\""
+
+#: vacuumdb.c:282
+#, c-format
+msgid "cannot use the \"%s\" option when performing full vacuum"
+msgstr "při provádění full vacuum nelze použít volbu \"%s\""
+
+#: vacuumdb.c:305
+#, c-format
+msgid "cannot vacuum all databases and a specific one at the same time"
+msgstr "nelze provádět vacuum všech databází a zároveň specifikovat jen jednu"
+
+#: vacuumdb.c:310
+#, c-format
+msgid "cannot vacuum specific table(s) in all databases"
+msgstr "nelze provést vacuum specifické tabulky (tabulek) ve všech databázích"
+
+#: vacuumdb.c:400
+msgid "Generating minimal optimizer statistics (1 target)"
+msgstr "Generuji minimální statistiky optimizéru (1 cíl)"
+
+#: vacuumdb.c:401
+msgid "Generating medium optimizer statistics (10 targets)"
+msgstr "Generuji minimální statistiky optimizéru (1 cílů)"
+
+#: vacuumdb.c:402
+msgid "Generating default (full) optimizer statistics"
+msgstr "Generuji výchozí (plné) statistiky optimizéru"
+
+#: vacuumdb.c:450
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: processing database \"%s\": %s\n"
 msgstr "%s: zpracovávám databázi \"%s\" : %s\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:374
+=======
+#: vacuumdb.c:453
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "%s: vacuuming database \"%s\"\n"
 msgstr "%s: provádí se VACUUM databáze \"%s\"\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:452
 #, c-format
 msgid "%s: too many jobs for this platform -- try %d\n"
@@ -940,6 +1625,19 @@ msgid "%s: vacuuming of database \"%s\" failed: %s"
 msgstr "%s: provádění VACUUM databáze \"%s\" selhalo: %s"
 
 #: vacuumdb.c:1012
+=======
+#: vacuumdb.c:899
+#, c-format
+msgid "vacuuming of table \"%s\" in database \"%s\" failed: %s"
+msgstr "provádění VACUUM tabulky \"%s\" v databázi \"%s\" selhalo: %s"
+
+#: vacuumdb.c:902
+#, c-format
+msgid "vacuuming of database \"%s\" failed: %s"
+msgstr "provádění VACUUM databáze \"%s\" selhalo: %s"
+
+#: vacuumdb.c:910
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "%s cleans and analyzes a PostgreSQL database.\n"
@@ -948,67 +1646,145 @@ msgstr ""
 "%s pročišťuje a analyzuje PostgreSQL databázi.\n"
 "\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1016
+=======
+#: vacuumdb.c:914
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -a, --all                       vacuum all databases\n"
 msgstr "  -a, --all                       provést VACUUM všech databází\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1017
+=======
+#: vacuumdb.c:915
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -d, --dbname=DBNAME             database to vacuum\n"
 msgstr "  -d, --dbname=DATABÁZE           jméno databáze k provedení příkazu VACUUM\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1018
 #, c-format
 msgid "  -e, --echo                      show the commands being sent to the server\n"
 msgstr "  -e, --echo                      ukázat příkazy posílané na server\n"
 
 #: vacuumdb.c:1019
+=======
+#: vacuumdb.c:916
+#, c-format
+msgid "      --disable-page-skipping     disable all page-skipping behavior\n"
+msgstr "      --disable-page-skipping     vypne veškeré přeskakování stránek\n"
+
+#: vacuumdb.c:917
+#, c-format
+msgid "  -e, --echo                      show the commands being sent to the server\n"
+msgstr "  -e, --echo                      ukázat příkazy posílané na server\n"
+
+#: vacuumdb.c:918
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -f, --full                      do full vacuuming\n"
 msgstr "  -f, --full                      provést plné (FULL) VACUUM\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1020
+=======
+#: vacuumdb.c:919
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -F, --freeze                    freeze row transaction information\n"
 msgstr "  -F, --freeze                    zmrazí transakční informace záznamů\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1021
+=======
+#: vacuumdb.c:920
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -j, --jobs=NUM                  use this many concurrent connections to vacuum\n"
 msgstr "  -j, --jobs=NUM               použij tento počet paralelních jobů pro vacuum\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1022
+=======
+#: vacuumdb.c:921
+#, c-format
+msgid "      --min-mxid-age=MXID_AGE     minimum multixact ID age of tables to vacuum\n"
+msgstr "      --min-mxid-age=MXID_AGE     minimální stáří multixact ID tabulek pro vacuum\n"
+
+#: vacuumdb.c:922
+#, c-format
+msgid "      --min-xid-age=XID_AGE       minimum transaction ID age of tables to vacuum\n"
+msgstr "      --min-xid-age=XID_AGE       minimání stáří transaction ID pro vacuum\n"
+
+#: vacuumdb.c:923
+#, c-format
+msgid "  -P, --parallel=PARALLEL_DEGREE  use this many background workers for vacuum, if available\n"
+msgstr "  -P, --parallel=PARALLEL_DEGREE  použij tento počet pracovních procesů pro vacuum, pokud je to možné\n"
+
+#: vacuumdb.c:924
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -q, --quiet                     don't write any messages\n"
 msgstr "  -q, --quiet                     tichý mód\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1023
+=======
+#: vacuumdb.c:925
+#, c-format
+msgid "      --skip-locked               skip relations that cannot be immediately locked\n"
+msgstr "      --skip-locked               přeskočí relace které nemohou být ihned zamknuty\n"
+
+#: vacuumdb.c:926
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -t, --table='TABLE[(COLUMNS)]'  vacuum specific table(s) only\n"
 msgstr "  -t, --table='TABULKA[(SLOUPCE)]'  provést VACUUM pouze u specifikované tabulky\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1024
+=======
+#: vacuumdb.c:927
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -v, --verbose                   write a lot of output\n"
 msgstr "  -v, --verbose                   vypisovat více informací\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1025
+=======
+#: vacuumdb.c:928
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -V, --version                   output version information, then exit\n"
 msgstr "  -V, --version                   ukáže informace o verzi a skončí\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1026
+=======
+#: vacuumdb.c:929
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -z, --analyze                   update optimizer statistics\n"
 msgstr "  -z, --analyze                   aktualizace statistik optimalizéru\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1027
+=======
+#: vacuumdb.c:930
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -Z, --analyze-only              only update optimizer statistics; no vacuum\n"
 msgstr "  -Z, --analyze-only              pouze aktualizaze statistik optimalizéru; bez vacuum\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1028
+=======
+#: vacuumdb.c:931
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "      --analyze-in-stages         only update optimizer statistics, in multiple\n"
@@ -1017,12 +1793,20 @@ msgstr ""
 "      --analyze-in-stages         pouze aktualizuje statistiky optimizéru, v několika\n"
 "                                  fázích pro rychlejší výsledky; bez vacuum\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1030
+=======
+#: vacuumdb.c:933
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid "  -?, --help                      show this help, then exit\n"
 msgstr "  -?, --help                      ukáže tento text a skončí\n"
 
+<<<<<<< HEAD
 #: vacuumdb.c:1038
+=======
+#: vacuumdb.c:941
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #, c-format
 msgid ""
 "\n"
@@ -1031,6 +1815,7 @@ msgstr ""
 "\n"
 "Pro detaily čtěte popis SQL příkazu VACUUM.\n"
 
+<<<<<<< HEAD
 #~ msgid "%s: could not obtain information about current user: %s\n"
 #~ msgstr "%s: nelze získat informace o aktuálním uživateli: %s\n"
 
@@ -1104,15 +1889,33 @@ msgstr ""
 
 #~ msgid "%s: out of memory\n"
 #~ msgstr "%s: nedostatek paměti\n"
+=======
+#~ msgid "%s: query failed: %s"
+#~ msgstr "%s: dotaz selhal: %s"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-#~ msgid "  --help                          show this help, then exit\n"
-#~ msgstr "  --help                          ukáže tento text a skončí\n"
+#~ msgid "%s: query was: %s\n"
+#~ msgstr "%s: dotaz byl: %s\n"
 
+<<<<<<< HEAD
 #~ msgid "  --version                       output version information, then exit\n"
 #~ msgstr "  --version                       ukáže informace o verzi a skončí\n"
 
 #~ msgid "%s: still %s functions declared in language \"%s\"; language not removed\n"
 #~ msgstr "%s: stále je %s funkcí definováno v jazyce \"%s\"; jazyk nebyl odstraněn.\n"
+=======
+#~ msgid "%s: query returned %d row instead of one: %s\n"
+#~ msgid_plural "%s: query returned %d rows instead of one: %s\n"
+#~ msgstr[0] "%s: dotaz vrátil %d řádek namísto jedné: %s\n"
+#~ msgstr[1] "%s: dotaz vrátil %d řádky namísto jedné: %s\n"
+#~ msgstr[2] "%s: dotaz vrátil %d řádek namísto jedné: %s\n"
+
+#~ msgid "%s: %s"
+#~ msgstr "%s: %s"
+
+#~ msgid "%s: too many parallel jobs requested (maximum: %d)\n"
+#~ msgstr "%s: vyžadováno příliš mnoho paralelních jobů (maximum: %d)\n"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #~ msgid ""
 #~ "\n"
@@ -1123,5 +1926,100 @@ msgstr ""
 #~ "Je-li použit jeden z parametrů -d, -D, -r, -R, -s, -S, a jméno role\n"
 #~ "není zadáno, budete dotázán/a interaktivně.\n"
 
+<<<<<<< HEAD
 #~ msgid "%s: too many parallel jobs requested (maximum: %d)\n"
 #~ msgstr "%s: vyžadováno příliš mnoho paralelních jobů (maximum: %d)\n"
+=======
+#~ msgid "%s: still %s functions declared in language \"%s\"; language not removed\n"
+#~ msgstr "%s: stále je %s funkcí definováno v jazyce \"%s\"; jazyk nebyl odstraněn.\n"
+
+#~ msgid "  --version                       output version information, then exit\n"
+#~ msgstr "  --version                       ukáže informace o verzi a skončí\n"
+
+#~ msgid "  --help                          show this help, then exit\n"
+#~ msgstr "  --help                          ukáže tento text a skončí\n"
+
+#~ msgid "%s: out of memory\n"
+#~ msgstr "%s: nedostatek paměti\n"
+
+#~ msgid "%s: cannot use the \"freeze\" option when performing only analyze\n"
+#~ msgstr "%s: při provádění jen analyze nelze použít volbu \"freeze\"\n"
+
+#~ msgid "  -d, --dbname=DBNAME       database from which to remove the language\n"
+#~ msgstr "  -d, --dbname=DATABÁZE     databáze, ze které bude jazyk odstraněn\n"
+
+#~ msgid ""
+#~ "%s removes a procedural language from a database.\n"
+#~ "\n"
+#~ msgstr ""
+#~ "%s odstraňuje procedurální jazyk z databáze.\n"
+#~ "\n"
+
+#~ msgid "%s: language removal failed: %s"
+#~ msgstr "%s: odstraňování jazyka selhalo: %s"
+
+#~ msgid "%s: language \"%s\" is not installed in database \"%s\"\n"
+#~ msgstr "%s: jazyk \"%s\" není v databázi \"%s\" instalován\n"
+
+#~ msgid "  -N, --unencrypted         do not encrypt stored password\n"
+#~ msgstr "  -N, --unencrypted         uložit heslo v otevřeném tvaru\n"
+
+#~ msgid "  -E, --encrypted           encrypt stored password\n"
+#~ msgstr "  -E, --encrypted           uložit heslo v zašifrované podobě\n"
+
+#~ msgid "  -l, --list                show a list of currently installed languages\n"
+#~ msgstr "  -l, --list                ukáže seznam již nainstalovaných jazyků\n"
+
+#~ msgid "  -d, --dbname=DBNAME       database to install language in\n"
+#~ msgstr "  -d, --dbname=DATABÁZE      databáze do které bude jazyk instalován\n"
+
+#~ msgid "  %s [OPTION]... LANGNAME [DBNAME]\n"
+#~ msgstr "  %s [PŘEPÍNAČ]... JAZYK [DATABÁZE]\n"
+
+#~ msgid ""
+#~ "%s installs a procedural language into a PostgreSQL database.\n"
+#~ "\n"
+#~ msgstr ""
+#~ "%s instaluje procedurální jazyk do PostgreSQL databáze.\n"
+#~ "\n"
+
+#~ msgid "%s: language installation failed: %s"
+#~ msgstr "%s: instalace jazyka selhala: %s"
+
+#~ msgid "%s: language \"%s\" is already installed in database \"%s\"\n"
+#~ msgstr "%s: jazyk \"%s\" je již v databázi \"%s\" instalován\n"
+
+#~ msgid "%s: missing required argument language name\n"
+#~ msgstr "%s: chybí povinný parametr jméno jazyka\n"
+
+#~ msgid "Procedural Languages"
+#~ msgstr "Procedurální jazyky"
+
+#~ msgid "Trusted?"
+#~ msgstr "Důvěryhodný?"
+
+#~ msgid "yes"
+#~ msgstr "ano"
+
+#~ msgid "no"
+#~ msgstr "ne"
+
+#~ msgid "Name"
+#~ msgstr "Jméno"
+
+#~ msgid "%s: could not get current user name: %s\n"
+#~ msgstr "%s: nelze získat aktuální uživatelské jméno: %s\n"
+
+#~ msgid "%s: could not obtain information about current user: %s\n"
+#~ msgstr "%s: nelze získat informace o aktuálním uživateli: %s\n"
+
+#~ msgid "reindexing of system catalogs failed: %s"
+#~ msgstr "reindexace systémového katalogu selhala: %s"
+
+#~ msgid ""
+#~ "\n"
+#~ "Report bugs to <pgsql-bugs@lists.postgresql.org>.\n"
+#~ msgstr ""
+#~ "\n"
+#~ "Chyby hlaste na adresu <pgsql-bugs@postgresql.org>.\n"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

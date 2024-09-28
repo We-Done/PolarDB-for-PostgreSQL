@@ -8,7 +8,7 @@
  * exit-time cleanup for either a postmaster or a backend.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/storage/ipc.h
@@ -85,10 +85,12 @@ extern void on_shmem_exit(pg_on_exit_callback function, Datum arg);
 extern void before_shmem_exit(pg_on_exit_callback function, Datum arg);
 extern void cancel_before_shmem_exit(pg_on_exit_callback function, Datum arg);
 extern void on_exit_reset(void);
+extern void check_on_shmem_exit_lists_are_empty(void);
 
 /* ipci.c */
 extern PGDLLIMPORT shmem_startup_hook_type shmem_startup_hook;
 
+<<<<<<< HEAD
 extern void CreateSharedMemoryAndSemaphores(int port);
 
 /* POLAR */
@@ -98,5 +100,13 @@ extern PGDLLIMPORT polar_heap_profile_hook_type polar_heap_profile_hook;
 extern void polar_unlink_shmem_stat_file(int status, Datum arg);
 extern bool polar_check_before_shmem_exit(pg_on_exit_callback function, Datum arg, bool print_backtrace);
 /* POLAR end */
+=======
+extern Size CalculateShmemSize(int *num_semaphores);
+extern void CreateSharedMemoryAndSemaphores(void);
+#ifdef EXEC_BACKEND
+extern void AttachSharedMemoryStructs(void);
+#endif
+extern void InitializeShmemGUCs(void);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 #endif							/* IPC_H */

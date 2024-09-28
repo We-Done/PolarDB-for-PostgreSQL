@@ -116,37 +116,40 @@
     operated on, while row-level <literal>AFTER</literal> triggers fire at the end of
     the statement (but before any statement-level <literal>AFTER</literal> triggers).
     These types of triggers may only be defined on tables and
+<<<<<<< HEAD
     foreign tables, not views; <literal>BEFORE</literal> row-level triggers may not
     be defined on partitioned tables.
+=======
+    foreign tables, not views.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
     <literal>INSTEAD OF</literal> triggers may only be
     defined on views, and only at row level; they fire immediately as each
     row in the view is identified as needing to be operated on.
    </para>
 
    <para>
-    A statement that targets a parent table in an inheritance or partitioning
-    hierarchy does not cause the statement-level triggers of affected child
-    tables to be fired; only the parent table's statement-level triggers are
-    fired.  However, row-level triggers of any affected child tables will be
-    fired.
+    The execution of an <literal>AFTER</literal> trigger can be deferred
+    to the end of the transaction, rather than the end of the statement,
+    if it was defined as a <firstterm>constraint trigger</firstterm>.
+    In all cases, a trigger is executed as part of the same transaction as
+    the statement that triggered it, so if either the statement or the
+    trigger causes an error, the effects of both will be rolled back.
    </para>
 
    <para>
     If an <command>INSERT</command> contains an <literal>ON CONFLICT
-    DO UPDATE</literal> clause, it is possible that the effects of
-    row-level <literal>BEFORE</literal> <command>INSERT</command> triggers and
-    row-level <literal>BEFORE</literal> <command>UPDATE</command> triggers can
-    both be applied in a way that is apparent from the final state of
-    the updated row, if an <varname>EXCLUDED</varname> column is referenced.
-    There need not be an <varname>EXCLUDED</varname> column reference for
-    both sets of row-level <literal>BEFORE</literal> triggers to execute,
-    though.  The
-    possibility of surprising outcomes should be considered when there
-    are both <literal>BEFORE</literal> <command>INSERT</command> and
-    <literal>BEFORE</literal> <command>UPDATE</command> row-level triggers
-    that change a row being inserted/updated (this can be
-    problematic even if the modifications are more or less equivalent, if
-    they're not also idempotent).  Note that statement-level
+    DO UPDATE</literal> clause, it is possible for row-level
+    <literal>BEFORE</literal> <command>INSERT</command> and then
+    <literal>BEFORE</literal> <command>UPDATE</command> triggers
+    to be executed on triggered rows.  Such interactions can be
+    complex if the triggers are not idempotent because change made by
+    <literal>BEFORE</literal> <command>INSERT</command> triggers will be
+    seen by <literal>BEFORE</literal> <command>UPDATE</command> triggers,
+    including changes to <varname>EXCLUDED</varname> columns.
+   </para>
+
+   <para>
+    Note that statement-level
     <command>UPDATE</command> triggers are executed when <literal>ON
     CONFLICT DO UPDATE</literal> is specified, regardless of whether or not
     any rows were affected by the <command>UPDATE</command> (and
@@ -159,6 +162,14 @@
     <literal>AFTER</literal> <command>UPDATE</command> triggers and finally
     statement-level <literal>AFTER</literal> <command>INSERT</command>
     triggers.
+   </para>
+
+   <para>
+    A statement that targets a parent table in an inheritance or partitioning
+    hierarchy does not cause the statement-level triggers of affected child
+    tables to be fired; only the parent table's statement-level triggers are
+    fired.  However, row-level triggers of any affected child tables will be
+    fired.
    </para>
 
    <para>
@@ -182,6 +193,28 @@
     even if row movement occurs; only the <command>UPDATE</command> triggers
     defined on the target table used in the <command>UPDATE</command> statement
     will be fired.
+   </para>
+
+   <para>
+    No separate triggers are defined for <command>MERGE</command>. Instead,
+    statement-level or row-level <command>UPDATE</command>,
+    <command>DELETE</command>, and <command>INSERT</command> triggers are fired
+    depending on (for statement-level triggers) what actions are specified in
+    the <command>MERGE</command> query and (for row-level triggers) what
+    actions are performed.
+   </para>
+
+   <para>
+    While running a <command>MERGE</command> command, statement-level
+    <literal>BEFORE</literal> and <literal>AFTER</literal> triggers are
+    fired for events specified in the actions of the <command>MERGE</command>
+    command, irrespective of whether or not the action is ultimately performed.
+    This is the same as an <command>UPDATE</command> statement that updates
+    no rows, yet statement-level triggers are fired.
+    The row-level triggers are fired only when a row is actually updated,
+    inserted or deleted. So it's perfectly legal that while statement-level
+    triggers are fired for certain types of action, no row-level triggers
+    are fired for the same kind of action.
    </para>
 
    <para>
@@ -246,6 +279,24 @@
    </para>
 
    <para>
+    Some considerations apply for generated
+    columns.<indexterm><primary>generated column</primary><secondary>in
+    triggers</secondary></indexterm>  Stored generated columns are computed after
+    <literal>BEFORE</literal> triggers and before <literal>AFTER</literal>
+    triggers.  Therefore, the generated value can be inspected in
+    <literal>AFTER</literal> triggers.  In <literal>BEFORE</literal> triggers,
+    the <literal>OLD</literal> row contains the old generated value, as one
+    would expect, but the <literal>NEW</literal> row does not yet contain the
+    new generated value and should not be accessed.  In the C language
+    interface, the content of the column is undefined at this point; a
+    higher-level programming language should prevent access to a stored
+    generated column in the <literal>NEW</literal> row in a
+    <literal>BEFORE</literal> trigger.  Changes to the value of a generated
+    column in a <literal>BEFORE</literal> trigger are ignored and will be
+    overwritten.
+   </para>
+
+   <para>
     If more than one trigger is defined for the same event on the same
     relation, the triggers will be fired in alphabetical order by
     trigger name.  In the case of <literal>BEFORE</literal> and
@@ -306,6 +357,17 @@
     into the same table, causing the <command>INSERT</command> trigger
     to be fired again.  It is the trigger programmer's responsibility
     to avoid infinite recursion in such scenarios.
+   </para>
+
+   <para>
+    If a foreign key constraint specifies referential actions (that
+    is, cascading updates or deletes), those actions are performed via
+    ordinary SQL update or delete commands on the referencing table.
+    In particular, any triggers that exist on the referencing table
+    will be fired for those changes.  If such a trigger modifies or
+    blocks the effect of one of these commands, the end result could
+    be to break referential integrity.  It is the trigger programmer's
+    responsibility to avoid that.
    </para>
 
    <para>
@@ -394,7 +456,7 @@
        trigger <emphasis>will</emphasis> see the effects of data
        changes for rows previously processed in the same outer
        command.  This requires caution, since the ordering of these
-       change events is not in general predictable; a SQL command that
+       change events is not in general predictable; an SQL command that
        affects multiple rows can visit the rows in any order.
       </para>
      </listitem>
@@ -495,10 +557,11 @@ typedef struct TriggerData
     HeapTuple        tg_trigtuple;
     HeapTuple        tg_newtuple;
     Trigger         *tg_trigger;
-    Buffer           tg_trigtuplebuf;
-    Buffer           tg_newtuplebuf;
+    TupleTableSlot  *tg_trigslot;
+    TupleTableSlot  *tg_newslot;
     Tuplestorestate *tg_oldtable;
     Tuplestorestate *tg_newtable;
+    const Bitmapset *tg_updatedcols;
 } TriggerData;
 </programlisting>
 
@@ -672,6 +735,7 @@ typedef struct Trigger
     int16       tgtype;
     char        tgenabled;
     bool        tgisinternal;
+    bool        tgisclone;
     Oid         tgconstrrelid;
     Oid         tgconstrindid;
     Oid         tgconstraint;
@@ -698,21 +762,21 @@ typedef struct Trigger
      </varlistentry>
 
      <varlistentry>
-      <term><structfield>tg_trigtuplebuf</structfield></term>
+      <term><structfield>tg_trigslot</structfield></term>
       <listitem>
        <para>
-        The buffer containing <structfield>tg_trigtuple</structfield>, or <symbol>InvalidBuffer</symbol> if there
-        is no such tuple or it is not stored in a disk buffer.
+        The slot containing <structfield>tg_trigtuple</structfield>,
+        or a <symbol>NULL</symbol> pointer if there is no such tuple.
        </para>
       </listitem>
      </varlistentry>
 
      <varlistentry>
-      <term><structfield>tg_newtuplebuf</structfield></term>
+      <term><structfield>tg_newslot</structfield></term>
       <listitem>
        <para>
-        The buffer containing <structfield>tg_newtuple</structfield>, or <symbol>InvalidBuffer</symbol> if there
-        is no such tuple or it is not stored in a disk buffer.
+        The slot containing <structfield>tg_newtuple</structfield>,
+        or a <symbol>NULL</symbol> pointer if there is no such tuple.
        </para>
       </listitem>
      </varlistentry>
@@ -741,6 +805,30 @@ typedef struct Trigger
       </listitem>
      </varlistentry>
 
+     <varlistentry>
+      <term><structfield>tg_updatedcols</structfield></term>
+      <listitem>
+       <para>
+        For <literal>UPDATE</literal> triggers, a bitmap set indicating the
+        columns that were updated by the triggering command.  Generic trigger
+        functions can use this to optimize actions by not having to deal with
+        columns that were not changed.
+       </para>
+
+       <para>
+        As an example, to determine whether a column with attribute number
+        <varname>attnum</varname> (1-based) is a member of this bitmap set,
+        call <literal>bms_is_member(attnum -
+        FirstLowInvalidHeapAttributeNumber,
+        trigdata->tg_updatedcols))</literal>.
+       </para>
+
+       <para>
+        For triggers other than <literal>UPDATE</literal> triggers, this will
+        be <symbol>NULL</symbol>.
+       </para>
+      </listitem>
+     </varlistentry>
     </variablelist>
    </para>
 
@@ -832,8 +920,7 @@ trigf(PG_FUNCTION_ARGS)
     tupdesc = trigdata->tg_relation->rd_att;
 
     /* connect to SPI manager */
-    if ((ret = SPI_connect()) < 0)
-        elog(ERROR, "trigf (fired %s): SPI_connect returned %d", when, ret);
+    SPI_connect();
 
     /* get number of rows in table */
     ret = SPI_exec("SELECT count(*) FROM ttest", 0);

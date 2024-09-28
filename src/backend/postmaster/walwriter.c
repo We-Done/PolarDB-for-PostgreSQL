@@ -31,7 +31,7 @@
  * should be killed by SIGQUIT and then a recovery cycle started.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  *
  *
  * IDENTIFICATION
@@ -48,6 +48,8 @@
 #include "libpq/pqsignal.h"
 #include "miscadmin.h"
 #include "pgstat.h"
+#include "postmaster/auxprocess.h"
+#include "postmaster/interrupt.h"
 #include "postmaster/walwriter.h"
 #include "storage/bufmgr.h"
 #include "storage/condition_variable.h"
@@ -55,6 +57,7 @@
 #include "storage/ipc.h"
 #include "storage/lwlock.h"
 #include "storage/proc.h"
+#include "storage/procsignal.h"
 #include "storage/smgr.h"
 #include "utils/guc.h"
 #include "utils/hsearch.h"
@@ -70,7 +73,7 @@
  * GUC parameters
  */
 int			WalWriterDelay = 200;
-int			WalWriterFlushAfter = 128;
+int			WalWriterFlushAfter = DEFAULT_WAL_WRITER_FLUSH_AFTER;
 
 /*
  * Number of do-nothing loops before lengthening the delay time, and the
@@ -81,30 +84,23 @@ int			WalWriterFlushAfter = 128;
 #define HIBERNATE_FACTOR			25
 
 /*
- * Flags set by interrupt handlers for later service in the main loop.
- */
-static volatile sig_atomic_t got_SIGHUP = false;
-static volatile sig_atomic_t shutdown_requested = false;
-
-/* Signal handlers */
-static void wal_quickdie(SIGNAL_ARGS);
-static void WalSigHupHandler(SIGNAL_ARGS);
-static void WalShutdownHandler(SIGNAL_ARGS);
-static void walwriter_sigusr1_handler(SIGNAL_ARGS);
-
-/*
  * Main entry point for walwriter process
  *
  * This is invoked from AuxiliaryProcessMain, which has already created the
  * basic execution environment, but not enabled signals yet.
  */
 void
-WalWriterMain(void)
+WalWriterMain(char *startup_data, size_t startup_data_len)
 {
 	sigjmp_buf	local_sigjmp_buf;
 	MemoryContext walwriter_context;
 	int			left_till_hibernate;
 	bool		hibernating;
+
+	Assert(startup_data_len == 0);
+
+	MyBackendType = B_WAL_WRITER;
+	AuxiliaryProcessMainCommon();
 
 	/*
 	 * Properly accept or ignore signals the postmaster might send us
@@ -112,19 +108,20 @@ WalWriterMain(void)
 	 * We have no particular use for SIGINT at the moment, but seems
 	 * reasonable to treat like SIGTERM.
 	 */
-	pqsignal(SIGHUP, WalSigHupHandler); /* set flag to read config file */
-	pqsignal(SIGINT, WalShutdownHandler);	/* request shutdown */
-	pqsignal(SIGTERM, WalShutdownHandler);	/* request shutdown */
-	pqsignal(SIGQUIT, wal_quickdie);	/* hard crash time */
+	pqsignal(SIGHUP, SignalHandlerForConfigReload);
+	pqsignal(SIGINT, SignalHandlerForShutdownRequest);
+	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+	/* SIGQUIT handler was already set up by InitPostmasterChild */
 	pqsignal(SIGALRM, SIG_IGN);
 	pqsignal(SIGPIPE, SIG_IGN);
-	pqsignal(SIGUSR1, walwriter_sigusr1_handler);
+	pqsignal(SIGUSR1, procsignal_sigusr1_handler);
 	pqsignal(SIGUSR2, SIG_IGN); /* not used */
 
 	/*
 	 * Reset some signals that are accepted by postmaster but not here
 	 */
 	pqsignal(SIGCHLD, SIG_DFL);
+<<<<<<< HEAD
 	pqsignal(SIGTTIN, SIG_DFL);
 	pqsignal(SIGTTOU, SIG_DFL);
 	pqsignal(SIGCONT, SIG_DFL);
@@ -152,6 +149,8 @@ WalWriterMain(void)
 	 * we need this, but may as well have one).
 	 */
 	CurrentResourceOwner = ResourceOwnerCreate(NULL, "Wal Writer");
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/*
 	 * Create a memory context that we will do all our work in.  We do this so
@@ -167,7 +166,20 @@ WalWriterMain(void)
 	/*
 	 * If an exception is encountered, processing resumes here.
 	 *
-	 * This code is heavily based on bgwriter.c, q.v.
+	 * You might wonder why this isn't coded as an infinite loop around a
+	 * PG_TRY construct.  The reason is that this is the bottom of the
+	 * exception stack, and so with PG_TRY there would be no exception handler
+	 * in force at all during the CATCH part.  By leaving the outermost setjmp
+	 * always active, we have at least some chance of recovering from an error
+	 * during error recovery.  (If we get into an infinite loop thereby, it
+	 * will soon be stopped by overflow of elog.c's internal state stack.)
+	 *
+	 * Note that we use sigsetjmp(..., 1), so that the prevailing signal mask
+	 * (to wit, BlockSig) will be restored when longjmp'ing to here.  Thus,
+	 * signals other than SIGQUIT will be blocked until we complete error
+	 * recovery.  It might seem that this policy makes the HOLD_INTERRUPTS()
+	 * call redundant, but it is not since InterruptPending might be set
+	 * already.
 	 */
 	if (sigsetjmp(local_sigjmp_buf, 1) != 0)
 	{
@@ -188,13 +200,8 @@ WalWriterMain(void)
 		LWLockReleaseAll();
 		ConditionVariableCancelSleep();
 		pgstat_report_wait_end();
-		AbortBufferIO();
 		UnlockBuffers();
-		/* buffer pins are released here: */
-		ResourceOwnerRelease(CurrentResourceOwner,
-							 RESOURCE_RELEASE_BEFORE_LOCKS,
-							 false, true);
-		/* we needn't bother with the other ResourceOwnerRelease phases */
+		ReleaseAuxProcessResources(false);
 		AtEOXact_Buffers(false);
 		AtEOXact_SMgr();
 		AtEOXact_Files(false);
@@ -208,7 +215,7 @@ WalWriterMain(void)
 		FlushErrorState();
 
 		/* Flush any leaked data in the top-level context */
-		MemoryContextResetAndDeleteChildren(walwriter_context);
+		MemoryContextReset(walwriter_context);
 
 		/* Now we can allow interrupts again */
 		RESUME_INTERRUPTS();
@@ -219,13 +226,6 @@ WalWriterMain(void)
 		 * fast as we can.
 		 */
 		pg_usleep(1000000L);
-
-		/*
-		 * Close all open files after any error.  This is helpful on Windows,
-		 * where holding deleted files open causes various strange errors.
-		 * It's not clear we need it elsewhere, but shouldn't hurt.
-		 */
-		smgrcloseall();
 	}
 
 	/* We can now handle ereport(ERROR) */
@@ -234,7 +234,7 @@ WalWriterMain(void)
 	/*
 	 * Unblock signals (they were blocked when the postmaster forked us)
 	 */
-	PG_SETMASK(&UnBlockSig);
+	sigprocmask(SIG_SETMASK, &UnBlockSig, NULL);
 
 	/*
 	 * Reset hibernation state after any error.
@@ -255,7 +255,6 @@ WalWriterMain(void)
 	for (;;)
 	{
 		long		cur_timeout;
-		int			rc;
 
 		/*
 		 * Advertise whether we might hibernate in this cycle.  We do this
@@ -275,19 +274,8 @@ WalWriterMain(void)
 		/* Clear any already-pending wakeups */
 		ResetLatch(MyLatch);
 
-		/*
-		 * Process any requests or signals received recently.
-		 */
-		if (got_SIGHUP)
-		{
-			got_SIGHUP = false;
-			ProcessConfigFile(PGC_SIGHUP);
-		}
-		if (shutdown_requested)
-		{
-			/* Normal exit from the walwriter is here */
-			proc_exit(0);		/* done */
-		}
+		/* Process any signals received recently */
+		HandleMainLoopInterrupts();
 
 		/*
 		 * Do what we're here for; then, if XLogBackgroundFlush() found useful
@@ -298,8 +286,13 @@ WalWriterMain(void)
 		else if (left_till_hibernate > 0)
 			left_till_hibernate--;
 
+<<<<<<< HEAD
 		/* POLAR: Save logindex data */
 		polar_logindex_rw_save(polar_logindex_redo_instance);
+=======
+		/* report pending statistics to the cumulative stats system */
+		pgstat_report_wal(false);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 		/*
 		 * Sleep until we are signaled or WalWriterDelay has elapsed.  If we
@@ -311,19 +304,13 @@ WalWriterMain(void)
 		else
 			cur_timeout = WalWriterDelay * HIBERNATE_FACTOR;
 
-		rc = WaitLatch(MyLatch,
-					   WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH,
-					   cur_timeout,
-					   WAIT_EVENT_WAL_WRITER_MAIN);
-
-		/*
-		 * Emergency bailout if postmaster has died.  This is to avoid the
-		 * necessity for manual cleanup of all postmaster children.
-		 */
-		if (rc & WL_POSTMASTER_DEATH)
-			exit(1);
+		(void) WaitLatch(MyLatch,
+						 WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+						 cur_timeout,
+						 WAIT_EVENT_WAL_WRITER_MAIN);
 	}
 }
+<<<<<<< HEAD
 
 
 /* --------------------------------
@@ -391,3 +378,5 @@ walwriter_sigusr1_handler(SIGNAL_ARGS)
 
 	errno = save_errno;
 }
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

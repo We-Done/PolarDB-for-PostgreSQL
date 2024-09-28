@@ -8,7 +8,7 @@
  *	  interrupted, unlike LWLock waits.  Condition variables are safe
  *	  to use within dynamic shared memory segments.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/backend/storage/lmgr/condition_variable.c
@@ -19,18 +19,14 @@
 #include "postgres.h"
 
 #include "miscadmin.h"
+#include "portability/instr_time.h"
 #include "storage/condition_variable.h"
-#include "storage/ipc.h"
 #include "storage/proc.h"
 #include "storage/proclist.h"
 #include "storage/spin.h"
-#include "utils/memutils.h"
 
 /* Initially, we are not prepared to sleep on any condition variable. */
 static ConditionVariable *cv_sleep_target = NULL;
-
-/* Reusable WaitEventSet. */
-static WaitEventSet *cv_wait_event_set = NULL;
 
 /*
  * Initialize a condition variable.
@@ -59,24 +55,7 @@ ConditionVariableInit(ConditionVariable *cv)
 void
 ConditionVariablePrepareToSleep(ConditionVariable *cv)
 {
-	int			pgprocno = MyProc->pgprocno;
-
-	/*
-	 * If first time through in this process, create a WaitEventSet, which
-	 * we'll reuse for all condition variable sleeps.
-	 */
-	if (cv_wait_event_set == NULL)
-	{
-		WaitEventSet *new_event_set;
-
-		new_event_set = CreateWaitEventSet(TopMemoryContext, 2);
-		AddWaitEventToSet(new_event_set, WL_LATCH_SET, PGINVALID_SOCKET,
-						  MyLatch, NULL);
-		AddWaitEventToSet(new_event_set, WL_POSTMASTER_DEATH, PGINVALID_SOCKET,
-						  NULL, NULL);
-		/* Don't set cv_wait_event_set until we have a correct WES. */
-		cv_wait_event_set = new_event_set;
-	}
+	int			pgprocno = MyProcNumber;
 
 	/*
 	 * If some other sleep is already prepared, cancel it; this is necessary
@@ -91,12 +70,6 @@ ConditionVariablePrepareToSleep(ConditionVariable *cv)
 
 	/* Record the condition variable on which we will sleep. */
 	cv_sleep_target = cv;
-
-	/*
-	 * Reset my latch before adding myself to the queue, to ensure that we
-	 * don't miss a wakeup that occurs immediately.
-	 */
-	ResetLatch(MyLatch);
 
 	/* Add myself to the wait queue. */
 	SpinLockAcquire(&cv->mutex);
@@ -129,6 +102,11 @@ ConditionVariableSleep(ConditionVariable *cv, uint32 wait_event_info)
 /*
  * Wait for a condition variable to be signaled or a timeout to be reached.
  *
+<<<<<<< HEAD
+=======
+ * The "timeout" is given in milliseconds.
+ *
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  * Returns true when timeout expires, otherwise returns false.
  *
  * See ConditionVariableSleep() for general usage.
@@ -172,10 +150,17 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		INSTR_TIME_SET_CURRENT(start_time);
 		Assert(timeout >= 0 && timeout <= INT_MAX);
 		cur_timeout = timeout;
+<<<<<<< HEAD
 		wait_events = WL_LATCH_SET | WL_TIMEOUT | WL_POSTMASTER_DEATH;
 	}
 	else
 		wait_events = WL_LATCH_SET | WL_POSTMASTER_DEATH;
+=======
+		wait_events = WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH;
+	}
+	else
+		wait_events = WL_LATCH_SET | WL_EXIT_ON_PM_DEATH;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	while (true)
 	{
@@ -206,10 +191,10 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
 		 * guarantee not to return spuriously, we'll avoid this obvious case.
 		 */
 		SpinLockAcquire(&cv->mutex);
-		if (!proclist_contains(&cv->wakeup, MyProc->pgprocno, cvWaitLink))
+		if (!proclist_contains(&cv->wakeup, MyProcNumber, cvWaitLink))
 		{
 			done = true;
-			proclist_push_tail(&cv->wakeup, MyProc->pgprocno, cvWaitLink);
+			proclist_push_tail(&cv->wakeup, MyProcNumber, cvWaitLink);
 		}
 		SpinLockRelease(&cv->mutex);
 
@@ -248,21 +233,28 @@ ConditionVariableTimedSleep(ConditionVariable *cv, long timeout,
  *
  * Do nothing if nothing is pending; this allows this function to be called
  * during transaction abort to clean up any unfinished CV sleep.
+ *
+ * Return true if we've been signaled.
  */
-void
+bool
 ConditionVariableCancelSleep(void)
 {
 	ConditionVariable *cv = cv_sleep_target;
+	bool		signaled = false;
 
 	if (cv == NULL)
-		return;
+		return false;
 
 	SpinLockAcquire(&cv->mutex);
-	if (proclist_contains(&cv->wakeup, MyProc->pgprocno, cvWaitLink))
-		proclist_delete(&cv->wakeup, MyProc->pgprocno, cvWaitLink);
+	if (proclist_contains(&cv->wakeup, MyProcNumber, cvWaitLink))
+		proclist_delete(&cv->wakeup, MyProcNumber, cvWaitLink);
+	else
+		signaled = true;
 	SpinLockRelease(&cv->mutex);
 
 	cv_sleep_target = NULL;
+
+	return signaled;
 }
 
 /*
@@ -299,7 +291,7 @@ ConditionVariableSignal(ConditionVariable *cv)
 void
 ConditionVariableBroadcast(ConditionVariable *cv)
 {
-	int			pgprocno = MyProc->pgprocno;
+	int			pgprocno = MyProcNumber;
 	PGPROC	   *proc = NULL;
 	bool		have_sentinel = false;
 

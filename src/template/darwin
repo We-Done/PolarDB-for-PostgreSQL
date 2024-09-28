@@ -3,6 +3,7 @@
 # Note: Darwin is the original code name for macOS, also known as OS X.
 # We still use "darwin" as the port name, partly because config.guess does.
 
+<<<<<<< HEAD
 # Select where system include files should be sought.
 if test x"$PG_SYSROOT" = x"" ; then
   PG_SYSROOT=`xcodebuild -version -sdk macosx Path 2>/dev/null`
@@ -14,6 +15,14 @@ if test x"$PG_SYSROOT" != x"" ; then
   else
     PG_SYSROOT=""
   fi
+=======
+# Select where system include files should be sought
+PG_SYSROOT=`${srcdir}/src/tools/darwin_sysroot $PG_SYSROOT`
+
+if test -d "$PG_SYSROOT" ; then
+  CPPFLAGS="-isysroot $PG_SYSROOT $CPPFLAGS"
+  LDFLAGS="-isysroot $PG_SYSROOT $LDFLAGS"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 fi
 
 # Extra CFLAGS for code that will go into a shared library
@@ -31,3 +40,5 @@ case $host_os in
     USE_SYSV_SEMAPHORES=1
     ;;
 esac
+
+DLSUFFIX=".dylib"

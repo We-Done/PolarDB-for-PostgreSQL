@@ -4,7 +4,7 @@
  *	  routines for handling GIN posting tree pages.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -92,7 +92,7 @@ typedef struct
 
 	/*
 	 * The following fields represent the items in this segment. If 'items' is
-	 * not NULL, it contains a palloc'd array of the itemsin this segment. If
+	 * not NULL, it contains a palloc'd array of the items in this segment. If
 	 * 'seg' is not NULL, it contains the items in an already-compressed
 	 * format. It can point to an on-disk page (!modified), or a palloc'd
 	 * segment in memory. If both are set, they must represent the same items.
@@ -104,20 +104,20 @@ typedef struct
 
 static ItemPointer dataLeafPageGetUncompressed(Page page, int *nitems);
 static void dataSplitPageInternal(GinBtree btree, Buffer origbuf,
-					  GinBtreeStack *stack,
-					  void *insertdata, BlockNumber updateblkno,
-					  Page *newlpage, Page *newrpage);
+								  GinBtreeStack *stack,
+								  void *insertdata, BlockNumber updateblkno,
+								  Page *newlpage, Page *newrpage);
 
 static disassembledLeaf *disassembleLeaf(Page page);
 static bool leafRepackItems(disassembledLeaf *leaf, ItemPointer remaining);
 static bool addItemsToLeaf(disassembledLeaf *leaf, ItemPointer newItems,
-			   int nNewItems);
+						   int nNewItems);
 
 static void computeLeafRecompressWALData(disassembledLeaf *leaf);
 static void dataPlaceToPageLeafRecompress(Buffer buf, disassembledLeaf *leaf);
 static void dataPlaceToPageLeafSplit(disassembledLeaf *leaf,
-						 ItemPointerData lbound, ItemPointerData rbound,
-						 Page lpage, Page rpage);
+									 ItemPointerData lbound, ItemPointerData rbound,
+									 Page lpage, Page rpage);
 
 /*
  * Read TIDs from leaf data page to single uncompressed array. The TIDs are
@@ -241,7 +241,11 @@ dataIsMoveRight(GinBtree btree, Page page)
 	if (GinPageIsDeleted(page))
 		return true;
 
+<<<<<<< HEAD
 	return (ginCompareItemPointers(&btree->itemptr, iptr) > 0) ? true : false;
+=======
+	return (ginCompareItemPointers(&btree->itemptr, iptr) > 0);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
@@ -596,7 +600,7 @@ dataBeginPlaceToPageLeaf(GinBtree btree, Buffer buf, GinBtreeStack *stack,
 		 * Great, all the items fit on a single page.  If needed, prepare data
 		 * for a WAL record describing the changes we'll make.
 		 */
-		if (RelationNeedsWAL(btree->index))
+		if (RelationNeedsWAL(btree->index) && !btree->isBuild)
 			computeLeafRecompressWALData(leaf);
 
 		/*
@@ -721,9 +725,12 @@ dataExecPlaceToPageLeaf(GinBtree btree, Buffer buf, GinBtreeStack *stack,
 	/* Apply changes to page */
 	dataPlaceToPageLeafRecompress(buf, leaf);
 
+	MarkBufferDirty(buf);
+
 	/* If needed, register WAL data built by computeLeafRecompressWALData */
-	if (RelationNeedsWAL(btree->index))
+	if (RelationNeedsWAL(btree->index) && !btree->isBuild)
 	{
+		XLogRegisterBuffer(0, buf, REGBUF_STANDARD);
 		XLogRegisterBufData(0, leaf->walinfo, leaf->walinfolen);
 	}
 }
@@ -1155,7 +1162,9 @@ dataExecPlaceToPageInternal(GinBtree btree, Buffer buf, GinBtreeStack *stack,
 	pitem = (PostingItem *) insertdata;
 	GinDataPageAddPostingItem(page, pitem, off);
 
-	if (RelationNeedsWAL(btree->index))
+	MarkBufferDirty(buf);
+
+	if (RelationNeedsWAL(btree->index) && !btree->isBuild)
 	{
 		/*
 		 * This must be static, because it has to survive until XLogInsert,
@@ -1167,6 +1176,7 @@ dataExecPlaceToPageInternal(GinBtree btree, Buffer buf, GinBtreeStack *stack,
 		data.offset = off;
 		data.newitem = *pitem;
 
+		XLogRegisterBuffer(0, buf, REGBUF_STANDARD);
 		XLogRegisterBufData(0, (char *) &data,
 							sizeof(ginxlogInsertDataInternal));
 	}
@@ -1374,7 +1384,7 @@ disassembleLeaf(Page page)
 	if (GinPageIsCompressed(page))
 	{
 		/*
-		 * Create a leafSegment entry for each segment.
+		 * Create a leafSegmentInfo entry for each segment.
 		 */
 		seg = GinDataLeafPageGetPostingList(page);
 		segbegin = (Pointer) seg;
@@ -1776,6 +1786,7 @@ createPostingTree(Relation index, ItemPointerData *items, uint32 nitems,
 	Pointer		ptr;
 	int			nrootitems;
 	int			rootsize;
+	bool		is_build = (buildStats != NULL);
 
 	/* Construct the new root page in memory first. */
 	tmppage = (Page) palloc(BLCKSZ);
@@ -1829,7 +1840,7 @@ createPostingTree(Relation index, ItemPointerData *items, uint32 nitems,
 	PageRestoreTempPage(tmppage, page);
 	MarkBufferDirty(buffer);
 
-	if (RelationNeedsWAL(index))
+	if (RelationNeedsWAL(index) && !is_build)
 	{
 		XLogRecPtr	recptr;
 		ginxlogCreatePostingTree data;
@@ -1916,7 +1927,11 @@ ginInsertItemPointers(Relation index, BlockNumber rootBlkno,
 	{
 		/* search for the leaf page where the first item should go to */
 		btree.itemptr = insertdata.items[insertdata.curitem];
+<<<<<<< HEAD
 		stack = ginFindLeafPage(&btree, false, true, NULL);
+=======
+		stack = ginFindLeafPage(&btree, false, true);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 		ginInsertValue(&btree, stack, &insertdata, buildStats);
 	}
@@ -1926,8 +1941,7 @@ ginInsertItemPointers(Relation index, BlockNumber rootBlkno,
  * Starts a new scan on a posting tree.
  */
 GinBtreeStack *
-ginScanBeginPostingTree(GinBtree btree, Relation index, BlockNumber rootBlkno,
-						Snapshot snapshot)
+ginScanBeginPostingTree(GinBtree btree, Relation index, BlockNumber rootBlkno)
 {
 	GinBtreeStack *stack;
 
@@ -1935,7 +1949,11 @@ ginScanBeginPostingTree(GinBtree btree, Relation index, BlockNumber rootBlkno,
 
 	btree->fullScan = true;
 
+<<<<<<< HEAD
 	stack = ginFindLeafPage(btree, true, false, snapshot);
+=======
+	stack = ginFindLeafPage(btree, true, false);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	return stack;
 }

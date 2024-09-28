@@ -8,7 +8,7 @@
  * doesn't actually run the executor for them.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -19,8 +19,8 @@
 #include "postgres.h"
 
 #include "access/xact.h"
-#include "catalog/pg_type.h"
 #include "commands/portalcmds.h"
+#include "funcapi.h"
 #include "miscadmin.h"
 #include "storage/ipc.h"
 #include "utils/builtins.h"
@@ -119,7 +119,7 @@ EnablePortalManager(void)
 	 * create, initially
 	 */
 	PortalHashTable = hash_create("Portal hash", PORTALS_PER_USER,
-								  &ctl, HASH_ELEM);
+								  &ctl, HASH_ELEM | HASH_STRINGS);
 }
 
 /*
@@ -176,7 +176,7 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 {
 	Portal		portal;
 
-	AssertArg(PointerIsValid(name));
+	Assert(PointerIsValid(name));
 
 	portal = GetPortalByName(name);
 	if (PortalIsValid(portal))
@@ -210,6 +210,7 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	portal->cleanup = PortalCleanup;
 	portal->createSubid = GetCurrentSubTransactionId();
 	portal->activeSubid = portal->createSubid;
+	portal->createLevel = GetCurrentTransactionNestLevel();
 	portal->strategy = PORTAL_MULTI_QUERY;
 	portal->cursorOptions = CURSOR_OPT_NO_SCROLL;
 	portal->atStart = true;
@@ -223,8 +224,8 @@ CreatePortal(const char *name, bool allowDup, bool dupSilent)
 	/* put portal in table (sets portal->name) */
 	PortalHashTableInsert(portal, name);
 
-	/* reuse portal->name copy */
-	MemoryContextSetIdentifier(portal->portalContext, portal->name);
+	/* for named portals reuse portal->name copy */
+	MemoryContextSetIdentifier(portal->portalContext, portal->name[0] ? portal->name : "<unnamed>");
 
 	return portal;
 }
@@ -284,22 +285,31 @@ void
 PortalDefineQuery(Portal portal,
 				  const char *prepStmtName,
 				  const char *sourceText,
+<<<<<<< HEAD
 				  NodeTag	  sourceTag,/* POLAR px */
 				  const char *commandTag,
+=======
+				  CommandTag commandTag,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 				  List *stmts,
 				  CachedPlan *cplan)
 {
-	AssertArg(PortalIsValid(portal));
-	AssertState(portal->status == PORTAL_NEW);
+	Assert(PortalIsValid(portal));
+	Assert(portal->status == PORTAL_NEW);
 
-	AssertArg(sourceText != NULL);
-	AssertArg(commandTag != NULL || stmts == NIL);
+	Assert(sourceText != NULL);
+	Assert(commandTag != CMDTAG_UNKNOWN || stmts == NIL);
 
 	portal->prepStmtName = prepStmtName;
 	portal->sourceText = sourceText;
+<<<<<<< HEAD
 	/* POLAR px */
 	portal->sourceTag = sourceTag;
 	/* POLAR end */
+=======
+	portal->qc.commandTag = commandTag;
+	portal->qc.nprocessed = 0;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	portal->commandTag = commandTag;
 	portal->stmts = stmts;
 	portal->cplan = cplan;
@@ -315,7 +325,7 @@ PortalReleaseCachedPlan(Portal portal)
 {
 	if (portal->cplan)
 	{
-		ReleaseCachedPlan(portal->cplan, false);
+		ReleaseCachedPlan(portal->cplan, NULL);
 		portal->cplan = NULL;
 
 		/*
@@ -471,7 +481,7 @@ MarkPortalFailed(Portal portal)
 void
 PortalDrop(Portal portal, bool isTopCommit)
 {
-	AssertArg(PortalIsValid(portal));
+	Assert(PortalIsValid(portal));
 
 	/*
 	 * Don't allow dropping a pinned portal, it's still needed by whoever
@@ -662,6 +672,7 @@ HoldPortal(Portal portal)
 	 */
 	portal->createSubid = InvalidSubTransactionId;
 	portal->activeSubid = InvalidSubTransactionId;
+	portal->createLevel = 0;
 }
 
 /*
@@ -952,6 +963,7 @@ PortalErrorCleanup(void)
 void
 AtSubCommit_Portals(SubTransactionId mySubid,
 					SubTransactionId parentSubid,
+					int parentLevel,
 					ResourceOwner parentXactOwner)
 {
 	HASH_SEQ_STATUS status;
@@ -966,6 +978,7 @@ AtSubCommit_Portals(SubTransactionId mySubid,
 		if (portal->createSubid == mySubid)
 		{
 			portal->createSubid = parentSubid;
+			portal->createLevel = parentLevel;
 			if (portal->resowner)
 				ResourceOwnerNewParent(portal->resowner, parentXactOwner);
 		}
@@ -1139,69 +1152,25 @@ Datum
 pg_cursor(PG_FUNCTION_ARGS)
 {
 	ReturnSetInfo *rsinfo = (ReturnSetInfo *) fcinfo->resultinfo;
-	TupleDesc	tupdesc;
-	Tuplestorestate *tupstore;
-	MemoryContext per_query_ctx;
-	MemoryContext oldcontext;
 	HASH_SEQ_STATUS hash_seq;
 	PortalHashEnt *hentry;
-
-	/* check to see if caller supports us returning a tuplestore */
-	if (rsinfo == NULL || !IsA(rsinfo, ReturnSetInfo))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("set-valued function called in context that cannot accept a set")));
-	if (!(rsinfo->allowedModes & SFRM_Materialize))
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-				 errmsg("materialize mode required, but it is not " \
-						"allowed in this context")));
-
-	/* need to build tuplestore in query context */
-	per_query_ctx = rsinfo->econtext->ecxt_per_query_memory;
-	oldcontext = MemoryContextSwitchTo(per_query_ctx);
-
-	/*
-	 * build tupdesc for result tuples. This must match the definition of the
-	 * pg_cursors view in system_views.sql
-	 */
-	tupdesc = CreateTemplateTupleDesc(6, false);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "name",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "statement",
-					   TEXTOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 3, "is_holdable",
-					   BOOLOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 4, "is_binary",
-					   BOOLOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 5, "is_scrollable",
-					   BOOLOID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 6, "creation_time",
-					   TIMESTAMPTZOID, -1, 0);
 
 	/*
 	 * We put all the tuples into a tuplestore in one scan of the hashtable.
 	 * This avoids any issue of the hashtable possibly changing between calls.
 	 */
-	tupstore =
-		tuplestore_begin_heap(rsinfo->allowedModes & SFRM_Materialize_Random,
-							  false, work_mem);
-
-	/* generate junk in short-term context */
-	MemoryContextSwitchTo(oldcontext);
+	InitMaterializedSRF(fcinfo, 0);
 
 	hash_seq_init(&hash_seq, PortalHashTable);
 	while ((hentry = hash_seq_search(&hash_seq)) != NULL)
 	{
 		Portal		portal = hentry->portal;
 		Datum		values[6];
-		bool		nulls[6];
+		bool		nulls[6] = {0};
 
 		/* report only "visible" entries */
 		if (!portal->visible)
 			continue;
-
-		MemSet(nulls, 0, sizeof(nulls));
 
 		values[0] = CStringGetTextDatum(portal->name);
 		values[1] = CStringGetTextDatum(portal->sourceText);
@@ -1210,15 +1179,8 @@ pg_cursor(PG_FUNCTION_ARGS)
 		values[4] = BoolGetDatum(portal->cursorOptions & CURSOR_OPT_SCROLL);
 		values[5] = TimestampTzGetDatum(portal->creation_time);
 
-		tuplestore_putvalues(tupstore, tupdesc, values, nulls);
+		tuplestore_putvalues(rsinfo->setResult, rsinfo->setDesc, values, nulls);
 	}
-
-	/* clean up and return the tuplestore */
-	tuplestore_donestoring(tupstore);
-
-	rsinfo->returnMode = SFRM_Materialize;
-	rsinfo->setResult = tupstore;
-	rsinfo->setDesc = tupdesc;
 
 	return (Datum) 0;
 }
@@ -1284,7 +1246,7 @@ HoldPinnedPortals(void)
 			 */
 			if (portal->strategy != PORTAL_ONE_SELECT)
 				ereport(ERROR,
-						(errcode(ERRCODE_INVALID_TRANSACTION_TERMINATION),
+						(errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
 						 errmsg("cannot perform transaction commands inside a cursor loop that is not read-only")));
 
 			/* Verify it's in a suitable state to be held */

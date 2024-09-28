@@ -67,6 +67,22 @@ end';
 -- dropping it should still work
 drop extension test_ext8;
 
+<<<<<<< HEAD
+=======
+-- check handling of types as extension members
+create extension test_ext9;
+\dx+ test_ext9
+alter extension test_ext9 drop type varbitrange;
+\dx+ test_ext9
+alter extension test_ext9 add type varbitrange;
+\dx+ test_ext9
+alter extension test_ext9 drop table sometable;
+\dx+ test_ext9
+alter extension test_ext9 add table sometable;
+\dx+ test_ext9
+drop extension test_ext9;
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 -- Test creation of extension in temporary schema with two-phase commit,
 -- which should not work.  This function wrapper is useful for portability.
 
@@ -96,6 +112,15 @@ DROP FUNCTION create_extension_with_temp_schema();
 RESET client_min_messages;
 \unset SHOW_CONTEXT
 
+<<<<<<< HEAD
+=======
+-- Test case of an event trigger run in an extension upgrade script.
+-- See: https://postgr.es/m/20200902193715.6e0269d4@firost
+CREATE EXTENSION test_ext_evttrig;
+ALTER EXTENSION test_ext_evttrig UPDATE TO '2.0';
+DROP EXTENSION test_ext_evttrig;
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 -- It's generally bad style to use CREATE OR REPLACE unnecessarily.
 -- Test what happens if an extension does it anyway.
 -- Replacing a shell type or operator is sort of like CREATE OR REPLACE;
@@ -212,3 +237,74 @@ ALTER EXTENSION test_ext_cine UPDATE TO '1.1';
 CREATE SCHEMA "has space";
 CREATE EXTENSION test_ext_extschema SCHEMA has$dollar;
 CREATE EXTENSION test_ext_extschema SCHEMA "has space";
+<<<<<<< HEAD
+=======
+
+--
+-- Test basic SET SCHEMA handling.
+--
+CREATE SCHEMA s1;
+CREATE SCHEMA s2;
+CREATE EXTENSION test_ext_set_schema SCHEMA s1;
+ALTER EXTENSION test_ext_set_schema SET SCHEMA s2;
+\dx+ test_ext_set_schema
+\sf s2.ess_func(int)
+
+--
+-- Test extension with objects outside the extension's schema.
+--
+CREATE SCHEMA test_func_dep1;
+CREATE SCHEMA test_func_dep2;
+CREATE SCHEMA test_func_dep3;
+CREATE EXTENSION test_ext_req_schema1 SCHEMA test_func_dep1;
+ALTER FUNCTION test_func_dep1.dep_req1() SET SCHEMA test_func_dep2;
+SELECT pg_describe_object(classid, objid, objsubid) as obj,
+       pg_describe_object(refclassid, refobjid, refobjsubid) as objref,
+       deptype
+  FROM pg_depend
+  WHERE classid = 'pg_extension'::regclass AND
+        objid = (SELECT oid FROM pg_extension WHERE extname = 'test_ext_req_schema1')
+  ORDER BY 1, 2;
+-- fails, as function dep_req1 is not in the same schema as the extension.
+ALTER EXTENSION test_ext_req_schema1 SET SCHEMA test_func_dep3;
+-- Move back the function, and the extension can be moved.
+ALTER FUNCTION test_func_dep2.dep_req1() SET SCHEMA test_func_dep1;
+ALTER EXTENSION test_ext_req_schema1 SET SCHEMA test_func_dep3;
+SELECT pg_describe_object(classid, objid, objsubid) as obj,
+       pg_describe_object(refclassid, refobjid, refobjsubid) as objref,
+       deptype
+  FROM pg_depend
+  WHERE classid = 'pg_extension'::regclass AND
+        objid = (SELECT oid FROM pg_extension WHERE extname = 'test_ext_req_schema1')
+  ORDER BY 1, 2;
+DROP EXTENSION test_ext_req_schema1 CASCADE;
+DROP SCHEMA test_func_dep1;
+DROP SCHEMA test_func_dep2;
+DROP SCHEMA test_func_dep3;
+
+--
+-- Test @extschema:extname@ syntax and no_relocate option
+--
+CREATE EXTENSION test_ext_req_schema1 SCHEMA has$dollar;
+CREATE EXTENSION test_ext_req_schema3 CASCADE;
+DROP EXTENSION test_ext_req_schema1;
+CREATE SCHEMA test_s_dep;
+CREATE EXTENSION test_ext_req_schema1 SCHEMA test_s_dep;
+CREATE EXTENSION test_ext_req_schema3 CASCADE;
+SELECT test_s_dep.dep_req1();
+SELECT dep_req2();
+SELECT dep_req3();
+SELECT dep_req3b();
+CREATE SCHEMA test_s_dep2;
+ALTER EXTENSION test_ext_req_schema1 SET SCHEMA test_s_dep2;  -- fails
+ALTER EXTENSION test_ext_req_schema2 SET SCHEMA test_s_dep;  -- allowed
+SELECT test_s_dep.dep_req1();
+SELECT test_s_dep.dep_req2();
+SELECT dep_req3();
+SELECT dep_req3b();  -- fails
+DROP EXTENSION test_ext_req_schema3;
+ALTER EXTENSION test_ext_req_schema1 SET SCHEMA test_s_dep2;  -- now ok
+SELECT test_s_dep2.dep_req1();
+SELECT test_s_dep.dep_req2();
+DROP EXTENSION test_ext_req_schema1 CASCADE;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c

@@ -101,6 +101,22 @@ COMMIT;
 
 SELECT * FROM temptest;
 
+-- Test it with a CHECK condition that produces a toasted pg_constraint entry
+BEGIN;
+do $$
+begin
+  execute format($cmd$
+    CREATE TEMP TABLE temptest (col text CHECK (col < %L)) ON COMMIT DROP
+  $cmd$,
+    (SELECT string_agg(g.i::text || ':' || random()::text, '|')
+     FROM generate_series(1, 100) g(i)));
+end$$;
+
+SELECT * FROM temptest;
+COMMIT;
+
+SELECT * FROM temptest;
+
 -- ON COMMIT is only allowed for TEMP
 
 CREATE TABLE temptest(col int) ON COMMIT DELETE ROWS;
@@ -289,11 +305,16 @@ prepare transaction 'twophase_tab';
 
 -- Corner case: current_schema may create a temporary schema if namespace
 -- creation is pending, so check after that.  First reset the connection
+<<<<<<< HEAD
 -- to remove the temporary namespace, and make sure that non-parallel plans
 -- are used.
 \c -
 SET max_parallel_workers = 0;
 SET max_parallel_workers_per_gather = 0;
+=======
+-- to remove the temporary namespace.
+\c -
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 SET search_path TO 'pg_temp';
 BEGIN;
 SELECT current_schema() ~ 'pg_temp' AS is_temp_schema;

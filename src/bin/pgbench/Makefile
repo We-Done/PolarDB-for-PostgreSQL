@@ -7,13 +7,19 @@ subdir = src/bin/pgbench
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-OBJS = pgbench.o exprparse.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	exprparse.o \
+	exprscan.o \
+	pgbench.o
 
 override CPPFLAGS := -I. -I$(srcdir) -I$(libpq_srcdir) $(CPPFLAGS)
 LDFLAGS_INTERNAL += -L$(top_builddir)/src/fe_utils -lpgfeutils $(libpq_pgport)
 
 ifneq ($(PORTNAME), win32)
 override CFLAGS += $(PTHREAD_CFLAGS)
+else
+override CPPFLAGS += -DFD_SETSIZE=1024
 endif
 LIBS += $(PTHREAD_LIBS)
 
@@ -23,10 +29,14 @@ all: pgbench
 pgbench: $(OBJS) | submake-libpq submake-libpgport submake-libpgfeutils
 	$(CC) $(CFLAGS) $^ $(LDFLAGS) $(LDFLAGS_EX) $(LIBS) -o $@$(X)
 
-# exprscan is compiled as part of exprparse
-exprparse.o: exprscan.c
+# See notes in src/backend/parser/Makefile about the following two rules
+exprparse.h: exprparse.c
+	touch $@
 
-distprep: exprparse.c exprscan.c
+exprparse.c: BISONFLAGS += -d
+
+# Force these dependencies to be known even without dependency info built:
+exprparse.o exprscan.o: exprparse.h
 
 install: all installdirs
 	$(INSTALL_PROGRAM) pgbench$(X) '$(DESTDIR)$(bindir)/pgbench$(X)'
@@ -40,9 +50,7 @@ uninstall:
 clean distclean:
 	rm -f pgbench$(X) $(OBJS)
 	rm -rf tmp_check
-
-maintainer-clean: distclean
-	rm -f exprparse.c exprscan.c
+	rm -f exprparse.h exprparse.c exprscan.c
 
 check:
 	$(prove_check)

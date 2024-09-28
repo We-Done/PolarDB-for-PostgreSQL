@@ -12,7 +12,7 @@
  * the metapage.  When the revmap needs to be expanded, all tuples on the
  * regular BRIN page at that block (if any) are moved out of the way.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -29,7 +29,6 @@
 #include "access/xloginsert.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
-#include "storage/lmgr.h"
 #include "utils/rel.h"
 
 
@@ -57,10 +56,10 @@ struct BrinRevmap
 
 
 static BlockNumber revmap_get_blkno(BrinRevmap *revmap,
-				 BlockNumber heapBlk);
+									BlockNumber heapBlk);
 static Buffer revmap_get_buffer(BrinRevmap *revmap, BlockNumber heapBlk);
 static BlockNumber revmap_extend_and_get_blkno(BrinRevmap *revmap,
-							BlockNumber heapBlk);
+											   BlockNumber heapBlk);
 static void revmap_physical_extend(BrinRevmap *revmap);
 
 /*
@@ -68,8 +67,7 @@ static void revmap_physical_extend(BrinRevmap *revmap);
  * brinRevmapTerminate when caller is done with it.
  */
 BrinRevmap *
-brinRevmapInitialize(Relation idxrel, BlockNumber *pagesPerRange,
-					 Snapshot snapshot)
+brinRevmapInitialize(Relation idxrel, BlockNumber *pagesPerRange)
 {
 	BrinRevmap *revmap;
 	Buffer		meta;
@@ -79,7 +77,6 @@ brinRevmapInitialize(Relation idxrel, BlockNumber *pagesPerRange,
 	meta = ReadBuffer(idxrel, BRIN_METAPAGE_BLKNO);
 	LockBuffer(meta, BUFFER_LOCK_SHARE);
 	page = BufferGetPage(meta);
-	TestForOldSnapshot(snapshot, idxrel, page);
 	metadata = (BrinMetaPageData *) PageGetContents(page);
 
 	revmap = palloc(sizeof(BrinRevmap));
@@ -195,8 +192,7 @@ brinSetHeapBlockItemptr(Buffer buf, BlockNumber pagesPerRange,
  */
 BrinTuple *
 brinGetTupleForHeapBlock(BrinRevmap *revmap, BlockNumber heapBlk,
-						 Buffer *buf, OffsetNumber *off, Size *size, int mode,
-						 Snapshot snapshot)
+						 Buffer *buf, OffsetNumber *off, Size *size, int mode)
 {
 	Relation	idxRel = revmap->rm_irel;
 	BlockNumber mapBlk;
@@ -277,15 +273,21 @@ brinGetTupleForHeapBlock(BrinRevmap *revmap, BlockNumber heapBlk,
 		}
 		LockBuffer(*buf, mode);
 		page = BufferGetPage(*buf);
-		TestForOldSnapshot(snapshot, idxRel, page);
 
 		/* If we land on a revmap page, start over */
 		if (BRIN_IS_REGULAR_PAGE(page))
 		{
+			/*
+			 * If the offset number is greater than what's in the page, it's
+			 * possible that the range was desummarized concurrently. Just
+			 * return NULL to handle that case.
+			 */
 			if (*off > PageGetMaxOffsetNumber(page))
-				ereport(ERROR,
-						(errcode(ERRCODE_INDEX_CORRUPTED),
-						 errmsg_internal("corrupted BRIN index: inconsistent range map")));
+			{
+				LockBuffer(*buf, BUFFER_LOCK_UNLOCK);
+				return NULL;
+			}
+
 			lp = PageGetItemId(page, *off);
 			if (ItemIdIsUsed(lp))
 			{
@@ -334,7 +336,7 @@ brinRevmapDesummarizeRange(Relation idxrel, BlockNumber heapBlk)
 	OffsetNumber regOffset;
 	ItemId		lp;
 
-	revmap = brinRevmapInitialize(idxrel, &pagesPerRange, NULL);
+	revmap = brinRevmapInitialize(idxrel, &pagesPerRange);
 
 	revmapBlk = revmap_get_blkno(revmap, heapBlk);
 	if (!BlockNumberIsValid(revmapBlk))
@@ -530,7 +532,6 @@ revmap_physical_extend(BrinRevmap *revmap)
 	BlockNumber mapBlk;
 	BlockNumber nblocks;
 	Relation	irel = revmap->rm_irel;
-	bool		needLock = !RELATION_IS_LOCAL(irel);
 
 	/*
 	 * Lock the metapage. This locks out concurrent extensions of the revmap,
@@ -562,10 +563,8 @@ revmap_physical_extend(BrinRevmap *revmap)
 	}
 	else
 	{
-		if (needLock)
-			LockRelationForExtension(irel, ExclusiveLock);
-
-		buf = ReadBuffer(irel, P_NEW);
+		buf = ExtendBufferedRel(BMR_REL(irel), MAIN_FORKNUM, NULL,
+								EB_LOCK_FIRST);
 		if (BufferGetBlockNumber(buf) != mapBlk)
 		{
 			/*
@@ -574,17 +573,11 @@ revmap_physical_extend(BrinRevmap *revmap)
 			 * up and have caller start over.  We will have to evacuate that
 			 * page from under whoever is using it.
 			 */
-			if (needLock)
-				UnlockRelationForExtension(irel, ExclusiveLock);
 			LockBuffer(revmap->rm_metaBuf, BUFFER_LOCK_UNLOCK);
-			ReleaseBuffer(buf);
+			UnlockReleaseBuffer(buf);
 			return;
 		}
-		LockBuffer(buf, BUFFER_LOCK_EXCLUSIVE);
 		page = BufferGetPage(buf);
-
-		if (needLock)
-			UnlockRelationForExtension(irel, ExclusiveLock);
 	}
 
 	/* Check that it's a regular block (or an empty page) */

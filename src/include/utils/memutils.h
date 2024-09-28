@@ -7,7 +7,7 @@
  *	  of the API of the memory management subsystem.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/memutils.h
@@ -43,7 +43,10 @@
 
 #define AllocSizeIsValid(size)	((Size) (size) <= MaxAllocSize)
 
+/* Must be less than SIZE_MAX */
 #define MaxAllocHugeSize	(SIZE_MAX / 2)
+
+#define InvalidAllocSize	SIZE_MAX
 
 #define AllocHugeSizeIsValid(size)	((Size) (size) <= MaxAllocHugeSize)
 
@@ -71,9 +74,6 @@ extern PGDLLIMPORT MemoryContext px_OptimizerMemoryContext;
 /* This is a transient link to the active portal's memory context: */
 extern PGDLLIMPORT MemoryContext PortalContext;
 
-/* Backwards compatibility macro */
-#define MemoryContextResetAndDeleteChildren(ctx) MemoryContextReset(ctx)
-
 
 /*
  * Memory-context-type-independent functions in mcxt.c
@@ -86,14 +86,23 @@ extern void MemoryContextResetChildren(MemoryContext context);
 extern void MemoryContextDeleteChildren(MemoryContext context);
 extern void MemoryContextSetIdentifier(MemoryContext context, const char *id);
 extern void MemoryContextSetParent(MemoryContext context,
-					   MemoryContext new_parent);
+								   MemoryContext new_parent);
+extern MemoryContext GetMemoryChunkContext(void *pointer);
 extern Size GetMemoryChunkSpace(void *pointer);
 extern MemoryContext MemoryContextGetParent(MemoryContext context);
 extern bool MemoryContextIsEmpty(MemoryContext context);
 extern Size MemoryContextMemAllocated(MemoryContext context, bool recurse);
+<<<<<<< HEAD
+=======
+extern void MemoryContextMemConsumed(MemoryContext context,
+									 MemoryContextCounters *consumed);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 extern void MemoryContextStats(MemoryContext context);
-extern void MemoryContextStatsDetail(MemoryContext context, int max_children);
+extern void MemoryContextStatsDetail(MemoryContext context,
+									 int max_level, int max_children,
+									 bool print_to_stderr);
 extern void MemoryContextAllowInCriticalSection(MemoryContext context,
+<<<<<<< HEAD
 									bool allow);
 /* POLAR px: statistics */
 extern void MemoryContextDeclareAccountingRoot(MemoryContext context);
@@ -101,10 +110,13 @@ extern Size MemoryContextGetCurrentSpace(MemoryContext context);
 extern Size MemoryContextGetPeakSpace(MemoryContext context);
 extern Size MemoryContextSetPeakSpace(MemoryContext context, Size nbytes);
 /* POLAR end */
+=======
+												bool allow);
+
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #ifdef MEMORY_CONTEXT_CHECKING
 extern void MemoryContextCheck(MemoryContext context);
 #endif
-extern bool MemoryContextContains(MemoryContext context, void *pointer);
 
 extern Size polar_malloc_usable_size(MemoryContext context, void *pointer);
 extern void MemoryContextSetParentWithFallback(MemoryContext context,
@@ -114,6 +126,7 @@ extern void MemoryContextSetParentWithFallback(MemoryContext context,
 #define MemoryContextCopyAndSetIdentifier(cxt, id) \
 	MemoryContextSetIdentifier(cxt, MemoryContextStrdup(cxt, id))
 
+<<<<<<< HEAD
 /*
  * GetMemoryChunkContext
  *		Given a currently-allocated chunk, determine the context
@@ -165,23 +178,28 @@ extern void MemoryContextCreate(MemoryContext node,
 extern void POLAR_AllocSetTransferAccounting(MemoryContext context,
 									   MemoryContext new_parent);
 /* POLAR end */
+=======
+extern void HandleLogMemoryContextInterrupt(void);
+extern void ProcessLogMemoryContextInterrupt(void);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /*
  * Memory-context-type-specific functions
  */
 
 /* aset.c */
-extern MemoryContext AllocSetContextCreateExtended(MemoryContext parent,
-							  const char *name,
-							  Size minContextSize,
-							  Size initBlockSize,
-							  Size maxBlockSize);
+extern MemoryContext AllocSetContextCreateInternal(MemoryContext parent,
+												   const char *name,
+												   Size minContextSize,
+												   Size initBlockSize,
+												   Size maxBlockSize);
 
 /*
  * This wrapper macro exists to check for non-constant strings used as context
  * names; that's no longer supported.  (Use MemoryContextSetIdentifier if you
  * want to provide a variable identifier.)
  */
+<<<<<<< HEAD
 #if defined(HAVE__BUILTIN_CONSTANT_P) && defined(HAVE__VA_ARGS)
 #define AllocSetContextCreate(parent, name, ...) \
 	(StaticAssertExpr(__builtin_constant_p(name), \
@@ -190,18 +208,37 @@ extern MemoryContext AllocSetContextCreateExtended(MemoryContext parent,
 #else
 #define AllocSetContextCreate \
 	AllocSetContextCreateExtended
+=======
+#ifdef HAVE__BUILTIN_CONSTANT_P
+#define AllocSetContextCreate(parent, name, ...) \
+	(StaticAssertExpr(__builtin_constant_p(name), \
+					  "memory context names must be constant strings"), \
+	 AllocSetContextCreateInternal(parent, name, __VA_ARGS__))
+#else
+#define AllocSetContextCreate \
+	AllocSetContextCreateInternal
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #endif
 
 /* slab.c */
 extern MemoryContext SlabContextCreate(MemoryContext parent,
-				  const char *name,
-				  Size blockSize,
-				  Size chunkSize);
+									   const char *name,
+									   Size blockSize,
+									   Size chunkSize);
 
 /* generation.c */
 extern MemoryContext GenerationContextCreate(MemoryContext parent,
-						const char *name,
-						Size blockSize);
+											 const char *name,
+											 Size minContextSize,
+											 Size initBlockSize,
+											 Size maxBlockSize);
+
+/* bump.c */
+extern MemoryContext BumpContextCreate(MemoryContext parent,
+									   const char *name,
+									   Size minContextSize,
+									   Size initBlockSize,
+									   Size maxBlockSize);
 
 /*
  * Recommended default alloc parameters, suitable for "ordinary" contexts

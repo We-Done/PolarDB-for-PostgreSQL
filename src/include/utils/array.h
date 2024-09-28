@@ -51,7 +51,7 @@
  * arrays holding the elements.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/utils/array.h
@@ -70,6 +70,18 @@ struct ExprContext;
 
 
 /*
+ * Maximum number of array subscripts (arbitrary limit)
+ */
+#define MAXDIM 6
+
+/*
+ * Maximum number of elements in an array.  We limit this to at most about a
+ * quarter billion elements, so that it's not necessary to check for overflow
+ * in quite so many places --- for instance when palloc'ing Datum arrays.
+ */
+#define MaxArraySize ((Size) (MaxAllocSize / sizeof(Datum)))
+
+/*
  * Arrays are varlena objects, so must meet the varlena convention that
  * the first int32 of the object contains the total object size in bytes.
  * Be sure to use VARSIZE() and SET_VARSIZE() to access it, though!
@@ -77,7 +89,7 @@ struct ExprContext;
  * CAUTION: if you change the header for ordinary arrays you will also
  * need to change the headers for oidvector and int2vector!
  */
-typedef struct
+typedef struct ArrayType
 {
 	int32		vl_len_;		/* varlena header (do not touch directly!) */
 	int			ndim;			/* # of dimensions */
@@ -334,98 +346,105 @@ typedef struct ArrayIteratorData *ArrayIterator;
 /*
  * GUC parameter
  */
-extern bool Array_nulls;
+extern PGDLLIMPORT bool Array_nulls;
 
 /*
  * prototypes for functions defined in arrayfuncs.c
  */
 extern void CopyArrayEls(ArrayType *array,
-			 Datum *values,
-			 bool *nulls,
-			 int nitems,
-			 int typlen,
-			 bool typbyval,
-			 char typalign,
-			 bool freedata);
+						 Datum *values,
+						 bool *nulls,
+						 int nitems,
+						 int typlen,
+						 bool typbyval,
+						 char typalign,
+						 bool freedata);
 
 extern Datum array_get_element(Datum arraydatum, int nSubscripts, int *indx,
-				  int arraytyplen, int elmlen, bool elmbyval, char elmalign,
-				  bool *isNull);
+							   int arraytyplen, int elmlen, bool elmbyval, char elmalign,
+							   bool *isNull);
 extern Datum array_set_element(Datum arraydatum, int nSubscripts, int *indx,
-				  Datum dataValue, bool isNull,
-				  int arraytyplen, int elmlen, bool elmbyval, char elmalign);
+							   Datum dataValue, bool isNull,
+							   int arraytyplen, int elmlen, bool elmbyval, char elmalign);
 extern Datum array_get_slice(Datum arraydatum, int nSubscripts,
-				int *upperIndx, int *lowerIndx,
-				bool *upperProvided, bool *lowerProvided,
-				int arraytyplen, int elmlen, bool elmbyval, char elmalign);
+							 int *upperIndx, int *lowerIndx,
+							 bool *upperProvided, bool *lowerProvided,
+							 int arraytyplen, int elmlen, bool elmbyval, char elmalign);
 extern Datum array_set_slice(Datum arraydatum, int nSubscripts,
-				int *upperIndx, int *lowerIndx,
-				bool *upperProvided, bool *lowerProvided,
-				Datum srcArrayDatum, bool isNull,
-				int arraytyplen, int elmlen, bool elmbyval, char elmalign);
+							 int *upperIndx, int *lowerIndx,
+							 bool *upperProvided, bool *lowerProvided,
+							 Datum srcArrayDatum, bool isNull,
+							 int arraytyplen, int elmlen, bool elmbyval, char elmalign);
 
 extern Datum array_ref(ArrayType *array, int nSubscripts, int *indx,
-		  int arraytyplen, int elmlen, bool elmbyval, char elmalign,
-		  bool *isNull);
+					   int arraytyplen, int elmlen, bool elmbyval, char elmalign,
+					   bool *isNull);
 extern ArrayType *array_set(ArrayType *array, int nSubscripts, int *indx,
-		  Datum dataValue, bool isNull,
-		  int arraytyplen, int elmlen, bool elmbyval, char elmalign);
+							Datum dataValue, bool isNull,
+							int arraytyplen, int elmlen, bool elmbyval, char elmalign);
 
 extern Datum array_map(Datum arrayd,
-		  struct ExprState *exprstate, struct ExprContext *econtext,
-		  Oid retType, ArrayMapState *amstate);
+					   struct ExprState *exprstate, struct ExprContext *econtext,
+					   Oid retType, ArrayMapState *amstate);
 
 extern void array_bitmap_copy(bits8 *destbitmap, int destoffset,
-				  const bits8 *srcbitmap, int srcoffset,
-				  int nitems);
+							  const bits8 *srcbitmap, int srcoffset,
+							  int nitems);
 
 extern ArrayType *construct_array(Datum *elems, int nelems,
-				Oid elmtype,
-				int elmlen, bool elmbyval, char elmalign);
+								  Oid elmtype,
+								  int elmlen, bool elmbyval, char elmalign);
+extern ArrayType *construct_array_builtin(Datum *elems, int nelems, Oid elmtype);
 extern ArrayType *construct_md_array(Datum *elems,
-				   bool *nulls,
-				   int ndims,
-				   int *dims,
-				   int *lbs,
-				   Oid elmtype, int elmlen, bool elmbyval, char elmalign);
+									 bool *nulls,
+									 int ndims,
+									 int *dims,
+									 int *lbs,
+									 Oid elmtype, int elmlen, bool elmbyval, char elmalign);
 extern ArrayType *construct_empty_array(Oid elmtype);
 extern ExpandedArrayHeader *construct_empty_expanded_array(Oid element_type,
-							   MemoryContext parentcontext,
-							   ArrayMetaState *metacache);
+														   MemoryContext parentcontext,
+														   ArrayMetaState *metacache);
 extern void deconstruct_array(ArrayType *array,
-				  Oid elmtype,
-				  int elmlen, bool elmbyval, char elmalign,
-				  Datum **elemsp, bool **nullsp, int *nelemsp);
+							  Oid elmtype,
+							  int elmlen, bool elmbyval, char elmalign,
+							  Datum **elemsp, bool **nullsp, int *nelemsp);
+extern void deconstruct_array_builtin(ArrayType *array,
+									  Oid elmtype,
+									  Datum **elemsp, bool **nullsp, int *nelemsp);
 extern bool array_contains_nulls(ArrayType *array);
 
 extern ArrayBuildState *initArrayResult(Oid element_type,
-				MemoryContext rcontext, bool subcontext);
+										MemoryContext rcontext, bool subcontext);
+extern ArrayBuildState *initArrayResultWithSize(Oid element_type,
+												MemoryContext rcontext,
+												bool subcontext, int initsize);
 extern ArrayBuildState *accumArrayResult(ArrayBuildState *astate,
-				 Datum dvalue, bool disnull,
-				 Oid element_type,
-				 MemoryContext rcontext);
+										 Datum dvalue, bool disnull,
+										 Oid element_type,
+										 MemoryContext rcontext);
 extern Datum makeArrayResult(ArrayBuildState *astate,
-				MemoryContext rcontext);
+							 MemoryContext rcontext);
 extern Datum makeMdArrayResult(ArrayBuildState *astate, int ndims,
-				  int *dims, int *lbs, MemoryContext rcontext, bool release);
+							   int *dims, int *lbs, MemoryContext rcontext, bool release);
 
 extern ArrayBuildStateArr *initArrayResultArr(Oid array_type, Oid element_type,
-				   MemoryContext rcontext, bool subcontext);
+											  MemoryContext rcontext, bool subcontext);
 extern ArrayBuildStateArr *accumArrayResultArr(ArrayBuildStateArr *astate,
-					Datum dvalue, bool disnull,
-					Oid array_type,
-					MemoryContext rcontext);
+											   Datum dvalue, bool disnull,
+											   Oid array_type,
+											   MemoryContext rcontext);
 extern Datum makeArrayResultArr(ArrayBuildStateArr *astate,
-				   MemoryContext rcontext, bool release);
+								MemoryContext rcontext, bool release);
 
 extern ArrayBuildStateAny *initArrayResultAny(Oid input_type,
-				   MemoryContext rcontext, bool subcontext);
+											  MemoryContext rcontext, bool subcontext);
 extern ArrayBuildStateAny *accumArrayResultAny(ArrayBuildStateAny *astate,
-					Datum dvalue, bool disnull,
-					Oid input_type,
-					MemoryContext rcontext);
+											   Datum dvalue, bool disnull,
+											   Oid input_type,
+											   MemoryContext rcontext);
 extern Datum makeArrayResultAny(ArrayBuildStateAny *astate,
-				   MemoryContext rcontext, bool release);
+								MemoryContext rcontext, bool release);
 
 extern ArrayIterator array_create_iterator(ArrayType *arr, int slice_ndim, ArrayMetaState *mstate);
 extern bool array_iterate(ArrayIterator iterator, Datum *value, bool *isnull);
@@ -436,9 +455,16 @@ extern void array_free_iterator(ArrayIterator iterator);
  */
 
 extern int	ArrayGetOffset(int n, const int *dim, const int *lb, const int *indx);
-extern int	ArrayGetOffset0(int n, const int *tup, const int *scale);
 extern int	ArrayGetNItems(int ndim, const int *dims);
+<<<<<<< HEAD
 extern void ArrayCheckBounds(int ndim, const int *dims, const int *lb);
+=======
+extern int	ArrayGetNItemsSafe(int ndim, const int *dims,
+							   struct Node *escontext);
+extern void ArrayCheckBounds(int ndim, const int *dims, const int *lb);
+extern bool ArrayCheckBoundsSafe(int ndim, const int *dims, const int *lb,
+								 struct Node *escontext);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 extern void mda_get_range(int n, int *span, const int *st, const int *endp);
 extern void mda_get_prod(int n, const int *range, int *prod);
 extern void mda_get_offset_values(int n, int *dist, const int *prod, const int *span);
@@ -449,10 +475,10 @@ extern int32 *ArrayGetIntegerTypmods(ArrayType *arr, int *n);
  * prototypes for functions defined in array_expanded.c
  */
 extern Datum expand_array(Datum arraydatum, MemoryContext parentcontext,
-			 ArrayMetaState *metacache);
+						  ArrayMetaState *metacache);
 extern ExpandedArrayHeader *DatumGetExpandedArray(Datum d);
 extern ExpandedArrayHeader *DatumGetExpandedArrayX(Datum d,
-					   ArrayMetaState *metacache);
+												   ArrayMetaState *metacache);
 extern AnyArrayType *DatumGetAnyArrayP(Datum d);
 extern void deconstruct_expanded_array(ExpandedArrayHeader *eah);
 

@@ -19,7 +19,7 @@
  * memory context given to inv_open (for LargeObjectDesc structs).
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -32,23 +32,22 @@
 
 #include <limits.h>
 
+#include "access/detoast.h"
 #include "access/genam.h"
-#include "access/heapam.h"
-#include "access/sysattr.h"
-#include "access/tuptoaster.h"
+#include "access/htup_details.h"
+#include "access/table.h"
 #include "access/xact.h"
 #include "catalog/dependency.h"
 #include "catalog/indexing.h"
 #include "catalog/objectaccess.h"
 #include "catalog/pg_largeobject.h"
-#include "catalog/pg_largeobject_metadata.h"
 #include "libpq/libpq-fs.h"
 #include "miscadmin.h"
 #include "storage/large_object.h"
+#include "utils/acl.h"
 #include "utils/fmgroids.h"
 #include "utils/rel.h"
 #include "utils/snapmgr.h"
-#include "utils/tqual.h"
 
 
 /*
@@ -57,11 +56,11 @@
 bool		lo_compat_privileges;
 
 /*
- * All accesses to pg_largeobject and its index make use of a single Relation
- * reference, so that we only need to open pg_relation once per transaction.
- * To avoid problems when the first such reference occurs inside a
- * subtransaction, we execute a slightly klugy maneuver to assign ownership of
- * the Relation reference to TopTransactionResourceOwner.
+ * All accesses to pg_largeobject and its index make use of a single
+ * Relation reference.  To guarantee that the relcache entry remains
+ * in the cache, on the first reference inside a subtransaction, we
+ * execute a slightly klugy maneuver to assign ownership of the
+ * Relation reference to TopTransactionResourceOwner.
  */
 static Relation lo_heap_r = NULL;
 static Relation lo_index_r = NULL;
@@ -84,7 +83,7 @@ open_lo_relation(void)
 
 	/* Use RowExclusiveLock since we might either read or write */
 	if (lo_heap_r == NULL)
-		lo_heap_r = heap_open(LargeObjectRelationId, RowExclusiveLock);
+		lo_heap_r = table_open(LargeObjectRelationId, RowExclusiveLock);
 	if (lo_index_r == NULL)
 		lo_index_r = index_open(LargeObjectLOidPNIndexId, RowExclusiveLock);
 
@@ -113,50 +112,13 @@ close_lo_relation(bool isCommit)
 			if (lo_index_r)
 				index_close(lo_index_r, NoLock);
 			if (lo_heap_r)
-				heap_close(lo_heap_r, NoLock);
+				table_close(lo_heap_r, NoLock);
 
 			CurrentResourceOwner = currentOwner;
 		}
 		lo_heap_r = NULL;
 		lo_index_r = NULL;
 	}
-}
-
-
-/*
- * Same as pg_largeobject.c's LargeObjectExists(), except snapshot to
- * read with can be specified.
- */
-static bool
-myLargeObjectExists(Oid loid, Snapshot snapshot)
-{
-	Relation	pg_lo_meta;
-	ScanKeyData skey[1];
-	SysScanDesc sd;
-	HeapTuple	tuple;
-	bool		retval = false;
-
-	ScanKeyInit(&skey[0],
-				ObjectIdAttributeNumber,
-				BTEqualStrategyNumber, F_OIDEQ,
-				ObjectIdGetDatum(loid));
-
-	pg_lo_meta = heap_open(LargeObjectMetadataRelationId,
-						   AccessShareLock);
-
-	sd = systable_beginscan(pg_lo_meta,
-							LargeObjectMetadataOidIndexId, true,
-							snapshot, 1, skey);
-
-	tuple = systable_getnext(sd);
-	if (HeapTupleIsValid(tuple))
-		retval = true;
-
-	systable_endscan(sd);
-
-	heap_close(pg_lo_meta, AccessShareLock);
-
-	return retval;
 }
 
 
@@ -180,7 +142,7 @@ getdatafield(Form_pg_largeobject tuple,
 	if (VARATT_IS_EXTENDED(datafield))
 	{
 		datafield = (bytea *)
-			heap_tuple_untoast_attr((struct varlena *) datafield);
+			detoast_attr((struct varlena *) datafield);
 		freeit = true;
 	}
 	len = VARSIZE(datafield) - VARHDRSZ;
@@ -220,11 +182,10 @@ inv_create(Oid lobjId)
 	/*
 	 * dependency on the owner of largeobject
 	 *
-	 * The reason why we use LargeObjectRelationId instead of
-	 * LargeObjectMetadataRelationId here is to provide backward compatibility
-	 * to the applications which utilize a knowledge about internal layout of
-	 * system catalogs. OID of pg_largeobject_metadata and loid of
-	 * pg_largeobject are same value, so there are no actual differences here.
+	 * Note that LO dependencies are recorded using classId
+	 * LargeObjectRelationId for backwards-compatibility reasons.  Using
+	 * LargeObjectMetadataRelationId instead would simplify matters for the
+	 * backend, but it'd complicate pg_dump and possibly break other clients.
 	 */
 	recordDependencyOnOwner(LargeObjectRelationId,
 							lobjId_new, GetUserId());
@@ -243,10 +204,12 @@ inv_create(Oid lobjId)
 /*
  *	inv_open -- access an existing large object.
  *
- *		Returns:
- *		  Large object descriptor, appropriately filled in.  The descriptor
- *		  and subsidiary data are allocated in the specified memory context,
- *		  which must be suitably long-lived for the caller's purposes.
+ * Returns a large object descriptor, appropriately filled in.
+ * The descriptor and subsidiary data are allocated in the specified
+ * memory context, which must be suitably long-lived for the caller's
+ * purposes.  If the returned descriptor has a snapshot associated
+ * with it, the caller must ensure that it also lives long enough,
+ * e.g. by calling RegisterSnapshotOnOwner
  */
 LargeObjectDesc *
 inv_open(Oid lobjId, int flags, MemoryContext mcxt)
@@ -278,7 +241,7 @@ inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 		snapshot = GetActiveSnapshot();
 
 	/* Can't use LargeObjectExists here because we need to specify snapshot */
-	if (!myLargeObjectExists(lobjId, snapshot))
+	if (!LargeObjectExistsWithSnapshot(lobjId, snapshot))
 		ereport(ERROR,
 				(errcode(ERRCODE_UNDEFINED_OBJECT),
 				 errmsg("large object %u does not exist", lobjId)));
@@ -313,19 +276,16 @@ inv_open(Oid lobjId, int flags, MemoryContext mcxt)
 	retval = (LargeObjectDesc *) MemoryContextAlloc(mcxt,
 													sizeof(LargeObjectDesc));
 	retval->id = lobjId;
-	retval->subid = GetCurrentSubTransactionId();
 	retval->offset = 0;
 	retval->flags = descflags;
 
+	/* caller sets if needed, not used by the functions in this file */
+	retval->subid = InvalidSubTransactionId;
+
 	/*
-	 * We must register the snapshot in TopTransaction's resowner, because it
-	 * must stay alive until the LO is closed rather than until the current
-	 * portal shuts down.  Do this last to avoid uselessly leaking the
-	 * snapshot if an error is thrown above.
+	 * The snapshot (if any) is just the currently active snapshot.  The
+	 * caller will replace it with a longer-lived copy if needed.
 	 */
-	if (snapshot)
-		snapshot = RegisterSnapshotOnOwner(snapshot,
-										   TopTransactionResourceOwner);
 	retval->snapshot = snapshot;
 
 	return retval;
@@ -339,10 +299,6 @@ void
 inv_close(LargeObjectDesc *obj_desc)
 {
 	Assert(PointerIsValid(obj_desc));
-
-	UnregisterSnapshotFromOwner(obj_desc->snapshot,
-								TopTransactionResourceOwner);
-
 	pfree(obj_desc);
 }
 

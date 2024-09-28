@@ -111,11 +111,19 @@ enum warn
 	IN_NONE, IN_SOME, IN_THIS, IN_ALL
 };
 
+<<<<<<< HEAD
 static char *_add(const char *, char *, const char *);
 static char *_conv(int, const char *, char *, const char *);
 static char *_fmt(const char *, const struct pg_tm *, char *, const char *,
 				  enum warn *);
 static char *_yconv(int, int, bool, bool, char *, char const *);
+=======
+static char *_add(const char *str, char *pt, const char *ptlim);
+static char *_conv(int n, const char *format, char *pt, const char *ptlim);
+static char *_fmt(const char *format, const struct pg_tm *t, char *pt, const char *ptlim,
+				  enum warn *warnp);
+static char *_yconv(int a, int b, bool convert_top, bool convert_yy, char *pt, char const *ptlim);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 
 /*
@@ -128,12 +136,22 @@ size_t
 pg_strftime(char *s, size_t maxsize, const char *format, const struct pg_tm *t)
 {
 	char	   *p;
+	int			saved_errno = errno;
 	enum warn	warn = IN_NONE;
 
 	p = _fmt(format, t, s, s + maxsize, &warn);
-	if (p == s + maxsize)
+	if (!p)
+	{
+		errno = EOVERFLOW;
 		return 0;
+	}
+	if (p == s + maxsize)
+	{
+		errno = ERANGE;
+		return 0;
+	}
 	*p = '\0';
+	errno = saved_errno;
 	return p - s;
 }
 

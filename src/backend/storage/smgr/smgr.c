@@ -3,10 +3,44 @@
  * smgr.c
  *	  public interface routines to storage manager switch.
  *
- *	  All file system operations in POSTGRES dispatch through these
- *	  routines.
+ * All file system operations on relations dispatch through these routines.
+ * An SMgrRelation represents physical on-disk relation files that are open
+ * for reading and writing.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * When a relation is first accessed through the relation cache, the
+ * corresponding SMgrRelation entry is opened by calling smgropen(), and the
+ * reference is stored in the relation cache entry.
+ *
+ * Accesses that don't go through the relation cache open the SMgrRelation
+ * directly.  That includes flushing buffers from the buffer cache, as well as
+ * all accesses in auxiliary processes like the checkpointer or the WAL redo
+ * in the startup process.
+ *
+ * Operations like CREATE, DROP, ALTER TABLE also hold SMgrRelation references
+ * independent of the relation cache.  They need to prepare the physical files
+ * before updating the relation cache.
+ *
+ * There is a hash table that holds all the SMgrRelation entries in the
+ * backend.  If you call smgropen() twice for the same rel locator, you get a
+ * reference to the same SMgrRelation. The reference is valid until the end of
+ * transaction.  This makes repeated access to the same relation efficient,
+ * and allows caching things like the relation size in the SMgrRelation entry.
+ *
+ * At end of transaction, all SMgrRelation entries that haven't been pinned
+ * are removed.  An SMgrRelation can hold kernel file system descriptors for
+ * the underlying files, and we'd like to close those reasonably soon if the
+ * file gets deleted.  The SMgrRelations references held by the relcache are
+ * pinned to prevent them from being closed.
+ *
+ * There is another mechanism to close file descriptors early:
+ * PROCSIGNAL_BARRIER_SMGRRELEASE.  It is a request to immediately close all
+ * file descriptors.  Upon receiving that signal, the backend closes all file
+ * descriptors held open by SMgrRelations, but because it can happen in the
+ * middle of a transaction, we cannot destroy the SMgrRelation objects
+ * themselves, as there could pointers to them in active use.  See
+ * smgrrelease() and smgrreleaseall().
+ *
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -17,6 +51,7 @@
  */
 #include "postgres.h"
 
+<<<<<<< HEAD
 #include "access/xlog.h"
 #include "pgstat.h"
 #include "commands/tablespace.h"
@@ -24,11 +59,19 @@
 #include "miscadmin.h"
 #include "port/atomics.h"
 #include "port/pg_bitutils.h"
+=======
+#include "access/xlogutils.h"
+#include "lib/ilist.h"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #include "storage/bufmgr.h"
 #include "storage/shmem.h"
 #include "storage/ipc.h"
+<<<<<<< HEAD
 #include "storage/lwlock.h"
 #include "storage/s_lock.h"
+=======
+#include "storage/md.h"
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 #include "storage/smgr.h"
 #include "utils/hsearch.h"
 #include "utils/inval.h"
@@ -65,13 +108,15 @@ typedef struct f_smgr
 {
 	void		(*smgr_init) (void);	/* may be NULL */
 	void		(*smgr_shutdown) (void);	/* may be NULL */
+	void		(*smgr_open) (SMgrRelation reln);
 	void		(*smgr_close) (SMgrRelation reln, ForkNumber forknum);
 	void		(*smgr_create) (SMgrRelation reln, ForkNumber forknum,
 								bool isRedo);
 	bool		(*smgr_exists) (SMgrRelation reln, ForkNumber forknum);
-	void		(*smgr_unlink) (RelFileNodeBackend rnode, ForkNumber forknum,
+	void		(*smgr_unlink) (RelFileLocatorBackend rlocator, ForkNumber forknum,
 								bool isRedo);
 	void		(*smgr_extend) (SMgrRelation reln, ForkNumber forknum,
+<<<<<<< HEAD
 								BlockNumber blocknum, char *buffer, bool skipFsync);
 	void		(*smgr_extendbatch) (SMgrRelation reln, ForkNumber forknum,
 								BlockNumber blocknum, int blockCount, char *buffer, bool skipFsync);
@@ -87,28 +132,44 @@ typedef struct f_smgr
 							  BlockNumber blocknum, char *buffer);
 	void		(*smgr_write) (SMgrRelation reln, ForkNumber forknum,
 							   BlockNumber blocknum, char *buffer, bool skipFsync);
+=======
+								BlockNumber blocknum, const void *buffer, bool skipFsync);
+	void		(*smgr_zeroextend) (SMgrRelation reln, ForkNumber forknum,
+									BlockNumber blocknum, int nblocks, bool skipFsync);
+	bool		(*smgr_prefetch) (SMgrRelation reln, ForkNumber forknum,
+								  BlockNumber blocknum, int nblocks);
+	void		(*smgr_readv) (SMgrRelation reln, ForkNumber forknum,
+							   BlockNumber blocknum,
+							   void **buffers, BlockNumber nblocks);
+	void		(*smgr_writev) (SMgrRelation reln, ForkNumber forknum,
+								BlockNumber blocknum,
+								const void **buffers, BlockNumber nblocks,
+								bool skipFsync);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	void		(*smgr_writeback) (SMgrRelation reln, ForkNumber forknum,
 								   BlockNumber blocknum, BlockNumber nblocks);
 	BlockNumber (*smgr_nblocks) (SMgrRelation reln, ForkNumber forknum, bool polar_cache_size);
 	void		(*smgr_truncate) (SMgrRelation reln, ForkNumber forknum,
 								  BlockNumber nblocks);
 	void		(*smgr_immedsync) (SMgrRelation reln, ForkNumber forknum);
-	void		(*smgr_pre_ckpt) (void);	/* may be NULL */
-	void		(*smgr_sync) (void);	/* may be NULL */
-	void		(*smgr_post_ckpt) (void);	/* may be NULL */
+	void		(*smgr_registersync) (SMgrRelation reln, ForkNumber forknum);
 } f_smgr;
-
 
 static const f_smgr smgrsw[] = {
 	/* magnetic disk */
 	{
 		.smgr_init = mdinit,
 		.smgr_shutdown = NULL,
+<<<<<<< HEAD
+=======
+		.smgr_open = mdopen,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		.smgr_close = mdclose,
 		.smgr_create = mdcreate,
 		.smgr_exists = mdexists,
 		.smgr_unlink = mdunlink,
 		.smgr_extend = mdextend,
+<<<<<<< HEAD
 		.smgr_extendbatch = mdextendbatch,
 		.smgr_prefetch = mdprefetch,
 		/* POLAR: bulk read */
@@ -117,29 +178,46 @@ static const f_smgr smgrsw[] = {
 		/* POLAR end */
 		.smgr_read = mdread,
 		.smgr_write = mdwrite,
+=======
+		.smgr_zeroextend = mdzeroextend,
+		.smgr_prefetch = mdprefetch,
+		.smgr_readv = mdreadv,
+		.smgr_writev = mdwritev,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		.smgr_writeback = mdwriteback,
 		.smgr_nblocks = mdnblocks,
 		.smgr_truncate = mdtruncate,
 		.smgr_immedsync = mdimmedsync,
+<<<<<<< HEAD
 		.smgr_pre_ckpt = mdpreckpt,
 		.smgr_sync = mdsync,
 		.smgr_post_ckpt = mdpostckpt
+=======
+		.smgr_registersync = mdregistersync,
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 };
 
 static const int NSmgr = lengthof(smgrsw);
 
-
 /*
  * Each backend has a hashtable that stores all extant SMgrRelation objects.
- * In addition, "unowned" SMgrRelation objects are chained together in a list.
+ * In addition, "unpinned" SMgrRelation objects are chained together in a list.
  */
 static HTAB *SMgrRelationHash = NULL;
 
+<<<<<<< HEAD
 static dlist_head	unowned_relns;
 
 /* local function prototypes */
 static void smgrshutdown(int code, Datum arg);
+=======
+static dlist_head unpinned_relns;
+
+/* local function prototypes */
+static void smgrshutdown(int code, Datum arg);
+static void smgrdestroy(SMgrRelation reln);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /* GUCs. */
 int smgr_shared_relations = 10000;
@@ -705,8 +783,8 @@ polar_get_smgr_mapping_table(void)
 }
 
 /*
- *	smgrinit(), smgrshutdown() -- Initialize or shut down storage
- *								  managers.
+ * smgrinit(), smgrshutdown() -- Initialize or shut down storage
+ *								 managers.
  *
  * Note: smgrinit is called during backend startup (normal or standalone
  * case), *not* during postmaster start.  Therefore, any resources created
@@ -743,55 +821,71 @@ smgrshutdown(int code, Datum arg)
 }
 
 /*
- *	smgropen() -- Return an SMgrRelation object, creating it if need be.
+ * smgropen() -- Return an SMgrRelation object, creating it if need be.
  *
- *		This does not attempt to actually open the underlying file.
+ * In versions of PostgreSQL prior to 17, this function returned an object
+ * with no defined lifetime.  Now, however, the object remains valid for the
+ * lifetime of the transaction, up to the point where AtEOXact_SMgr() is
+ * called, making it much easier for callers to know for how long they can
+ * hold on to a pointer to the returned object.  If this function is called
+ * outside of a transaction, the object remains valid until smgrdestroy() or
+ * smgrdestroyall() is called.  Background processes that use smgr but not
+ * transactions typically do this once per checkpoint cycle.
+ *
+ * This does not attempt to actually open the underlying files.
  */
 SMgrRelation
-smgropen(RelFileNode rnode, BackendId backend)
+smgropen(RelFileLocator rlocator, ProcNumber backend)
 {
-	RelFileNodeBackend brnode;
+	RelFileLocatorBackend brlocator;
 	SMgrRelation reln;
 	bool		found;
+
+	Assert(RelFileNumberIsValid(rlocator.relNumber));
 
 	if (SMgrRelationHash == NULL)
 	{
 		/* First time through: initialize the hash table */
 		HASHCTL		ctl;
 
-		MemSet(&ctl, 0, sizeof(ctl));
-		ctl.keysize = sizeof(RelFileNodeBackend);
+		ctl.keysize = sizeof(RelFileLocatorBackend);
 		ctl.entrysize = sizeof(SMgrRelationData);
 		SMgrRelationHash = hash_create("smgr relation table", 400,
 									   &ctl, HASH_ELEM | HASH_BLOBS);
+<<<<<<< HEAD
 		dlist_init(&unowned_relns);
+=======
+		dlist_init(&unpinned_relns);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
 	/* Look up or create an entry */
-	brnode.node = rnode;
-	brnode.backend = backend;
+	brlocator.locator = rlocator;
+	brlocator.backend = backend;
 	reln = (SMgrRelation) hash_search(SMgrRelationHash,
-									  (void *) &brnode,
+									  &brlocator,
 									  HASH_ENTER, &found);
 
 	/* Initialize it if not present before */
 	if (!found)
 	{
-		int			forknum;
-
 		/* hash_search already filled in the lookup key */
-		reln->smgr_owner = NULL;
 		reln->smgr_targblock = InvalidBlockNumber;
+<<<<<<< HEAD
 		reln->smgr_shared = NULL;
 		reln->smgr_shared_generation = 0;
 		reln->smgr_fsm_nblocks = InvalidBlockNumber;
 		reln->smgr_vm_nblocks = InvalidBlockNumber;
+=======
+		for (int i = 0; i <= MAX_FORKNUM; ++i)
+			reln->smgr_cached_nblocks[i] = InvalidBlockNumber;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 		reln->smgr_which = 0;	/* we only have md.c at present */
 
-		/* mark it not open */
-		for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
-			reln->md_num_open_segs[forknum] = 0;
+		/* implementation-specific initialization */
+		smgrsw[reln->smgr_which].smgr_open(reln);
 
+<<<<<<< HEAD
 		/* POLAR: bulk extend status */
 		for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
 			polar_smgr_clear_bulk_extend(reln, forknum);
@@ -799,20 +893,24 @@ smgropen(RelFileNode rnode, BackendId backend)
 
 		/* it has no owner yet */
 		dlist_push_tail(&unowned_relns, &reln->node);
+=======
+		/* it is not pinned yet */
+		reln->pincount = 0;
+		dlist_push_tail(&unpinned_relns, &reln->node);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
 	return reln;
 }
 
 /*
- * smgrsetowner() -- Establish a long-lived reference to an SMgrRelation object
- *
- * There can be only one owner at a time; this is sufficient since currently
- * the only such owners exist in the relcache.
+ * smgrpin() -- Prevent an SMgrRelation object from being destroyed at end of
+ *				transaction
  */
 void
-smgrsetowner(SMgrRelation *owner, SMgrRelation reln)
+smgrpin(SMgrRelation reln)
 {
+<<<<<<< HEAD
 	/* We don't support "disowning" an SMgrRelation here, use smgrclearowner */
 	Assert(owner != NULL);
 
@@ -833,15 +931,24 @@ smgrsetowner(SMgrRelation *owner, SMgrRelation reln)
 	/* Now establish the ownership relationship. */
 	reln->smgr_owner = owner;
 	*owner = reln;
+=======
+	if (reln->pincount == 0)
+		dlist_delete(&reln->node);
+	reln->pincount++;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
- * smgrclearowner() -- Remove long-lived reference to an SMgrRelation object
- *					   if one exists
+ * smgrunpin() -- Allow an SMgrRelation object to be destroyed at end of
+ *				  transaction
+ *
+ * The object remains valid, but if there are no other pins on it, it is moved
+ * to the unpinned list where it will be destroyed by AtEOXact_SMgr().
  */
 void
-smgrclearowner(SMgrRelation *owner, SMgrRelation reln)
+smgrunpin(SMgrRelation reln)
 {
+<<<<<<< HEAD
 	/* Do nothing if the SMgrRelation object is not owned by the owner */
 	if (reln->smgr_owner != owner)
 		return;
@@ -872,34 +979,102 @@ void
 smgrclose(SMgrRelation reln)
 {
 	SMgrRelation *owner;
+=======
+	Assert(reln->pincount > 0);
+	reln->pincount--;
+	if (reln->pincount == 0)
+		dlist_push_tail(&unpinned_relns, &reln->node);
+}
+
+/*
+ * smgrdestroy() -- Delete an SMgrRelation object.
+ */
+static void
+smgrdestroy(SMgrRelation reln)
+{
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	ForkNumber	forknum;
+
+	Assert(reln->pincount == 0);
 
 	for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
 		smgrsw[reln->smgr_which].smgr_close(reln, forknum);
 
+<<<<<<< HEAD
 	owner = reln->smgr_owner;
 
 	if (!owner)
 		dlist_delete(&reln->node);
+=======
+	dlist_delete(&reln->node);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	if (hash_search(SMgrRelationHash,
-					(void *) &(reln->smgr_rnode),
+					&(reln->smgr_rlocator),
 					HASH_REMOVE, NULL) == NULL)
 		elog(ERROR, "SMgrRelation hashtable corrupted");
-
-	/*
-	 * Unhook the owner pointer, if any.  We do this last since in the remote
-	 * possibility of failure above, the SMgrRelation object will still exist.
-	 */
-	if (owner)
-		*owner = NULL;
 }
 
 /*
- *	smgrcloseall() -- Close all existing SMgrRelation objects.
+ * smgrrelease() -- Release all resources used by this object.
+ *
+ * The object remains valid.
  */
 void
-smgrcloseall(void)
+smgrrelease(SMgrRelation reln)
+{
+	for (ForkNumber forknum = 0; forknum <= MAX_FORKNUM; forknum++)
+	{
+		smgrsw[reln->smgr_which].smgr_close(reln, forknum);
+		reln->smgr_cached_nblocks[forknum] = InvalidBlockNumber;
+	}
+	reln->smgr_targblock = InvalidBlockNumber;
+}
+
+/*
+ * smgrclose() -- Close an SMgrRelation object.
+ *
+ * The SMgrRelation reference should not be used after this call.  However,
+ * because we don't keep track of the references returned by smgropen(), we
+ * don't know if there are other references still pointing to the same object,
+ * so we cannot remove the SMgrRelation object yet.  Therefore, this is just a
+ * synonym for smgrrelease() at the moment.
+ */
+void
+smgrclose(SMgrRelation reln)
+{
+	smgrrelease(reln);
+}
+
+/*
+ * smgrdestroyall() -- Release resources used by all unpinned objects.
+ *
+ * It must be known that there are no pointers to SMgrRelations, other than
+ * those pinned with smgrpin().
+ */
+void
+smgrdestroyall(void)
+{
+	dlist_mutable_iter iter;
+
+	/*
+	 * Zap all unpinned SMgrRelations.  We rely on smgrdestroy() to remove
+	 * each one from the list.
+	 */
+	dlist_foreach_modify(iter, &unpinned_relns)
+	{
+		SMgrRelation rel = dlist_container(SMgrRelationData, node,
+										   iter.cur);
+
+		smgrdestroy(rel);
+	}
+}
+
+/*
+ * smgrreleaseall() -- Release resources used by all objects.
+ */
+void
+smgrreleaseall(void)
 {
 	HASH_SEQ_STATUS status;
 	SMgrRelation reln;
@@ -911,19 +1086,21 @@ smgrcloseall(void)
 	hash_seq_init(&status, SMgrRelationHash);
 
 	while ((reln = (SMgrRelation) hash_seq_search(&status)) != NULL)
-		smgrclose(reln);
+	{
+		smgrrelease(reln);
+	}
 }
 
 /*
- *	smgrclosenode() -- Close SMgrRelation object for given RelFileNode,
- *					   if one exists.
+ * smgrreleaserellocator() -- Release resources for given RelFileLocator, if
+ *							  it's open.
  *
- * This has the same effects as smgrclose(smgropen(rnode)), but it avoids
+ * This has the same effects as smgrrelease(smgropen(rlocator)), but avoids
  * uselessly creating a hashtable entry only to drop it again when no
  * such entry exists already.
  */
 void
-smgrclosenode(RelFileNodeBackend rnode)
+smgrreleaserellocator(RelFileLocatorBackend rlocator)
 {
 	SMgrRelation reln;
 
@@ -932,25 +1109,32 @@ smgrclosenode(RelFileNodeBackend rnode)
 		return;
 
 	reln = (SMgrRelation) hash_search(SMgrRelationHash,
-									  (void *) &rnode,
+									  &rlocator,
 									  HASH_FIND, NULL);
 	if (reln != NULL)
-		smgrclose(reln);
+		smgrrelease(reln);
 }
 
 /*
- *	smgrcreate() -- Create a new relation.
+ * smgrexists() -- Does the underlying file for a fork exist?
+ */
+bool
+smgrexists(SMgrRelation reln, ForkNumber forknum)
+{
+	return smgrsw[reln->smgr_which].smgr_exists(reln, forknum);
+}
+
+/*
+ * smgrcreate() -- Create a new relation.
  *
- *		Given an already-created (but presumably unused) SMgrRelation,
- *		cause the underlying disk file or other storage for the fork
- *		to be created.
- *
- *		If isRedo is true, it is okay for the underlying file to exist
- *		already because we are in a WAL replay sequence.
+ * Given an already-created (but presumably unused) SMgrRelation,
+ * cause the underlying disk file or other storage for the fork
+ * to be created.
  */
 void
 smgrcreate(SMgrRelation reln, ForkNumber forknum, bool isRedo)
 {
+<<<<<<< HEAD
 	/*
 	 * Exit quickly in WAL replay mode if we've already opened the file. If
 	 * it's open, it surely must exist.
@@ -972,38 +1156,39 @@ smgrcreate(SMgrRelation reln, ForkNumber forknum, bool isRedo)
 							isRedo,
 							SmgrIsTemp(reln));
 
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	smgrsw[reln->smgr_which].smgr_create(reln, forknum, isRedo);
 }
 
 /*
- *	smgrdounlink() -- Immediately unlink all forks of a relation.
+ * smgrdosyncall() -- Immediately sync all forks of all given relations
  *
- *		All forks of the relation are removed from the store.  This should
- *		not be used during transactional operations, since it can't be undone.
+ * All forks of all given relations are synced out to the store.
  *
- *		If isRedo is true, it is okay for the underlying file(s) to be gone
- *		already.
- *
- *		This is equivalent to calling smgrdounlinkfork for each fork, but
- *		it's significantly quicker so should be preferred when possible.
+ * This is equivalent to FlushRelationBuffers() for each smgr relation,
+ * then calling smgrimmedsync() for all forks of each relation, but it's
+ * significantly quicker so should be preferred when possible.
  */
 void
-smgrdounlink(SMgrRelation reln, bool isRedo)
+smgrdosyncall(SMgrRelation *rels, int nrels)
 {
-	RelFileNodeBackend rnode = reln->smgr_rnode;
-	int			which = reln->smgr_which;
+	int			i = 0;
 	ForkNumber	forknum;
 
-	/* Close the forks at smgr level */
-	for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
-		smgrsw[which].smgr_close(reln, forknum);
+	if (nrels == 0)
+		return;
+
+	FlushRelationsAllBuffers(rels, nrels);
 
 	/*
-	 * Get rid of any remaining buffers for the relation.  bufmgr will just
-	 * drop them without bothering to write the contents.
+	 * Sync the physical file(s).
 	 */
-	DropRelFileNodesAllBuffers(&rnode, 1);
+	for (i = 0; i < nrels; i++)
+	{
+		int			which = rels[i]->smgr_which;
 
+<<<<<<< HEAD
 	/*
 	 * It'd be nice to tell the stats collector to forget it immediately, too.
 	 * But we can't because we don't know the OID (and in cases involving
@@ -1031,42 +1216,53 @@ smgrdounlink(SMgrRelation reln, bool isRedo)
 	 * xact.
 	 */
 	smgrsw[which].smgr_unlink(rnode, InvalidForkNumber, isRedo);
+=======
+		for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
+		{
+			if (smgrsw[which].smgr_exists(rels[i], forknum))
+				smgrsw[which].smgr_immedsync(rels[i], forknum);
+		}
+	}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
- *	smgrdounlinkall() -- Immediately unlink all forks of all given relations
+ * smgrdounlinkall() -- Immediately unlink all forks of all given relations
  *
- *		All forks of all given relations are removed from the store.  This
- *		should not be used during transactional operations, since it can't be
- *		undone.
+ * All forks of all given relations are removed from the store.  This
+ * should not be used during transactional operations, since it can't be
+ * undone.
  *
- *		If isRedo is true, it is okay for the underlying file(s) to be gone
- *		already.
- *
- *		This is equivalent to calling smgrdounlink for each relation, but it's
- *		significantly quicker so should be preferred when possible.
+ * If isRedo is true, it is okay for the underlying file(s) to be gone
+ * already.
  */
 void
 smgrdounlinkall(SMgrRelation *rels, int nrels, bool isRedo)
 {
 	int			i = 0;
-	RelFileNodeBackend *rnodes;
+	RelFileLocatorBackend *rlocators;
 	ForkNumber	forknum;
 
 	if (nrels == 0)
 		return;
 
 	/*
+	 * Get rid of any remaining buffers for the relations.  bufmgr will just
+	 * drop them without bothering to write the contents.
+	 */
+	DropRelationsAllBuffers(rels, nrels);
+
+	/*
 	 * create an array which contains all relations to be dropped, and close
 	 * each relation's forks at the smgr level while at it
 	 */
-	rnodes = palloc(sizeof(RelFileNodeBackend) * nrels);
+	rlocators = palloc(sizeof(RelFileLocatorBackend) * nrels);
 	for (i = 0; i < nrels; i++)
 	{
-		RelFileNodeBackend rnode = rels[i]->smgr_rnode;
+		RelFileLocatorBackend rlocator = rels[i]->smgr_rlocator;
 		int			which = rels[i]->smgr_which;
 
-		rnodes[i] = rnode;
+		rlocators[i] = rlocator;
 
 		/* Close the forks at smgr level */
 		for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
@@ -1084,17 +1280,6 @@ smgrdounlinkall(SMgrRelation *rels, int nrels, bool isRedo)
 	}
 
 	/*
-	 * Get rid of any remaining buffers for the relations.  bufmgr will just
-	 * drop them without bothering to write the contents.
-	 */
-	DropRelFileNodesAllBuffers(rnodes, nrels);
-
-	/*
-	 * It'd be nice to tell the stats collector to forget them immediately,
-	 * too. But we can't because we don't know the OIDs.
-	 */
-
-	/*
 	 * Send a shared-inval message to force other backends to close any
 	 * dangling smgr references they may have for these rels.  We should do
 	 * this before starting the actual unlinking, in case we fail partway
@@ -1103,7 +1288,7 @@ smgrdounlinkall(SMgrRelation *rels, int nrels, bool isRedo)
 	 * closed our own smgr rel.
 	 */
 	for (i = 0; i < nrels; i++)
-		CacheInvalidateSmgr(rnodes[i]);
+		CacheInvalidateSmgr(rlocators[i]);
 
 	for (i = 0; i < nrels; i++)
 		smgr_drop_sr(&rnodes[i]);
@@ -1122,15 +1307,21 @@ smgrdounlinkall(SMgrRelation *rels, int nrels, bool isRedo)
 		{
 			int			which = rels[i]->smgr_which;
 
+<<<<<<< HEAD
 			for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
 				smgrsw[which].smgr_unlink(rnodes[i], forknum, isRedo);
 		}
+=======
+		for (forknum = 0; forknum <= MAX_FORKNUM; forknum++)
+			smgrsw[which].smgr_unlink(rlocators[i], forknum, isRedo);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 	/* POLAR end */
 
-	pfree(rnodes);
+	pfree(rlocators);
 }
 
+<<<<<<< HEAD
 /*
  *	smgrdounlinkfork() -- Immediately unlink one fork of a relation.
  *
@@ -1184,38 +1375,69 @@ smgrdounlinkfork(SMgrRelation reln, ForkNumber forknum, bool isRedo)
 	 */
 	smgrsw[which].smgr_unlink(rnode, forknum, isRedo);
 }
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 /*
- *	smgrextend() -- Add a new block to a file.
+ * smgrextend() -- Add a new block to a file.
  *
- *		The semantics are nearly the same as smgrwrite(): write at the
- *		specified position.  However, this is to be used for the case of
- *		extending a relation (i.e., blocknum is at or beyond the current
- *		EOF).  Note that we assume writing a block beyond current EOF
- *		causes intervening file space to become filled with zeroes.
+ * The semantics are nearly the same as smgrwrite(): write at the
+ * specified position.  However, this is to be used for the case of
+ * extending a relation (i.e., blocknum is at or beyond the current
+ * EOF).  Note that we assume writing a block beyond current EOF
+ * causes intervening file space to become filled with zeroes.
  */
 void
 smgrextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
-		   char *buffer, bool skipFsync)
+		   const void *buffer, bool skipFsync)
 {
 	smgrsw[reln->smgr_which].smgr_extend(reln, forknum, blocknum,
 										 buffer, skipFsync);
 
+<<<<<<< HEAD
 	/* POLAR: bulk extend will call smgrnblocks_update in smgrextendbatch */
 	if (polar_smgr_being_bulk_extend(reln, forknum) == false)
 		smgrnblocks_update(reln, forknum, blocknum + 1, true);
+=======
+	/*
+	 * Normally we expect this to increase nblocks by one, but if the cached
+	 * value isn't as expected, just invalidate it so the next call asks the
+	 * kernel.
+	 */
+	if (reln->smgr_cached_nblocks[forknum] == blocknum)
+		reln->smgr_cached_nblocks[forknum] = blocknum + 1;
+	else
+		reln->smgr_cached_nblocks[forknum] = InvalidBlockNumber;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
- *	smgrprefetch() -- Initiate asynchronous read of the specified block of a relation.
+ * smgrzeroextend() -- Add new zeroed out blocks to a file.
+ *
+ * Similar to smgrextend(), except the relation can be extended by
+ * multiple blocks at once and the added blocks will be filled with
+ * zeroes.
  */
 void
-smgrprefetch(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum)
+smgrzeroextend(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+			   int nblocks, bool skipFsync)
 {
-	smgrsw[reln->smgr_which].smgr_prefetch(reln, forknum, blocknum);
+	smgrsw[reln->smgr_which].smgr_zeroextend(reln, forknum, blocknum,
+											 nblocks, skipFsync);
+
+	/*
+	 * Normally we expect this to increase the fork size by nblocks, but if
+	 * the cached value isn't as expected, just invalidate it so the next call
+	 * asks the kernel.
+	 */
+	if (reln->smgr_cached_nblocks[forknum] == blocknum)
+		reln->smgr_cached_nblocks[forknum] = blocknum + nblocks;
+	else
+		reln->smgr_cached_nblocks[forknum] = InvalidBlockNumber;
 }
 
 /*
+<<<<<<< HEAD
  *  POLAR: bulk read
  *
  *	polar_smgrbulkread() -- read multi particular block from a relation into the supplied
@@ -1236,19 +1458,39 @@ polar_smgrbulkread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 /*
  *	smgrread() -- read a particular block from a relation into the supplied
  *				  buffer.
+=======
+ * smgrprefetch() -- Initiate asynchronous read of the specified block of a relation.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  *
- *		This routine is called from the buffer manager in order to
- *		instantiate pages in the shared buffer cache.  All storage managers
- *		return pages in the format that POSTGRES expects.
+ * In recovery only, this can return false to indicate that a file
+ * doesn't exist (presumably it has been dropped by a later WAL
+ * record).
  */
-void
-smgrread(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
-		 char *buffer)
+bool
+smgrprefetch(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+			 int nblocks)
 {
-	smgrsw[reln->smgr_which].smgr_read(reln, forknum, blocknum, buffer);
+	return smgrsw[reln->smgr_which].smgr_prefetch(reln, forknum, blocknum, nblocks);
 }
 
 /*
+ * smgrreadv() -- read a particular block range from a relation into the
+ *				 supplied buffers.
+ *
+ * This routine is called from the buffer manager in order to
+ * instantiate pages in the shared buffer cache.  All storage managers
+ * return pages in the format that POSTGRES expects.
+ */
+void
+smgrreadv(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+		  void **buffers, BlockNumber nblocks)
+{
+	smgrsw[reln->smgr_which].smgr_readv(reln, forknum, blocknum, buffers,
+										nblocks);
+}
+
+/*
+<<<<<<< HEAD
  *	POLAR: bulk write
  *	polar_smgrbulkwrite() -- Write the supplied buffer out.
  *
@@ -1274,30 +1516,45 @@ polar_smgrbulkwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 
 /*
  *	smgrwrite() -- Write the supplied buffer out.
+=======
+ * smgrwritev() -- Write the supplied buffers out.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  *
- *		This is to be used only for updating already-existing blocks of a
- *		relation (ie, those before the current EOF).  To extend a relation,
- *		use smgrextend().
+ * This is to be used only for updating already-existing blocks of a
+ * relation (ie, those before the current EOF).  To extend a relation,
+ * use smgrextend().
  *
- *		This is not a synchronous write -- the block is not necessarily
- *		on disk at return, only dumped out to the kernel.  However,
- *		provisions will be made to fsync the write before the next checkpoint.
+ * This is not a synchronous write -- the block is not necessarily
+ * on disk at return, only dumped out to the kernel.  However,
+ * provisions will be made to fsync the write before the next checkpoint.
  *
- *		skipFsync indicates that the caller will make other provisions to
- *		fsync the relation, so we needn't bother.  Temporary relations also
- *		do not require fsync.
+ * NB: The mechanism to ensure fsync at next checkpoint assumes that there is
+ * something that prevents a concurrent checkpoint from "racing ahead" of the
+ * write.  One way to prevent that is by holding a lock on the buffer; the
+ * buffer manager's writes are protected by that.  The bulk writer facility
+ * in bulk_write.c checks the redo pointer and calls smgrimmedsync() if a
+ * checkpoint happened; that relies on the fact that no other backend can be
+ * concurrently modifying the page.
+ *
+ * skipFsync indicates that the caller will make other provisions to
+ * fsync the relation, so we needn't bother.  Temporary relations also
+ * do not require fsync.
  */
 void
-smgrwrite(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
-		  char *buffer, bool skipFsync)
+smgrwritev(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
+		   const void **buffers, BlockNumber nblocks, bool skipFsync)
 {
+<<<<<<< HEAD
 	smgrsw[reln->smgr_which].smgr_write(reln, forknum, blocknum,
 		buffer, skipFsync);
+=======
+	smgrsw[reln->smgr_which].smgr_writev(reln, forknum, blocknum,
+										 buffers, nblocks, skipFsync);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
-
 /*
- *	smgrwriteback() -- Trigger kernel writeback for the supplied range of
+ * smgrwriteback() -- Trigger kernel writeback for the supplied range of
  *					   blocks.
  */
 void
@@ -1309,6 +1566,7 @@ smgrwriteback(SMgrRelation reln, ForkNumber forknum, BlockNumber blocknum,
 }
 
 /*
+<<<<<<< HEAD
  * When a database is dropped, we have to find and throw away all its
  * SMgrSharedRelation objects.
  */
@@ -1375,12 +1633,17 @@ polar_nblocks_cache_search_and_update(SMgrRelation reln, ForkNumber forknum, boo
  *					 supplied relation.
  * polar_enabled_nblock_cache_all() means enable smgr cache and the mode is 
  * cache all.
+=======
+ * smgrnblocks() -- Calculate the number of blocks in the
+ *					supplied relation.
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  */
 BlockNumber
 smgrnblocks(SMgrRelation reln, ForkNumber forknum)
 {
 	BlockNumber result;
 
+<<<<<<< HEAD
 	if (polar_enabled_nblock_cache_all())
 		result = polar_nblocks_cache_search_and_update(reln, forknum, true);
 	else
@@ -1405,28 +1668,67 @@ polar_smgrnblocks_cache(SMgrRelation reln, ForkNumber forknum)
 		result = polar_nblocks_cache_search_and_update(reln, forknum, true);
 	else
 		result = smgrnblocks(reln, forknum);
+=======
+	/* Check and return if we get the cached value for the number of blocks. */
+	result = smgrnblocks_cached(reln, forknum);
+	if (result != InvalidBlockNumber)
+		return result;
+
+	result = smgrsw[reln->smgr_which].smgr_nblocks(reln, forknum);
+
+	reln->smgr_cached_nblocks[forknum] = result;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	return result;
 }
 
 /*
- *	smgrtruncate() -- Truncate supplied relation to the specified number
- *					  of blocks
+ * smgrnblocks_cached() -- Get the cached number of blocks in the supplied
+ *						   relation.
+ *
+ * Returns an InvalidBlockNumber when not in recovery and when the relation
+ * fork size is not cached.
+ */
+BlockNumber
+smgrnblocks_cached(SMgrRelation reln, ForkNumber forknum)
+{
+	/*
+	 * For now, this function uses cached values only in recovery due to lack
+	 * of a shared invalidation mechanism for changes in file size.  Code
+	 * elsewhere reads smgr_cached_nblocks and copes with stale data.
+	 */
+	if (InRecovery && reln->smgr_cached_nblocks[forknum] != InvalidBlockNumber)
+		return reln->smgr_cached_nblocks[forknum];
+
+	return InvalidBlockNumber;
+}
+
+/*
+ * smgrtruncate() -- Truncate the given forks of supplied relation to
+ *					 each specified numbers of blocks
  *
  * The truncation is done immediately, so this can't be rolled back.
+ *
+ * The caller must hold AccessExclusiveLock on the relation, to ensure that
+ * other backends receive the smgr invalidation event that this function sends
+ * before they access any forks of the relation again.
  */
 void
-smgrtruncate(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks)
+smgrtruncate(SMgrRelation reln, ForkNumber *forknum, int nforks, BlockNumber *nblocks)
 {
+<<<<<<< HEAD
 	/* POLAR :record the new relation size to the cache */
 	POLAR_RECORD_REL_SIZE(&(reln->smgr_rnode.node), forknum, nblocks);
 	/* POLAR end */
+=======
+	int			i;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/*
 	 * Get rid of any buffers for the about-to-be-deleted blocks. bufmgr will
 	 * just drop them without bothering to write the contents.
 	 */
-	DropRelFileNodeBuffers(reln->smgr_rnode, forknum, nblocks);
+	DropRelationBuffers(reln, forknum, nforks, nblocks);
 
 	/*
 	 * Send a shared-inval message to force other backends to close any smgr
@@ -1438,8 +1740,9 @@ smgrtruncate(SMgrRelation reln, ForkNumber forknum, BlockNumber nblocks)
 	 * is a performance-critical path.)  As in the unlink code, we want to be
 	 * sure the message is sent before we start changing things on-disk.
 	 */
-	CacheInvalidateSmgr(reln->smgr_rnode);
+	CacheInvalidateSmgr(reln->smgr_rlocator);
 
+<<<<<<< HEAD
 	/*
 	 * Do the truncation.
 	 */
@@ -1455,30 +1758,70 @@ polar_smgrtruncate_no_drop_buffer(SMgrRelation reln, ForkNumber forknum, BlockNu
 {
 	smgrsw[reln->smgr_which].smgr_truncate(reln, forknum, nblocks);
 	smgrnblocks_update(reln, forknum, nblocks, true);
+=======
+	/* Do the truncation */
+	for (i = 0; i < nforks; i++)
+	{
+		/* Make the cached size is invalid if we encounter an error. */
+		reln->smgr_cached_nblocks[forknum[i]] = InvalidBlockNumber;
+
+		smgrsw[reln->smgr_which].smgr_truncate(reln, forknum[i], nblocks[i]);
+
+		/*
+		 * We might as well update the local smgr_cached_nblocks values. The
+		 * smgr cache inval message that this function sent will cause other
+		 * backends to invalidate their copies of smgr_cached_nblocks, and
+		 * these ones too at the next command boundary. But ensure they aren't
+		 * outright wrong until then.
+		 */
+		reln->smgr_cached_nblocks[forknum[i]] = nblocks[i];
+	}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /*
- *	smgrimmedsync() -- Force the specified relation to stable storage.
+ * smgrregistersync() -- Request a relation to be sync'd at next checkpoint
  *
- *		Synchronously force all previous writes to the specified relation
- *		down to disk.
+ * This can be used after calling smgrwrite() or smgrextend() with skipFsync =
+ * true, to register the fsyncs that were skipped earlier.
  *
- *		This is useful for building completely new relations (eg, new
- *		indexes).  Instead of incrementally WAL-logging the index build
- *		steps, we can just write completed index pages to disk with smgrwrite
- *		or smgrextend, and then fsync the completed index file before
- *		committing the transaction.  (This is sufficient for purposes of
- *		crash recovery, since it effectively duplicates forcing a checkpoint
- *		for the completed index.  But it is *not* sufficient if one wishes
- *		to use the WAL log for PITR or replication purposes: in that case
- *		we have to make WAL entries as well.)
+ * Note: be mindful that a checkpoint could already have happened between the
+ * smgrwrite or smgrextend calls and this!  In that case, the checkpoint
+ * already missed fsyncing this relation, and you should use smgrimmedsync
+ * instead.  Most callers should use the bulk loading facility in bulk_write.c
+ * which handles all that.
+ */
+void
+smgrregistersync(SMgrRelation reln, ForkNumber forknum)
+{
+	smgrsw[reln->smgr_which].smgr_registersync(reln, forknum);
+}
+
+/*
+ * smgrimmedsync() -- Force the specified relation to stable storage.
  *
- *		The preceding writes should specify skipFsync = true to avoid
- *		duplicative fsyncs.
+ * Synchronously force all previous writes to the specified relation
+ * down to disk.
  *
- *		Note that you need to do FlushRelationBuffers() first if there is
- *		any possibility that there are dirty buffers for the relation;
- *		otherwise the sync is not very meaningful.
+ * This is useful for building completely new relations (eg, new
+ * indexes).  Instead of incrementally WAL-logging the index build
+ * steps, we can just write completed index pages to disk with smgrwrite
+ * or smgrextend, and then fsync the completed index file before
+ * committing the transaction.  (This is sufficient for purposes of
+ * crash recovery, since it effectively duplicates forcing a checkpoint
+ * for the completed index.  But it is *not* sufficient if one wishes
+ * to use the WAL log for PITR or replication purposes: in that case
+ * we have to make WAL entries as well.)
+ *
+ * The preceding writes should specify skipFsync = true to avoid
+ * duplicative fsyncs.
+ *
+ * Note that you need to do FlushRelationBuffers() first if there is
+ * any possibility that there are dirty buffers for the relation;
+ * otherwise the sync is not very meaningful.
+ *
+ * Most callers should use the bulk loading facility in bulk_write.c
+ * instead of calling this directly.
  */
 void
 smgrimmedsync(SMgrRelation reln, ForkNumber forknum)
@@ -1486,57 +1829,11 @@ smgrimmedsync(SMgrRelation reln, ForkNumber forknum)
 	smgrsw[reln->smgr_which].smgr_immedsync(reln, forknum);
 }
 
-
-/*
- *	smgrpreckpt() -- Prepare for checkpoint.
- */
-void
-smgrpreckpt(void)
-{
-	int			i;
-
-	for (i = 0; i < NSmgr; i++)
-	{
-		if (smgrsw[i].smgr_pre_ckpt)
-			smgrsw[i].smgr_pre_ckpt();
-	}
-}
-
-/*
- *	smgrsync() -- Sync files to disk during checkpoint.
- */
-void
-smgrsync(void)
-{
-	int			i;
-
-	for (i = 0; i < NSmgr; i++)
-	{
-		if (smgrsw[i].smgr_sync)
-			smgrsw[i].smgr_sync();
-	}
-}
-
-/*
- *	smgrpostckpt() -- Post-checkpoint cleanup.
- */
-void
-smgrpostckpt(void)
-{
-	int			i;
-
-	for (i = 0; i < NSmgr; i++)
-	{
-		if (smgrsw[i].smgr_post_ckpt)
-			smgrsw[i].smgr_post_ckpt();
-	}
-}
-
 /*
  * AtEOXact_SMgr
  *
  * This routine is called during transaction commit or abort (it doesn't
- * particularly care which).  All transient SMgrRelation objects are closed.
+ * particularly care which).  All unpinned SMgrRelation objects are destroyed.
  *
  * We do this as a compromise between wanting transient SMgrRelations to
  * live awhile (to amortize the costs of blind writes of multiple blocks)
@@ -1547,6 +1844,7 @@ smgrpostckpt(void)
 void
 AtEOXact_SMgr(void)
 {
+<<<<<<< HEAD
 	dlist_mutable_iter	iter;
 
 	/* POLAR: unlock the smgr shared cache */
@@ -1565,6 +1863,20 @@ AtEOXact_SMgr(void)
 
 		smgrclose(rel);
 	}
+=======
+	smgrdestroyall();
+}
+
+/*
+ * This routine is called when we are ordered to release all open files by a
+ * ProcSignalBarrier.
+ */
+bool
+ProcessBarrierSmgrRelease(void)
+{
+	smgrreleaseall();
+	return true;
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 /* POLAR: bulk extend */

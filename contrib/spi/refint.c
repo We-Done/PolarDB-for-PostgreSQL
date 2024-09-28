@@ -12,6 +12,7 @@
 #include "commands/trigger.h"
 #include "executor/spi.h"
 #include "utils/builtins.h"
+#include "utils/memutils.h"
 #include "utils/rel.h"
 
 /* POLAR: Shared Server */
@@ -117,9 +118,7 @@ check_primary_key(PG_FUNCTION_ARGS)
 	tupdesc = rel->rd_att;
 
 	/* Connect to SPI manager */
-	if ((ret = SPI_connect()) < 0)
-		/* internal error */
-		elog(ERROR, "check_primary_key: SPI_connect returned %d", ret);
+	SPI_connect();
 
 	/*
 	 * We use SPI plan preparation feature, so allocate space to place key
@@ -196,12 +195,13 @@ check_primary_key(PG_FUNCTION_ARGS)
 
 		/*
 		 * Remember that SPI_prepare places plan in current memory context -
-		 * so, we have to save plan in Top memory context for later use.
+		 * so, we have to save plan in TopMemoryContext for later use.
 		 */
 		if (SPI_keepplan(pplan))
 			/* internal error */
 			elog(ERROR, "check_primary_key: SPI_keepplan failed");
-		plan->splan = (SPIPlanPtr *) malloc(sizeof(SPIPlanPtr));
+		plan->splan = (SPIPlanPtr *) MemoryContextAlloc(TopMemoryContext,
+														sizeof(SPIPlanPtr));
 		*(plan->splan) = pplan;
 		plan->nplans = 1;
 	}
@@ -323,7 +323,7 @@ check_foreign_key(PG_FUNCTION_ARGS)
 		/* internal error */
 		elog(ERROR, "check_foreign_key: too short %d (< 5) list of arguments", nargs);
 
-	nrefs = pg_atoi(args[0], sizeof(int), 0);
+	nrefs = pg_strtoint32(args[0]);
 	if (nrefs < 1)
 		/* internal error */
 		elog(ERROR, "check_foreign_key: %d (< 1) number of references specified", nrefs);
@@ -343,9 +343,7 @@ check_foreign_key(PG_FUNCTION_ARGS)
 	tupdesc = rel->rd_att;
 
 	/* Connect to SPI manager */
-	if ((ret = SPI_connect()) < 0)
-		/* internal error */
-		elog(ERROR, "check_foreign_key: SPI_connect returned %d", ret);
+	SPI_connect();
 
 	/*
 	 * We use SPI plan preparation feature, so allocate space to place key
@@ -434,7 +432,8 @@ check_foreign_key(PG_FUNCTION_ARGS)
 		char		sql[8192];
 		char	  **args2 = args;
 
-		plan->splan = (SPIPlanPtr *) malloc(nrefs * sizeof(SPIPlanPtr));
+		plan->splan = (SPIPlanPtr *) MemoryContextAlloc(TopMemoryContext,
+														nrefs * sizeof(SPIPlanPtr));
 
 		for (r = 0; r < nrefs; r++)
 		{
@@ -490,9 +489,12 @@ check_foreign_key(PG_FUNCTION_ARGS)
 						nv = SPI_getvalue(newtuple, tupdesc, fn);
 						type = SPI_gettype(tupdesc, fn);
 
-						if ((strcmp(type, "text") && strcmp(type, "varchar") &&
-							 strcmp(type, "char") && strcmp(type, "bpchar") &&
-							 strcmp(type, "date") && strcmp(type, "timestamp")) == 0)
+						if (strcmp(type, "text") == 0 ||
+							strcmp(type, "varchar") == 0 ||
+							strcmp(type, "char") == 0 ||
+							strcmp(type, "bpchar") == 0 ||
+							strcmp(type, "date") == 0 ||
+							strcmp(type, "timestamp") == 0)
 							is_char_type = 1;
 #ifdef	DEBUG_QUERY
 						elog(DEBUG4, "check_foreign_key Debug value %s type %s %d",
@@ -508,12 +510,10 @@ check_foreign_key(PG_FUNCTION_ARGS)
 								 nv, (is_char_type > 0) ? "'" : "", (k < nkeys) ? ", " : "");
 					}
 					strcat(sql, " where ");
-
 				}
 				else
 					/* DELETE */
 					snprintf(sql, sizeof(sql), "delete from %s where ", relname);
-
 			}
 
 			/*
@@ -628,6 +628,13 @@ find_plan(char *ident, EPlan **eplan, int *nplans)
 {
 	EPlan	   *newp;
 	int			i;
+	MemoryContext oldcontext;
+
+	/*
+	 * All allocations done for the plans need to happen in a session-safe
+	 * context.
+	 */
+	oldcontext = MemoryContextSwitchTo(TopMemoryContext);
 
 	if (*nplans > 0)
 	{
@@ -637,20 +644,24 @@ find_plan(char *ident, EPlan **eplan, int *nplans)
 				break;
 		}
 		if (i != *nplans)
+		{
+			MemoryContextSwitchTo(oldcontext);
 			return (*eplan + i);
-		*eplan = (EPlan *) realloc(*eplan, (i + 1) * sizeof(EPlan));
+		}
+		*eplan = (EPlan *) repalloc(*eplan, (i + 1) * sizeof(EPlan));
 		newp = *eplan + i;
 	}
 	else
 	{
-		newp = *eplan = (EPlan *) malloc(sizeof(EPlan));
+		newp = *eplan = (EPlan *) palloc(sizeof(EPlan));
 		(*nplans) = i = 0;
 	}
 
-	newp->ident = strdup(ident);
+	newp->ident = pstrdup(ident);
 	newp->nplans = 0;
 	newp->splan = NULL;
 	(*nplans)++;
 
+	MemoryContextSwitchTo(oldcontext);
 	return newp;
 }

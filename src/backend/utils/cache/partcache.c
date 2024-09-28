@@ -4,7 +4,7 @@
  *		Support routines for manipulating partition information cached in
  *		relcache
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -15,21 +15,18 @@
 #include "postgres.h"
 
 #include "access/hash.h"
-#include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/nbtree.h"
+#include "access/relation.h"
 #include "catalog/partition.h"
-#include "catalog/pg_inherits.h"
 #include "catalog/pg_opclass.h"
 #include "catalog/pg_partitioned_table.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
-#include "optimizer/clauses.h"
-#include "optimizer/planner.h"
+#include "optimizer/optimizer.h"
 #include "partitioning/partbounds.h"
 #include "utils/builtins.h"
-#include "utils/datum.h"
 #include "utils/lsyscache.h"
 #include "utils/memutils.h"
 #include "utils/partcache.h"
@@ -37,13 +34,30 @@
 #include "utils/syscache.h"
 
 
+static void RelationBuildPartitionKey(Relation relation);
 static List *generate_partition_qual(Relation rel);
-static int32 qsort_partition_hbound_cmp(const void *a, const void *b);
-static int32 qsort_partition_list_value_cmp(const void *a, const void *b,
-							   void *arg);
-static int32 qsort_partition_rbound_cmp(const void *a, const void *b,
-						   void *arg);
 
+/*
+ * RelationGetPartitionKey -- get partition key, if relation is partitioned
+ *
+ * Note: partition keys are not allowed to change after the partitioned rel
+ * is created.  RelationClearRelation knows this and preserves rd_partkey
+ * across relcache rebuilds, as long as the relation is open.  Therefore,
+ * even though we hand back a direct pointer into the relcache entry, it's
+ * safe for callers to continue to use that pointer as long as they hold
+ * the relation open.
+ */
+PartitionKey
+RelationGetPartitionKey(Relation rel)
+{
+	if (rel->rd_rel->relkind != RELKIND_PARTITIONED_TABLE)
+		return NULL;
+
+	if (unlikely(rel->rd_partkey == NULL))
+		RelationBuildPartitionKey(rel);
+
+	return rel->rd_partkey;
+}
 
 /*
  * RelationBuildPartitionKey
@@ -60,7 +74,7 @@ static int32 qsort_partition_rbound_cmp(const void *a, const void *b,
  * that some of our callees allocate memory on their own which would be leaked
  * permanently.
  */
-void
+static void
 RelationBuildPartitionKey(Relation relation)
 {
 	Form_pg_partitioned_table form;
@@ -80,12 +94,9 @@ RelationBuildPartitionKey(Relation relation)
 	tuple = SearchSysCache1(PARTRELID,
 							ObjectIdGetDatum(RelationGetRelid(relation)));
 
-	/*
-	 * The following happens when we have created our pg_class entry but not
-	 * the pg_partitioned_table entry yet.
-	 */
 	if (!HeapTupleIsValid(tuple))
-		return;
+		elog(ERROR, "cache lookup failed for partition key of relation %u",
+			 RelationGetRelid(relation));
 
 	partkeycxt = AllocSetContextCreate(CurTransactionContext,
 									   "partition key",
@@ -101,6 +112,12 @@ RelationBuildPartitionKey(Relation relation)
 	key->strategy = form->partstrat;
 	key->partnatts = form->partnatts;
 
+	/* Validate partition strategy code */
+	if (key->strategy != PARTITION_STRATEGY_LIST &&
+		key->strategy != PARTITION_STRATEGY_RANGE &&
+		key->strategy != PARTITION_STRATEGY_HASH)
+		elog(ERROR, "invalid partition strategy \"%c\"", key->strategy);
+
 	/*
 	 * We can rely on the first variable-length attribute being mapped to the
 	 * relevant field of the catalog's C struct, because all previous
@@ -110,15 +127,13 @@ RelationBuildPartitionKey(Relation relation)
 
 	/* But use the hard way to retrieve further variable-length attributes */
 	/* Operator class */
-	datum = SysCacheGetAttr(PARTRELID, tuple,
-							Anum_pg_partitioned_table_partclass, &isnull);
-	Assert(!isnull);
+	datum = SysCacheGetAttrNotNull(PARTRELID, tuple,
+								   Anum_pg_partitioned_table_partclass);
 	opclass = (oidvector *) DatumGetPointer(datum);
 
 	/* Collation */
-	datum = SysCacheGetAttr(PARTRELID, tuple,
-							Anum_pg_partitioned_table_partcollation, &isnull);
-	Assert(!isnull);
+	datum = SysCacheGetAttrNotNull(PARTRELID, tuple,
+								   Anum_pg_partitioned_table_partcollation);
 	collation = (oidvector *) DatumGetPointer(datum);
 
 	/* Expressions */
@@ -228,7 +243,7 @@ RelationBuildPartitionKey(Relation relation)
 			key->parttypmod[i] = exprTypmod(lfirst(partexprs_item));
 			key->parttypcoll[i] = exprCollation(lfirst(partexprs_item));
 
-			partexprs_item = lnext(partexprs_item);
+			partexprs_item = lnext(key->partexprs, partexprs_item);
 		}
 		get_typlenbyvalalign(key->parttypid[i],
 							 &key->parttyplen[i],
@@ -254,6 +269,7 @@ RelationBuildPartitionKey(Relation relation)
 }
 
 /*
+<<<<<<< HEAD
  * RelationBuildPartitionDesc
  *		Form rel's partition descriptor, and store in relcache entry
  *
@@ -798,6 +814,8 @@ RelationBuildPartitionDesc(Relation rel)
 }
 
 /*
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
  * RelationGetPartitionQual
  *
  * Returns a list of partition quals
@@ -871,8 +889,8 @@ generate_partition_qual(Relation rel)
 	bool		isnull;
 	List	   *my_qual = NIL,
 			   *result = NIL;
+	Oid			parentrelid;
 	Relation	parent;
-	bool		found_whole_row;
 
 	/* Guard against stack overflow due to overly deep partition tree */
 	check_stack_depth();
@@ -881,12 +899,24 @@ generate_partition_qual(Relation rel)
 	if (rel->rd_partcheckvalid)
 		return copyObject(rel->rd_partcheck);
 
+<<<<<<< HEAD
 	/* Grab at least an AccessShareLock on the parent table */
 	parent = relation_open(get_partition_parent(RelationGetRelid(rel)),
 						   AccessShareLock);
+=======
+	/*
+	 * Grab at least an AccessShareLock on the parent table.  Must do this
+	 * even if the partition has been partially detached, because transactions
+	 * concurrent with the detach might still be trying to use a partition
+	 * descriptor that includes it.
+	 */
+	parentrelid = get_partition_parent(RelationGetRelid(rel), true);
+	parent = relation_open(parentrelid, AccessShareLock);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 	/* Get pg_class.relpartbound */
-	tuple = SearchSysCache1(RELOID, RelationGetRelid(rel));
+	tuple = SearchSysCache1(RELOID,
+							ObjectIdGetDatum(RelationGetRelid(rel)));
 	if (!HeapTupleIsValid(tuple))
 		elog(ERROR, "cache lookup failed for relation %u",
 			 RelationGetRelid(rel));
@@ -901,7 +931,11 @@ generate_partition_qual(Relation rel)
 		bound = castNode(PartitionBoundSpec,
 						 stringToNode(TextDatumGetCString(boundDatum)));
 
+<<<<<<< HEAD
 		my_qual = get_qual_from_partbound(rel, parent, bound);
+=======
+		my_qual = get_qual_from_partbound(parent, bound);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	}
 
 	ReleaseSysCache(tuple);
@@ -918,11 +952,7 @@ generate_partition_qual(Relation rel)
 	 * in it to bear this relation's attnos. It's safe to assume varno = 1
 	 * here.
 	 */
-	result = map_partition_varattnos(result, 1, rel, parent,
-									 &found_whole_row);
-	/* There can never be a whole-row reference here */
-	if (found_whole_row)
-		elog(ERROR, "unexpected whole-row reference found in partition key");
+	result = map_partition_varattnos(result, 1, rel, parent);
 
 	/* Assert that we're not leaking any old data during assignments below */
 	Assert(rel->rd_partcheckcxt == NULL);
@@ -956,49 +986,4 @@ generate_partition_qual(Relation rel)
 
 	/* Return the working copy to the caller */
 	return result;
-}
-
-/*
- * qsort_partition_hbound_cmp
- *
- * We sort hash bounds by modulus, then by remainder.
- */
-static int32
-qsort_partition_hbound_cmp(const void *a, const void *b)
-{
-	PartitionHashBound *h1 = (*(PartitionHashBound *const *) a);
-	PartitionHashBound *h2 = (*(PartitionHashBound *const *) b);
-
-	return partition_hbound_cmp(h1->modulus, h1->remainder,
-								h2->modulus, h2->remainder);
-}
-
-/*
- * qsort_partition_list_value_cmp
- *
- * Compare two list partition bound datums
- */
-static int32
-qsort_partition_list_value_cmp(const void *a, const void *b, void *arg)
-{
-	Datum		val1 = (*(const PartitionListValue **) a)->value,
-				val2 = (*(const PartitionListValue **) b)->value;
-	PartitionKey key = (PartitionKey) arg;
-
-	return DatumGetInt32(FunctionCall2Coll(&key->partsupfunc[0],
-										   key->partcollation[0],
-										   val1, val2));
-}
-
-/* Used when sorting range bounds across all range partitions */
-static int32
-qsort_partition_rbound_cmp(const void *a, const void *b, void *arg)
-{
-	PartitionRangeBound *b1 = (*(PartitionRangeBound *const *) a);
-	PartitionRangeBound *b2 = (*(PartitionRangeBound *const *) b);
-	PartitionKey key = (PartitionKey) arg;
-
-	return partition_rbound_cmp(key->partnatts, key->partsupfunc,
-								key->partcollation, b1->datums, b1->kind,
-								b1->lower, b2);
 }

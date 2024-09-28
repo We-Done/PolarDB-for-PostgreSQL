@@ -4,7 +4,7 @@
  *
  * This module also contains some logic associated with fork names.
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -20,7 +20,7 @@
 
 #include "catalog/pg_tablespace_d.h"
 #include "common/relpath.h"
-#include "storage/backendid.h"
+#include "storage/procnumber.h"
 
 /* POLAR */
 #include "polar_dma/polar_dma.h"
@@ -39,11 +39,14 @@ extern bool		polar_temp_relation_file_in_shared_storage;
  * pg_relation_size().
  */
 const char *const forkNames[] = {
-	"main",						/* MAIN_FORKNUM */
-	"fsm",						/* FSM_FORKNUM */
-	"vm",						/* VISIBILITYMAP_FORKNUM */
-	"init"						/* INIT_FORKNUM */
+	[MAIN_FORKNUM] = "main",
+	[FSM_FORKNUM] = "fsm",
+	[VISIBILITYMAP_FORKNUM] = "vm",
+	[INIT_FORKNUM] = "init",
 };
+
+StaticAssertDecl(lengthof(forkNames) == (MAX_FORKNUM + 1),
+				 "array length mismatch");
 
 /*
  * forkname_to_number - look up fork number by name
@@ -112,24 +115,29 @@ forkname_chars(const char *str, ForkNumber *fork)
  * XXX this must agree with GetRelationPath()!
  */
 char *
+<<<<<<< HEAD
 GetDatabasePath(Oid dbNode, Oid spcNode, bool polar_vfs)
+=======
+GetDatabasePath(Oid dbOid, Oid spcOid)
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 {
-	if (spcNode == GLOBALTABLESPACE_OID)
+	if (spcOid == GLOBALTABLESPACE_OID)
 	{
 		/* Shared system relations live in {datadir}/global */
-		Assert(dbNode == 0);
+		Assert(dbOid == 0);
 		return pstrdup("global");
 	}
-	else if (spcNode == DEFAULTTABLESPACE_OID)
+	else if (spcOid == DEFAULTTABLESPACE_OID)
 	{
 		/* The default tablespace is {datadir}/base */
-		return psprintf("base/%u", dbNode);
+		return psprintf("base/%u", dbOid);
 	}
 	else
 	{
 		/* All other tablespaces are accessed via symlinks */
-		return psprintf("pg_tblspc/%u/%s/%u",
-						spcNode, TABLESPACE_VERSION_DIRECTORY, dbNode);
+		return psprintf("%s/%u/%s/%u",
+						PG_TBLSPC_DIR, spcOid,
+						TABLESPACE_VERSION_DIRECTORY, dbOid);
 	}
 }
 
@@ -138,77 +146,81 @@ GetDatabasePath(Oid dbNode, Oid spcNode, bool polar_vfs)
  *
  * Result is a palloc'd string.
  *
- * Note: ideally, backendId would be declared as type BackendId, but relpath.h
- * would have to include a backend-only header to do that; doesn't seem worth
- * the trouble considering BackendId is just int anyway.
+ * Note: ideally, procNumber would be declared as type ProcNumber, but
+ * relpath.h would have to include a backend-only header to do that; doesn't
+ * seem worth the trouble considering ProcNumber is just int anyway.
  */
 char *
-GetRelationPath(Oid dbNode, Oid spcNode, Oid relNode,
-				int backendId, ForkNumber forkNumber)
+GetRelationPath(Oid dbOid, Oid spcOid, RelFileNumber relNumber,
+				int procNumber, ForkNumber forkNumber)
 {
 	char	   *path;
 
-	if (spcNode == GLOBALTABLESPACE_OID)
+	if (spcOid == GLOBALTABLESPACE_OID)
 	{
 		/* Shared system relations live in {datadir}/global */
-		Assert(dbNode == 0);
-		Assert(backendId == InvalidBackendId);
+		Assert(dbOid == 0);
+		Assert(procNumber == INVALID_PROC_NUMBER);
 		if (forkNumber != MAIN_FORKNUM)
 			path = psprintf("global/%u_%s",
-							relNode, forkNames[forkNumber]);
+							relNumber, forkNames[forkNumber]);
 		else
-			path = psprintf("global/%u", relNode);
+			path = psprintf("global/%u", relNumber);
 	}
-	else if (spcNode == DEFAULTTABLESPACE_OID)
+	else if (spcOid == DEFAULTTABLESPACE_OID)
 	{
 		/* The default tablespace is {datadir}/base */
-		if (backendId == InvalidBackendId)
+		if (procNumber == INVALID_PROC_NUMBER)
 		{
 			if (forkNumber != MAIN_FORKNUM)
 				path = psprintf("base/%u/%u_%s",
-								dbNode, relNode,
+								dbOid, relNumber,
 								forkNames[forkNumber]);
 			else
 				path = psprintf("base/%u/%u",
-								dbNode, relNode);
+								dbOid, relNumber);
 		}
 		else
 		{
 			if (forkNumber != MAIN_FORKNUM)
 				path = psprintf("base/%u/t%d_%u_%s",
-								dbNode, backendId, relNode,
+								dbOid, procNumber, relNumber,
 								forkNames[forkNumber]);
 			else
 				path = psprintf("base/%u/t%d_%u",
-								dbNode, backendId, relNode);
+								dbOid, procNumber, relNumber);
 		}
 	}
 	else
 	{
 		/* All other tablespaces are accessed via symlinks */
-		if (backendId == InvalidBackendId)
+		if (procNumber == INVALID_PROC_NUMBER)
 		{
 			if (forkNumber != MAIN_FORKNUM)
-				path = psprintf("pg_tblspc/%u/%s/%u/%u_%s",
-								spcNode, TABLESPACE_VERSION_DIRECTORY,
-								dbNode, relNode,
+				path = psprintf("%s/%u/%s/%u/%u_%s",
+								PG_TBLSPC_DIR, spcOid,
+								TABLESPACE_VERSION_DIRECTORY,
+								dbOid, relNumber,
 								forkNames[forkNumber]);
 			else
-				path = psprintf("pg_tblspc/%u/%s/%u/%u",
-								spcNode, TABLESPACE_VERSION_DIRECTORY,
-								dbNode, relNode);
+				path = psprintf("%s/%u/%s/%u/%u",
+								PG_TBLSPC_DIR, spcOid,
+								TABLESPACE_VERSION_DIRECTORY,
+								dbOid, relNumber);
 		}
 		else
 		{
 			if (forkNumber != MAIN_FORKNUM)
-				path = psprintf("pg_tblspc/%u/%s/%u/t%d_%u_%s",
-								spcNode, TABLESPACE_VERSION_DIRECTORY,
-								dbNode, backendId, relNode,
+				path = psprintf("%s/%u/%s/%u/t%d_%u_%s",
+								PG_TBLSPC_DIR, spcOid,
+								TABLESPACE_VERSION_DIRECTORY,
+								dbOid, procNumber, relNumber,
 								forkNames[forkNumber]);
 			else
-				path = psprintf("pg_tblspc/%u/%s/%u/t%d_%u",
-								spcNode, TABLESPACE_VERSION_DIRECTORY,
-								dbNode, backendId, relNode);
+				path = psprintf("%s/%u/%s/%u/t%d_%u",
+								PG_TBLSPC_DIR, spcOid,
+								TABLESPACE_VERSION_DIRECTORY,
+								dbOid, procNumber, relNumber);
 		}
 	}
 

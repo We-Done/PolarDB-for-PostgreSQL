@@ -127,15 +127,13 @@ ALTER TABLE regtest_table DROP CONSTRAINT test_ck;      -- not supported
 CREATE TRIGGER regtest_test_trig BEFORE UPDATE ON regtest_table
     FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
 
-ALTER TABLE regtest_table DISABLE TRIGGER regtest_test_trig;    -- not supported
-ALTER TABLE regtest_table ENABLE  TRIGGER regtest_test_trig;    -- not supported
+ALTER TABLE regtest_table DISABLE TRIGGER regtest_test_trig;
+ALTER TABLE regtest_table ENABLE  TRIGGER regtest_test_trig;
 
 CREATE RULE regtest_test_rule AS ON INSERT TO regtest_table_3 DO ALSO NOTHING;
-ALTER TABLE regtest_table_3 DISABLE RULE regtest_test_rule;     -- not supported
-ALTER TABLE regtest_table_3 ENABLE RULE regtest_test_rule;      -- not supported
+ALTER TABLE regtest_table_3 DISABLE RULE regtest_test_rule;
+ALTER TABLE regtest_table_3 ENABLE RULE regtest_test_rule;
 
-ALTER TABLE regtest_table SET WITH OIDS;
-ALTER TABLE regtest_table SET WITHOUT OIDS;
 ALTER TABLE regtest_table SET (fillfactor = 75);
 ALTER TABLE regtest_table RESET (fillfactor);
 ALTER TABLE regtest_table_2 NO INHERIT regtest_table;   -- not supported
@@ -157,8 +155,6 @@ ALTER TABLE regtest_ptable ALTER p SET STORAGE PLAIN;
 ALTER TABLE regtest_ptable ADD CONSTRAINT test_ck CHECK (p like '%abc%') NOT VALID;      -- not supported by sepgsql
 ALTER TABLE regtest_ptable DROP CONSTRAINT test_ck;      -- not supported by sepgsql
 
-ALTER TABLE regtest_ptable SET WITH OIDS;
-ALTER TABLE regtest_ptable SET WITHOUT OIDS;
 ALTER TABLE regtest_ptable SET TABLESPACE pg_default;
 
 -- partitioned table child
@@ -177,8 +173,8 @@ ALTER TABLE regtest_table_part DROP CONSTRAINT test_ck;      -- not supported by
 CREATE TRIGGER regtest_part_test_trig BEFORE UPDATE ON regtest_table_part
     FOR EACH ROW EXECUTE PROCEDURE suppress_redundant_updates_trigger();
 
-ALTER TABLE regtest_table_part DISABLE TRIGGER regtest_part_test_trig;    -- not supported by sepgsql
-ALTER TABLE regtest_table_part ENABLE  TRIGGER regtest_part_test_trig;    -- not supported by sepgsql
+ALTER TABLE regtest_table_part DISABLE TRIGGER regtest_part_test_trig;
+ALTER TABLE regtest_table_part ENABLE  TRIGGER regtest_part_test_trig;
 
 ALTER TABLE regtest_table_part SET (fillfactor = 75);
 ALTER TABLE regtest_table_part RESET (fillfactor);

@@ -2,25 +2,28 @@
 #
 # Makefile for src/test/ssl
 #
-# Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+# Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
 # Portions Copyright (c) 1994, Regents of the University of California
 #
 # src/test/ssl/Makefile
 #
 #-------------------------------------------------------------------------
 
+EXTRA_INSTALL = contrib/sslinfo
+
 subdir = src/test/ssl
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
-export with_openssl
+export OPENSSL with_ssl
 
-CERTIFICATES := server_ca server-cn-and-alt-names \
-	server-cn-only server-single-alt-name server-multiple-alt-names \
-	server-no-names server-revoked server-ss \
-	client_ca client client-revoked \
-	root_ca
+# The sslfiles targets are separated into their own file due to interactions
+# with settings in Makefile.global.
+.PHONY: sslfiles sslfiles-clean
+sslfiles sslfiles-clean:
+	$(MAKE) -f $(srcdir)/sslfiles.mk $@
 
+<<<<<<< HEAD
 SSLFILES := $(CERTIFICATES:%=ssl/%.key) $(CERTIFICATES:%=ssl/%.crt) \
 	ssl/server-password.key \
 	ssl/client.crl ssl/server.crl ssl/root.crl \
@@ -135,8 +138,13 @@ sslfiles-clean:
 	rm -f $(SSLFILES) ssl/client_ca.srl ssl/server_ca.srl ssl/client_ca-certindex* ssl/server_ca-certindex* ssl/root_ca-certindex* ssl/root_ca.srl ssl/temp_ca.crt ssl/temp_ca_signed.crt
 
 clean distclean maintainer-clean:
+=======
+clean distclean:
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 	rm -rf tmp_check
+	$(MAKE) -f $(srcdir)/sslfiles.mk $@
 
+# Doesn't depend on sslfiles because we don't rebuild them by default
 check:
 	$(prove_check)
 

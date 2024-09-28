@@ -12,6 +12,7 @@ subdir = src/backend/executor
 top_builddir = ../../..
 include $(top_builddir)/src/Makefile.global
 
+<<<<<<< HEAD
 OBJS = execAmi.o execCurrent.o execExpr.o execExprInterp.o \
        execGrouping.o execIndexing.o execJunk.o \
        execMain.o execParallel.o execPartition.o execProcnode.o \
@@ -34,5 +35,73 @@ OBJS = execAmi.o execCurrent.o execExpr.o execExprInterp.o \
        nodeTableFuncscan.o polar_exec_procnode.o nodePartitionSelector.o \
        nodeAssertOp.o \
        nodeSplitUpdate.o
+=======
+OBJS = \
+	execAmi.o \
+	execAsync.o \
+	execCurrent.o \
+	execExpr.o \
+	execExprInterp.o \
+	execGrouping.o \
+	execIndexing.o \
+	execJunk.o \
+	execMain.o \
+	execParallel.o \
+	execPartition.o \
+	execProcnode.o \
+	execReplication.o \
+	execSRF.o \
+	execScan.o \
+	execTuples.o \
+	execUtils.o \
+	functions.o \
+	instrument.o \
+	nodeAgg.o \
+	nodeAppend.o \
+	nodeBitmapAnd.o \
+	nodeBitmapHeapscan.o \
+	nodeBitmapIndexscan.o \
+	nodeBitmapOr.o \
+	nodeCtescan.o \
+	nodeCustom.o \
+	nodeForeignscan.o \
+	nodeFunctionscan.o \
+	nodeGather.o \
+	nodeGatherMerge.o \
+	nodeGroup.o \
+	nodeHash.o \
+	nodeHashjoin.o \
+	nodeIncrementalSort.o \
+	nodeIndexonlyscan.o \
+	nodeIndexscan.o \
+	nodeLimit.o \
+	nodeLockRows.o \
+	nodeMaterial.o \
+	nodeMemoize.o \
+	nodeMergeAppend.o \
+	nodeMergejoin.o \
+	nodeModifyTable.o \
+	nodeNamedtuplestorescan.o \
+	nodeNestloop.o \
+	nodeProjectSet.o \
+	nodeRecursiveunion.o \
+	nodeResult.o \
+	nodeSamplescan.o \
+	nodeSeqscan.o \
+	nodeSetOp.o \
+	nodeSort.o \
+	nodeSubplan.o \
+	nodeSubqueryscan.o \
+	nodeTableFuncscan.o \
+	nodeTidrangescan.o \
+	nodeTidscan.o \
+	nodeUnique.o \
+	nodeValuesscan.o \
+	nodeWindowAgg.o \
+	nodeWorktablescan.o \
+	spi.o \
+	tqueue.o \
+	tstoreReceiver.o
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 include $(top_srcdir)/src/backend/common.mk

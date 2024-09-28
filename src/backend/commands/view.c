@@ -3,7 +3,7 @@
  * view.c
  *	  use rewrite rules to construct views
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  *
@@ -14,47 +14,23 @@
  */
 #include "postgres.h"
 
-#include "access/heapam.h"
+#include "access/relation.h"
 #include "access/xact.h"
 #include "catalog/namespace.h"
-#include "commands/defrem.h"
 #include "commands/tablecmds.h"
 #include "commands/view.h"
-#include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
 #include "parser/analyze.h"
 #include "parser/parse_relation.h"
 #include "rewrite/rewriteDefine.h"
-#include "rewrite/rewriteManip.h"
 #include "rewrite/rewriteHandler.h"
 #include "rewrite/rewriteSupport.h"
-#include "utils/acl.h"
 #include "utils/builtins.h"
 #include "utils/lsyscache.h"
 #include "utils/rel.h"
-#include "utils/syscache.h"
 
-
-static void checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc);
-
-/*---------------------------------------------------------------------
- * Validator for "check_option" reloption on views. The allowed values
- * are "local" and "cascaded".
- */
-void
-validateWithCheckOption(const char *value)
-{
-	if (value == NULL ||
-		(strcmp(value, "local") != 0 &&
-		 strcmp(value, "cascaded") != 0))
-	{
-		ereport(ERROR,
-				(errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				 errmsg("invalid value for \"check_option\" option"),
-				 errdetail("Valid values are \"local\" and \"cascaded\".")));
-	}
-}
+static void checkViewColumns(TupleDesc newdesc, TupleDesc olddesc);
 
 /*---------------------------------------------------------------------
  * DefineVirtualRelation
@@ -154,7 +130,7 @@ DefineVirtualRelation(RangeVar *relation, List *tlist, bool replace,
 		 * column list.
 		 */
 		descriptor = BuildDescForRelation(attrList);
-		checkViewTupleDesc(descriptor, rel->rd_att);
+		checkViewColumns(descriptor, rel->rd_att);
 
 		/*
 		 * If new attributes have been added, we must add pg_attribute entries
@@ -164,6 +140,10 @@ DefineVirtualRelation(RangeVar *relation, List *tlist, bool replace,
 		 * Note that we must do this before updating the query for the view,
 		 * since the rules system requires that the correct view columns be in
 		 * place when defining the new rules.
+		 *
+		 * Also note that ALTER TABLE doesn't run parse transformation on
+		 * AT_AddColumnToView commands.  The ColumnDef we supply must be ready
+		 * to execute as-is.
 		 */
 		if (list_length(attrList) > rel->rd_att->natts)
 		{
@@ -278,13 +258,13 @@ DefineVirtualRelation(RangeVar *relation, List *tlist, bool replace,
 }
 
 /*
- * Verify that tupledesc associated with proposed new view definition
- * matches tupledesc of old view.  This is basically a cut-down version
- * of equalTupleDescs(), with code added to generate specific complaints.
- * Also, we allow the new tupledesc to have more columns than the old.
+ * Verify that the columns associated with proposed new view definition match
+ * the columns of the old view.  This is similar to equalRowTypes(), with code
+ * added to generate specific complaints.  Also, we allow the new view to have
+ * more columns than the old.
  */
 static void
-checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc)
+checkViewColumns(TupleDesc newdesc, TupleDesc olddesc)
 {
 	int			i;
 
@@ -292,7 +272,6 @@ checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc)
 		ereport(ERROR,
 				(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 				 errmsg("cannot drop columns from view")));
-	/* we can ignore tdhasoid */
 
 	for (i = 0; i < olddesc->natts; i++)
 	{
@@ -310,8 +289,14 @@ checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc)
 					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 					 errmsg("cannot change name of view column \"%s\" to \"%s\"",
 							NameStr(oldattr->attname),
-							NameStr(newattr->attname))));
-		/* XXX would it be safe to allow atttypmod to change?  Not sure */
+							NameStr(newattr->attname)),
+					 errhint("Use ALTER VIEW ... RENAME COLUMN ... to change name of view column instead.")));
+
+		/*
+		 * We cannot allow type, typmod, or collation to change, since these
+		 * properties may be embedded in Vars of other views/rules referencing
+		 * this one.  Other column attributes can be ignored.
+		 */
 		if (newattr->atttypid != oldattr->atttypid ||
 			newattr->atttypmod != oldattr->atttypmod)
 			ereport(ERROR,
@@ -322,7 +307,18 @@ checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc)
 													 oldattr->atttypmod),
 							format_type_with_typemod(newattr->atttypid,
 													 newattr->atttypmod))));
-		/* We can ignore the remaining attributes of an attribute... */
+
+		/*
+		 * At this point, attcollations should be both valid or both invalid,
+		 * so applying get_collation_name unconditionally should be fine.
+		 */
+		if (newattr->attcollation != oldattr->attcollation)
+			ereport(ERROR,
+					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+					 errmsg("cannot change collation of view column \"%s\" from \"%s\" to \"%s\"",
+							NameStr(oldattr->attname),
+							get_collation_name(oldattr->attcollation),
+							get_collation_name(newattr->attcollation))));
 	}
 
 	/*
@@ -352,76 +348,6 @@ DefineViewRules(Oid viewOid, Query *viewParse, bool replace)
 	 */
 }
 
-/*---------------------------------------------------------------
- * UpdateRangeTableOfViewParse
- *
- * Update the range table of the given parsetree.
- * This update consists of adding two new entries IN THE BEGINNING
- * of the range table (otherwise the rule system will die a slow,
- * horrible and painful death, and we do not want that now, do we?)
- * one for the OLD relation and one for the NEW one (both of
- * them refer in fact to the "view" relation).
- *
- * Of course we must also increase the 'varnos' of all the Var nodes
- * by 2...
- *
- * These extra RT entries are not actually used in the query,
- * except for run-time permission checking.
- *---------------------------------------------------------------
- */
-static Query *
-UpdateRangeTableOfViewParse(Oid viewOid, Query *viewParse)
-{
-	Relation	viewRel;
-	List	   *new_rt;
-	RangeTblEntry *rt_entry1,
-			   *rt_entry2;
-	ParseState *pstate;
-
-	/*
-	 * Make a copy of the given parsetree.  It's not so much that we don't
-	 * want to scribble on our input, it's that the parser has a bad habit of
-	 * outputting multiple links to the same subtree for constructs like
-	 * BETWEEN, and we mustn't have OffsetVarNodes increment the varno of a
-	 * Var node twice.  copyObject will expand any multiply-referenced subtree
-	 * into multiple copies.
-	 */
-	viewParse = copyObject(viewParse);
-
-	/* Create a dummy ParseState for addRangeTableEntryForRelation */
-	pstate = make_parsestate(NULL);
-
-	/* need to open the rel for addRangeTableEntryForRelation */
-	viewRel = relation_open(viewOid, AccessShareLock);
-
-	/*
-	 * Create the 2 new range table entries and form the new range table...
-	 * OLD first, then NEW....
-	 */
-	rt_entry1 = addRangeTableEntryForRelation(pstate, viewRel,
-											  makeAlias("old", NIL),
-											  false, false);
-	rt_entry2 = addRangeTableEntryForRelation(pstate, viewRel,
-											  makeAlias("new", NIL),
-											  false, false);
-	/* Must override addRangeTableEntry's default access-check flags */
-	rt_entry1->requiredPerms = 0;
-	rt_entry2->requiredPerms = 0;
-
-	new_rt = lcons(rt_entry1, lcons(rt_entry2, viewParse->rtable));
-
-	viewParse->rtable = new_rt;
-
-	/*
-	 * Now offset all var nodes by 2, and jointree RT indexes too.
-	 */
-	OffsetVarNodes((Node *) viewParse, 2, 0);
-
-	relation_close(viewRel, AccessShareLock);
-
-	return viewParse;
-}
-
 /*
  * DefineView
  *		Execute a CREATE VIEW command.
@@ -440,16 +366,13 @@ DefineView(ViewStmt *stmt, const char *queryString,
 	/*
 	 * Run parse analysis to convert the raw parse tree to a Query.  Note this
 	 * also acquires sufficient locks on the source table(s).
-	 *
-	 * Since parse analysis scribbles on its input, copy the raw parse tree;
-	 * this ensures we don't corrupt a prepared statement, for example.
 	 */
 	rawstmt = makeNode(RawStmt);
-	rawstmt->stmt = (Node *) copyObject(stmt->query);
+	rawstmt->stmt = stmt->query;
 	rawstmt->stmt_location = stmt_location;
 	rawstmt->stmt_len = stmt_len;
 
-	viewParse = parse_analyze(rawstmt, queryString, NULL, 0, NULL);
+	viewParse = parse_analyze_fixedparams(rawstmt, queryString, NULL, 0, NULL);
 
 	/*
 	 * The grammar should ensure that the result is a single SELECT Query.
@@ -509,7 +432,7 @@ DefineView(ViewStmt *stmt, const char *queryString,
 	if (check_option)
 	{
 		const char *view_updatable_error =
-		view_query_is_auto_updatable(viewParse, true);
+			view_query_is_auto_updatable(viewParse, true);
 
 		if (view_updatable_error)
 			ereport(ERROR,
@@ -535,7 +458,7 @@ DefineView(ViewStmt *stmt, const char *queryString,
 			if (te->resjunk)
 				continue;
 			te->resname = pstrdup(strVal(lfirst(alist_item)));
-			alist_item = lnext(alist_item);
+			alist_item = lnext(stmt->aliases, alist_item);
 			if (alist_item == NULL)
 				break;			/* done assigning aliases */
 		}
@@ -587,12 +510,6 @@ DefineView(ViewStmt *stmt, const char *queryString,
 void
 StoreViewQuery(Oid viewOid, Query *viewParse, bool replace)
 {
-	/*
-	 * The range table of 'viewParse' does not contain entries for the "OLD"
-	 * and "NEW" relations. So... add them!
-	 */
-	viewParse = UpdateRangeTableOfViewParse(viewOid, viewParse);
-
 	/*
 	 * Now create the rules associated with the view.
 	 */

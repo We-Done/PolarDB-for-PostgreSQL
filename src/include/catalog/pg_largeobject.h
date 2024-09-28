@@ -4,7 +4,7 @@
  *	  definition of the "large object" system catalog (pg_largeobject)
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * src/include/catalog/pg_largeobject.h
@@ -20,15 +20,17 @@
 
 #include "catalog/genbki.h"
 #include "catalog/pg_largeobject_d.h"
+#include "utils/snapshot.h"
 
 /* ----------------
  *		pg_largeobject definition.  cpp turns this into
  *		typedef struct FormData_pg_largeobject
  * ----------------
  */
-CATALOG(pg_largeobject,2613,LargeObjectRelationId) BKI_WITHOUT_OIDS
+CATALOG(pg_largeobject,2613,LargeObjectRelationId)
 {
-	Oid			loid;			/* Identifier of large object */
+	Oid			loid BKI_LOOKUP(pg_largeobject_metadata);	/* Identifier of large
+															 * object */
 	int32		pageno;			/* Page number (starting from 0) */
 
 	/* data has variable length, but we allow direct access; see inv_api.c */
@@ -43,8 +45,11 @@ CATALOG(pg_largeobject,2613,LargeObjectRelationId) BKI_WITHOUT_OIDS
  */
 typedef FormData_pg_largeobject *Form_pg_largeobject;
 
+DECLARE_UNIQUE_INDEX_PKEY(pg_largeobject_loid_pn_index, 2683, LargeObjectLOidPNIndexId, pg_largeobject, btree(loid oid_ops, pageno int4_ops));
+
 extern Oid	LargeObjectCreate(Oid loid);
 extern void LargeObjectDrop(Oid loid);
 extern bool LargeObjectExists(Oid loid);
+extern bool LargeObjectExistsWithSnapshot(Oid loid, Snapshot snapshot);
 
 #endif							/* PG_LARGEOBJECT_H */

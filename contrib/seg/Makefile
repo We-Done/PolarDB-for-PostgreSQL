@@ -1,18 +1,27 @@
 # contrib/seg/Makefile
 
 MODULE_big = seg
-OBJS = seg.o segparse.o $(WIN32RES)
+OBJS = \
+	$(WIN32RES) \
+	seg.o \
+	segparse.o \
+	segscan.o
 
 EXTENSION = seg
-DATA = seg--1.1.sql seg--1.1--1.2.sql seg--1.2--1.3.sql \
-	seg--1.0--1.1.sql seg--unpackaged--1.0.sql
+DATA = seg--1.1.sql seg--1.1--1.2.sql seg--1.2--1.3.sql seg--1.3--1.4.sql \
+	seg--1.0--1.1.sql
 PGFILEDESC = "seg - line segment data type"
 
 HEADERS = segdata.h
+<<<<<<< HEAD
 
 REGRESS = seg
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
-EXTRA_CLEAN = y.tab.c y.tab.h
+REGRESS = security seg
+
+EXTRA_CLEAN = segparse.h segparse.c segscan.c
 
 ifdef USE_PGXS
 PG_CONFIG = pg_config
@@ -26,10 +35,11 @@ include $(top_srcdir)/contrib/contrib-global.mk
 endif
 
 
-# segscan is compiled as part of segparse
-segparse.o: segscan.c
+# See notes in src/backend/parser/Makefile about the following two rules
+segparse.h: segparse.c
+	touch $@
 
-distprep: segparse.c segscan.c
+segparse.c: BISONFLAGS += -d
 
-maintainer-clean:
-	rm -f segparse.c segscan.c
+# Force these dependencies to be known even without dependency info built:
+segparse.o segscan.o: segparse.h

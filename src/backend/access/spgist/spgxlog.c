@@ -4,7 +4,7 @@
  *	  WAL replay logic for SP-GiST
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -17,8 +17,6 @@
 #include "access/bufmask.h"
 #include "access/spgist_private.h"
 #include "access/spgxlog.h"
-#include "access/transam.h"
-#include "access/xlog.h"
 #include "access/xlogutils.h"
 #include "storage/standby.h"
 #include "utils/memutils.h"
@@ -38,7 +36,7 @@ fillFakeState(SpGistState *state, spgxlogState stateSrc)
 {
 	memset(state, 0, sizeof(*state));
 
-	state->myXid = stateSrc.myXid;
+	state->redirectXid = stateSrc.redirectXid;
 	state->isBuild = stateSrc.isBuild;
 	state->deadTupleStorage = palloc0(SGDTSIZE);
 }
@@ -73,6 +71,7 @@ addOrReplaceTuple(Page page, Item tuple, int size, OffsetNumber offset)
 }
 
 static void
+<<<<<<< HEAD
 spgRedoCreateIndex(XLogReaderState *record)
 {
 	XLogRecPtr	lsn = record->EndRecPtr;
@@ -108,6 +107,8 @@ spgRedoCreateIndex(XLogReaderState *record)
 }
 
 static void
+=======
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 spgRedoAddLeaf(XLogReaderState *record)
 {
 	XLogRecPtr	lsn = record->EndRecPtr;
@@ -157,8 +158,8 @@ spgRedoAddLeaf(XLogReaderState *record)
 
 				head = (SpGistLeafTuple) PageGetItem(page,
 													 PageGetItemId(page, xldata->offnumHeadLeaf));
-				Assert(head->nextOffset == leafTupleHdr.nextOffset);
-				head->nextOffset = xldata->offnumLeaf;
+				Assert(SGLT_GET_NEXTOFFSET(head) == SGLT_GET_NEXTOFFSET(&leafTupleHdr));
+				SGLT_SET_NEXTOFFSET(head, xldata->offnumLeaf);
 			}
 		}
 		else
@@ -872,7 +873,7 @@ spgRedoVacuumLeaf(XLogReaderState *record)
 			lt = (SpGistLeafTuple) PageGetItem(page,
 											   PageGetItemId(page, chainSrc[i]));
 			Assert(lt->tupstate == SPGIST_LIVE);
-			lt->nextOffset = chainDest[i];
+			SGLT_SET_NEXTOFFSET(lt, chainDest[i]);
 		}
 
 		PageSetLSN(page, lsn);
@@ -927,14 +928,12 @@ spgRedoVacuumRedirect(XLogReaderState *record)
 	 */
 	if (InHotStandby)
 	{
-		if (TransactionIdIsValid(xldata->newestRedirectXid))
-		{
-			RelFileNode node;
+		RelFileLocator locator;
 
-			XLogRecGetBlockTag(record, 0, &node, NULL, NULL);
-			ResolveRecoveryConflictWithSnapshot(xldata->newestRedirectXid,
-												node);
-		}
+		XLogRecGetBlockTag(record, 0, &locator, NULL, NULL);
+		ResolveRecoveryConflictWithSnapshot(xldata->snapshotConflictHorizon,
+											xldata->isCatalogRel,
+											locator);
 	}
 
 	if (XLogReadBufferForRedo(record, 0, &buffer) == BLK_NEEDS_REDO)
@@ -997,9 +996,6 @@ spg_redo(XLogReaderState *record)
 	oldCxt = MemoryContextSwitchTo(opCtx);
 	switch (info)
 	{
-		case XLOG_SPGIST_CREATE_INDEX:
-			spgRedoCreateIndex(record);
-			break;
 		case XLOG_SPGIST_ADD_LEAF:
 			spgRedoAddLeaf(record);
 			break;

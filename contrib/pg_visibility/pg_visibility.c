@@ -3,23 +3,28 @@
  * pg_visibility.c
  *	  display visibility map information and page-level visibility bits
  *
- * Copyright (c) 2016-2018, PostgreSQL Global Development Group
+ * Copyright (c) 2016-2024, PostgreSQL Global Development Group
  *
  *	  contrib/pg_visibility/pg_visibility.c
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
 
+#include "access/heapam.h"
 #include "access/htup_details.h"
 #include "access/visibilitymap.h"
+#include "access/xloginsert.h"
 #include "catalog/pg_type.h"
 #include "catalog/storage_xlog.h"
 #include "funcapi.h"
 #include "miscadmin.h"
 #include "storage/bufmgr.h"
+#include "storage/proc.h"
 #include "storage/procarray.h"
+#include "storage/read_stream.h"
 #include "storage/smgr.h"
 #include "utils/rel.h"
+#include "utils/snapmgr.h"
 
 /* POLAR */
 #include "replication/syncrep.h"
@@ -40,6 +45,17 @@ typedef struct corrupt_items
 	ItemPointer tids;
 } corrupt_items;
 
+/* for collect_corrupt_items_read_stream_next_block */
+struct collect_corrupt_items_read_stream_private
+{
+	bool		all_frozen;
+	bool		all_visible;
+	BlockNumber current_blocknum;
+	BlockNumber last_exclusive;
+	Relation	rel;
+	Buffer		vmbuffer;
+};
+
 PG_FUNCTION_INFO_V1(pg_visibility_map);
 PG_FUNCTION_INFO_V1(pg_visibility_map_rel);
 PG_FUNCTION_INFO_V1(pg_visibility);
@@ -52,10 +68,10 @@ PG_FUNCTION_INFO_V1(pg_truncate_visibility_map);
 static TupleDesc pg_visibility_tupdesc(bool include_blkno, bool include_pd);
 static vbits *collect_visibility_data(Oid relid, bool include_pd);
 static corrupt_items *collect_corrupt_items(Oid relid, bool all_visible,
-					  bool all_frozen);
+											bool all_frozen);
 static void record_corrupt_item(corrupt_items *items, ItemPointer tid);
 static bool tuple_all_visible(HeapTuple tup, TransactionId OldestXmin,
-				  Buffer buffer);
+							  Buffer buffer);
 static void check_relation_relkind(Relation rel);
 
 /*
@@ -75,7 +91,7 @@ pg_visibility_map(PG_FUNCTION_ARGS)
 	Buffer		vmbuffer = InvalidBuffer;
 	TupleDesc	tupdesc;
 	Datum		values[2];
-	bool		nulls[2];
+	bool		nulls[2] = {0};
 
 	rel = relation_open(relid, AccessShareLock);
 
@@ -88,7 +104,6 @@ pg_visibility_map(PG_FUNCTION_ARGS)
 				 errmsg("invalid block number")));
 
 	tupdesc = pg_visibility_tupdesc(false, false);
-	MemSet(nulls, 0, sizeof(nulls));
 
 	mapbits = (int32) visibilitymap_get_status(rel, blkno, &vmbuffer);
 	if (vmbuffer != InvalidBuffer)
@@ -117,7 +132,7 @@ pg_visibility(PG_FUNCTION_ARGS)
 	Page		page;
 	TupleDesc	tupdesc;
 	Datum		values[3];
-	bool		nulls[3];
+	bool		nulls[3] = {0};
 
 	rel = relation_open(relid, AccessShareLock);
 
@@ -130,7 +145,6 @@ pg_visibility(PG_FUNCTION_ARGS)
 				 errmsg("invalid block number")));
 
 	tupdesc = pg_visibility_tupdesc(false, true);
-	MemSet(nulls, 0, sizeof(nulls));
 
 	mapbits = (int32) visibilitymap_get_status(rel, blkno, &vmbuffer);
 	if (vmbuffer != InvalidBuffer)
@@ -188,10 +202,9 @@ pg_visibility_map_rel(PG_FUNCTION_ARGS)
 	if (info->next < info->count)
 	{
 		Datum		values[3];
-		bool		nulls[3];
+		bool		nulls[3] = {0};
 		HeapTuple	tuple;
 
-		MemSet(nulls, 0, sizeof(nulls));
 		values[0] = Int64GetDatum(info->next);
 		values[1] = BoolGetDatum((info->bits[info->next] & (1 << 0)) != 0);
 		values[2] = BoolGetDatum((info->bits[info->next] & (1 << 1)) != 0);
@@ -233,10 +246,9 @@ pg_visibility_rel(PG_FUNCTION_ARGS)
 	if (info->next < info->count)
 	{
 		Datum		values[4];
-		bool		nulls[4];
+		bool		nulls[4] = {0};
 		HeapTuple	tuple;
 
-		MemSet(nulls, 0, sizeof(nulls));
 		values[0] = Int64GetDatum(info->next);
 		values[1] = BoolGetDatum((info->bits[info->next] & (1 << 0)) != 0);
 		values[2] = BoolGetDatum((info->bits[info->next] & (1 << 1)) != 0);
@@ -266,7 +278,7 @@ pg_visibility_map_summary(PG_FUNCTION_ARGS)
 	int64		all_frozen = 0;
 	TupleDesc	tupdesc;
 	Datum		values[2];
-	bool		nulls[2];
+	bool		nulls[2] = {0};
 
 	rel = relation_open(relid, AccessShareLock);
 
@@ -295,12 +307,9 @@ pg_visibility_map_summary(PG_FUNCTION_ARGS)
 		ReleaseBuffer(vmbuffer);
 	relation_close(rel, AccessShareLock);
 
-	tupdesc = CreateTemplateTupleDesc(2, false);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 1, "all_visible", INT8OID, -1, 0);
-	TupleDescInitEntry(tupdesc, (AttrNumber) 2, "all_frozen", INT8OID, -1, 0);
-	tupdesc = BlessTupleDesc(tupdesc);
+	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
+		elog(ERROR, "return type must be a row type");
 
-	MemSet(nulls, 0, sizeof(nulls));
 	values[0] = Int64GetDatum(all_visible);
 	values[1] = Int64GetDatum(all_frozen);
 
@@ -384,16 +393,23 @@ pg_truncate_visibility_map(PG_FUNCTION_ARGS)
 {
 	Oid			relid = PG_GETARG_OID(0);
 	Relation	rel;
+	ForkNumber	fork;
+	BlockNumber block;
 
 	rel = relation_open(relid, AccessExclusiveLock);
 
 	/* Only some relkinds have a visibility map */
 	check_relation_relkind(rel);
 
-	RelationOpenSmgr(rel);
-	rel->rd_smgr->smgr_vm_nblocks = InvalidBlockNumber;
+	/* Forcibly reset cached file size */
+	RelationGetSmgr(rel)->smgr_cached_nblocks[VISIBILITYMAP_FORKNUM] = InvalidBlockNumber;
 
-	visibilitymap_truncate(rel, 0);
+	block = visibilitymap_prepare_truncate(rel, 0);
+	if (BlockNumberIsValid(block))
+	{
+		fork = VISIBILITYMAP_FORKNUM;
+		smgrtruncate(RelationGetSmgr(rel), &fork, 1, &block);
+	}
 
 	if (RelationNeedsWAL(rel))
 	{
@@ -401,7 +417,7 @@ pg_truncate_visibility_map(PG_FUNCTION_ARGS)
 		XLogRecPtr lsn;
 
 		xlrec.blkno = 0;
-		xlrec.rnode = rel->rd_node;
+		xlrec.rlocator = rel->rd_locator;
 		xlrec.flags = SMGR_TRUNCATE_VM;
 
 		XLogBeginInsert();
@@ -426,7 +442,7 @@ pg_truncate_visibility_map(PG_FUNCTION_ARGS)
 	 * here and when we sent the messages at our eventual commit.  However,
 	 * we're currently only sending a non-transactional smgr invalidation,
 	 * which will have been posted to shared memory immediately from within
-	 * visibilitymap_truncate.  Therefore, there should be no race here.
+	 * smgr_truncate.  Therefore, there should be no race here.
 	 *
 	 * The reason why it's desirable to release the lock early here is because
 	 * of the possibility that someone will need to use this to blow away many
@@ -457,7 +473,7 @@ pg_visibility_tupdesc(bool include_blkno, bool include_pd)
 		++maxattr;
 	if (include_pd)
 		++maxattr;
-	tupdesc = CreateTemplateTupleDesc(maxattr, false);
+	tupdesc = CreateTemplateTupleDesc(maxattr);
 	if (include_blkno)
 		TupleDescInitEntry(tupdesc, ++a, "blkno", INT8OID, -1, 0);
 	TupleDescInitEntry(tupdesc, ++a, "all_visible", BOOLOID, -1, 0);
@@ -484,6 +500,8 @@ collect_visibility_data(Oid relid, bool include_pd)
 	BlockNumber blkno;
 	Buffer		vmbuffer = InvalidBuffer;
 	BufferAccessStrategy bstrategy = GetAccessStrategy(BAS_BULKREAD);
+	BlockRangeReadStreamPrivate p;
+	ReadStream *stream = NULL;
 
 	rel = relation_open(relid, AccessShareLock);
 
@@ -494,6 +512,20 @@ collect_visibility_data(Oid relid, bool include_pd)
 	info = palloc0(offsetof(vbits, bits) + nblocks);
 	info->next = 0;
 	info->count = nblocks;
+
+	/* Create a stream if reading main fork. */
+	if (include_pd)
+	{
+		p.current_blocknum = 0;
+		p.last_exclusive = nblocks;
+		stream = read_stream_begin_relation(READ_STREAM_FULL,
+											bstrategy,
+											rel,
+											MAIN_FORKNUM,
+											block_range_read_stream_cb,
+											&p,
+											0);
+	}
 
 	for (blkno = 0; blkno < nblocks; ++blkno)
 	{
@@ -519,8 +551,7 @@ collect_visibility_data(Oid relid, bool include_pd)
 			Buffer		buffer;
 			Page		page;
 
-			buffer = ReadBufferExtended(rel, MAIN_FORKNUM, blkno, RBM_NORMAL,
-										bstrategy);
+			buffer = read_stream_next_buffer(stream, NULL);
 			LockBuffer(buffer, BUFFER_LOCK_SHARE);
 
 			page = BufferGetPage(buffer);
@@ -531,12 +562,127 @@ collect_visibility_data(Oid relid, bool include_pd)
 		}
 	}
 
+	if (include_pd)
+	{
+		Assert(read_stream_next_buffer(stream, NULL) == InvalidBuffer);
+		read_stream_end(stream);
+	}
+
 	/* Clean up. */
 	if (vmbuffer != InvalidBuffer)
 		ReleaseBuffer(vmbuffer);
 	relation_close(rel, AccessShareLock);
 
 	return info;
+}
+
+/*
+ * The "strict" version of GetOldestNonRemovableTransactionId().  The
+ * pg_visibility check can tolerate false positives (don't report some of the
+ * errors), but can't tolerate false negatives (report false errors). Normally,
+ * horizons move forwards, but there are cases when it could move backward
+ * (see comment for ComputeXidHorizons()).
+ *
+ * This is why we have to implement our own function for xid horizon, which
+ * would be guaranteed to be newer or equal to any xid horizon computed before.
+ * We have to do the following to achieve this.
+ *
+ * 1. Ignore processes xmin's, because they consider connection to other
+ *    databases that were ignored before.
+ * 2. Ignore KnownAssignedXids, as they are not database-aware. Although we
+ *    now perform minimal checking on a standby by always using nextXid, this
+ *    approach is better than nothing and will at least catch extremely broken
+ *    cases where a xid is in the future.
+ * 3. Ignore walsender xmin, because it could go backward if some replication
+ *    connections don't use replication slots.
+ *
+ * While it might seem like we could use KnownAssignedXids for shared
+ * catalogs, since shared catalogs rely on a global horizon rather than a
+ * database-specific one - there are potential edge cases.  For example, a
+ * transaction may crash on the primary without writing a commit/abort record.
+ * This would lead to a situation where it appears to still be running on the
+ * standby, even though it has already ended on the primary.  For this reason,
+ * it's safer to ignore KnownAssignedXids, even for shared catalogs.
+ *
+ * As a result, we're using only currently running xids to compute the horizon.
+ * Surely these would significantly sacrifice accuracy.  But we have to do so
+ * to avoid reporting false errors.
+ */
+static TransactionId
+GetStrictOldestNonRemovableTransactionId(Relation rel)
+{
+	RunningTransactions runningTransactions;
+
+	if (RecoveryInProgress())
+	{
+		TransactionId result;
+
+		/* As we ignore KnownAssignedXids on standby, just pick nextXid */
+		LWLockAcquire(XidGenLock, LW_SHARED);
+		result = XidFromFullTransactionId(TransamVariables->nextXid);
+		LWLockRelease(XidGenLock);
+		return result;
+	}
+	else if (rel == NULL || rel->rd_rel->relisshared)
+	{
+		/* Shared relation: take into account all running xids */
+		runningTransactions = GetRunningTransactionData();
+		LWLockRelease(ProcArrayLock);
+		LWLockRelease(XidGenLock);
+		return runningTransactions->oldestRunningXid;
+	}
+	else if (!RELATION_IS_LOCAL(rel))
+	{
+		/*
+		 * Normal relation: take into account xids running within the current
+		 * database
+		 */
+		runningTransactions = GetRunningTransactionData();
+		LWLockRelease(ProcArrayLock);
+		LWLockRelease(XidGenLock);
+		return runningTransactions->oldestDatabaseRunningXid;
+	}
+	else
+	{
+		/*
+		 * For temporary relations, ComputeXidHorizons() uses only
+		 * TransamVariables->latestCompletedXid and MyProc->xid.  These two
+		 * shouldn't go backwards.  So we're fine with this horizon.
+		 */
+		return GetOldestNonRemovableTransactionId(rel);
+	}
+}
+
+/*
+ * Callback function to get next block for read stream object used in
+ * collect_corrupt_items() function.
+ */
+static BlockNumber
+collect_corrupt_items_read_stream_next_block(ReadStream *stream,
+											 void *callback_private_data,
+											 void *per_buffer_data)
+{
+	struct collect_corrupt_items_read_stream_private *p = callback_private_data;
+
+	for (; p->current_blocknum < p->last_exclusive; p->current_blocknum++)
+	{
+		bool		check_frozen = false;
+		bool		check_visible = false;
+
+		/* Make sure we are interruptible. */
+		CHECK_FOR_INTERRUPTS();
+
+		if (p->all_frozen && VM_ALL_FROZEN(p->rel, p->current_blocknum, &p->vmbuffer))
+			check_frozen = true;
+		if (p->all_visible && VM_ALL_VISIBLE(p->rel, p->current_blocknum, &p->vmbuffer))
+			check_visible = true;
+		if (!check_visible && !check_frozen)
+			continue;
+
+		return p->current_blocknum++;
+	}
+
+	return InvalidBlockNumber;
 }
 
 /*
@@ -557,25 +703,21 @@ static corrupt_items *
 collect_corrupt_items(Oid relid, bool all_visible, bool all_frozen)
 {
 	Relation	rel;
-	BlockNumber nblocks;
 	corrupt_items *items;
-	BlockNumber blkno;
 	Buffer		vmbuffer = InvalidBuffer;
 	BufferAccessStrategy bstrategy = GetAccessStrategy(BAS_BULKREAD);
 	TransactionId OldestXmin = InvalidTransactionId;
-
-	if (all_visible)
-	{
-		/* Don't pass rel; that will fail in recovery. */
-		OldestXmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
-	}
+	struct collect_corrupt_items_read_stream_private p;
+	ReadStream *stream;
+	Buffer		buffer;
 
 	rel = relation_open(relid, AccessShareLock);
 
 	/* Only some relkinds have a visibility map */
 	check_relation_relkind(rel);
 
-	nblocks = RelationGetNumberOfBlocks(rel);
+	if (all_visible)
+		OldestXmin = GetStrictOldestNonRemovableTransactionId(rel);
 
 	/*
 	 * Guess an initial array size. We don't expect many corrupted tuples, so
@@ -590,34 +732,38 @@ collect_corrupt_items(Oid relid, bool all_visible, bool all_frozen)
 	items->count = 64;
 	items->tids = palloc(items->count * sizeof(ItemPointerData));
 
+	p.current_blocknum = 0;
+	p.last_exclusive = RelationGetNumberOfBlocks(rel);
+	p.rel = rel;
+	p.vmbuffer = InvalidBuffer;
+	p.all_frozen = all_frozen;
+	p.all_visible = all_visible;
+	stream = read_stream_begin_relation(READ_STREAM_FULL,
+										bstrategy,
+										rel,
+										MAIN_FORKNUM,
+										collect_corrupt_items_read_stream_next_block,
+										&p,
+										0);
+
 	/* Loop over every block in the relation. */
-	for (blkno = 0; blkno < nblocks; ++blkno)
+	while ((buffer = read_stream_next_buffer(stream, NULL)) != InvalidBuffer)
 	{
-		bool		check_frozen = false;
-		bool		check_visible = false;
-		Buffer		buffer;
+		bool		check_frozen = all_frozen;
+		bool		check_visible = all_visible;
 		Page		page;
 		OffsetNumber offnum,
 					maxoff;
+		BlockNumber blkno;
 
 		/* Make sure we are interruptible. */
 		CHECK_FOR_INTERRUPTS();
 
-		/* Use the visibility map to decide whether to check this page. */
-		if (all_frozen && VM_ALL_FROZEN(rel, blkno, &vmbuffer))
-			check_frozen = true;
-		if (all_visible && VM_ALL_VISIBLE(rel, blkno, &vmbuffer))
-			check_visible = true;
-		if (!check_visible && !check_frozen)
-			continue;
-
-		/* Read and lock the page. */
-		buffer = ReadBufferExtended(rel, MAIN_FORKNUM, blkno, RBM_NORMAL,
-									bstrategy);
 		LockBuffer(buffer, BUFFER_LOCK_SHARE);
 
 		page = BufferGetPage(buffer);
 		maxoff = PageGetMaxOffsetNumber(page);
+		blkno = BufferGetBlockNumber(buffer);
 
 		/*
 		 * The visibility map bits might have changed while we were acquiring
@@ -680,11 +826,12 @@ collect_corrupt_items(Oid relid, bool all_visible, bool all_frozen)
 				 * From a concurrency point of view, it sort of sucks to
 				 * retake ProcArrayLock here while we're holding the buffer
 				 * exclusively locked, but it should be safe against
-				 * deadlocks, because surely GetOldestXmin() should never take
-				 * a buffer lock. And this shouldn't happen often, so it's
-				 * worth being careful so as to avoid false positives.
+				 * deadlocks, because surely
+				 * GetStrictOldestNonRemovableTransactionId() should never
+				 * take a buffer lock. And this shouldn't happen often, so
+				 * it's worth being careful so as to avoid false positives.
 				 */
-				RecomputedOldestXmin = GetOldestXmin(NULL, PROCARRAY_FLAGS_VACUUM);
+				RecomputedOldestXmin = GetStrictOldestNonRemovableTransactionId(rel);
 
 				if (!TransactionIdPrecedes(OldestXmin, RecomputedOldestXmin))
 					record_corrupt_item(items, &tuple.t_self);
@@ -709,10 +856,13 @@ collect_corrupt_items(Oid relid, bool all_visible, bool all_frozen)
 
 		UnlockReleaseBuffer(buffer);
 	}
+	read_stream_end(stream);
 
 	/* Clean up. */
 	if (vmbuffer != InvalidBuffer)
 		ReleaseBuffer(vmbuffer);
+	if (p.vmbuffer != InvalidBuffer)
+		ReleaseBuffer(p.vmbuffer);
 	relation_close(rel, AccessShareLock);
 
 	/*
@@ -779,11 +929,10 @@ tuple_all_visible(HeapTuple tup, TransactionId OldestXmin, Buffer buffer)
 static void
 check_relation_relkind(Relation rel)
 {
-	if (rel->rd_rel->relkind != RELKIND_RELATION &&
-		rel->rd_rel->relkind != RELKIND_MATVIEW &&
-		rel->rd_rel->relkind != RELKIND_TOASTVALUE)
+	if (!RELKIND_HAS_TABLE_AM(rel->rd_rel->relkind))
 		ereport(ERROR,
 				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
-				 errmsg("\"%s\" is not a table, materialized view, or TOAST table",
-						RelationGetRelationName(rel))));
+				 errmsg("relation \"%s\" is of wrong relation kind",
+						RelationGetRelationName(rel)),
+				 errdetail_relkind_not_supported(rel->rd_rel->relkind)));
 }

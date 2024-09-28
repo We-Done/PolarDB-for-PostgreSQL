@@ -1,46 +1,50 @@
+
+# Copyright (c) 2021-2024, PostgreSQL Global Development Group
+
 use strict;
-use warnings;
-use TestLib;
-use PostgresNode;
+use warnings FATAL => 'all';
+
+use FindBin;
+use lib "$FindBin::RealBin/..";
+
+use File::Copy;
+use File::Basename;
+use LdapServer;
+use PostgreSQL::Test::Utils;
+use PostgreSQL::Test::Cluster;
 use Test::More;
 
+<<<<<<< HEAD
 if ($ENV{with_ldap} eq 'yes')
 {
 	plan tests => 22;
 }
 else
+=======
+if ($ENV{with_ldap} ne 'yes')
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 {
 	plan skip_all => 'LDAP not supported by this build';
 }
-
-my ($slapd, $ldap_bin_dir, $ldap_schema_dir);
-
-$ldap_bin_dir = undef;    # usually in PATH
-
-if ($^O eq 'darwin')
+elsif (!$ENV{PG_TEST_EXTRA} || $ENV{PG_TEST_EXTRA} !~ /\bldap\b/)
 {
-	$slapd           = '/usr/local/opt/openldap/libexec/slapd';
-	$ldap_schema_dir = '/usr/local/etc/openldap/schema';
+	plan skip_all =>
+	  'Potentially unsafe test LDAP not enabled in PG_TEST_EXTRA';
 }
-elsif ($^O eq 'linux')
+elsif (!$LdapServer::setup)
 {
-	$slapd           = '/usr/sbin/slapd';
-	$ldap_schema_dir = '/etc/ldap/schema' if -d '/etc/ldap/schema';
-	$ldap_schema_dir = '/etc/openldap/schema' if -d '/etc/openldap/schema';
-}
-elsif ($^O eq 'freebsd')
-{
-	$slapd           = '/usr/local/libexec/slapd';
-	$ldap_schema_dir = '/usr/local/etc/openldap/schema';
+	plan skip_all => $LdapServer::setup_error;
 }
 
-# make your own edits here
-#$slapd = '';
-#$ldap_bin_dir = '';
-#$ldap_schema_dir = '';
+note "setting up LDAP server";
 
-$ENV{PATH} = "$ldap_bin_dir:$ENV{PATH}" if $ldap_bin_dir;
+my $ldap_rootpw = 'secret';
+my $ldap = LdapServer->new($ldap_rootpw, 'anonymous');    # use anonymous auth
+$ldap->ldapadd_file('authdata.ldif');
+$ldap->ldapsetpw('uid=test1,dc=example,dc=net', 'secret1');
+$ldap->ldapsetpw('uid=test2,dc=example,dc=net', 'secret2');
 
+<<<<<<< HEAD
 my $ldap_datadir  = "${TestLib::tmp_check}/openldap-data";
 my $slapd_certs   = "${TestLib::tmp_check}/slapd-certs";
 my $slapd_conf    = "${TestLib::tmp_check}/slapd.conf";
@@ -140,11 +144,20 @@ system_or_bail 'ldappasswd', '-x', '-y', $ldap_pwfile, '-s', 'secret1',
   'uid=test1,dc=example,dc=net';
 system_or_bail 'ldappasswd', '-x', '-y', $ldap_pwfile, '-s', 'secret2',
   'uid=test2,dc=example,dc=net';
+=======
+my ($ldap_server, $ldap_port, $ldaps_port, $ldap_url,
+	$ldaps_url, $ldap_basedn, $ldap_rootdn
+) = $ldap->prop(qw(server port s_port url s_url basedn rootdn));
+
+# don't bother to check the server's cert (though perhaps we should)
+$ENV{'LDAPTLS_REQCERT'} = "never";
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 note "setting up PostgreSQL instance";
 
-my $node = get_new_node('node');
+my $node = PostgreSQL::Test::Cluster->new('node');
 $node->init;
+$node->append_conf('postgresql.conf', "log_connections = on\n");
 $node->start;
 
 $node->safe_psql('postgres', 'CREATE USER test0;');
@@ -155,13 +168,28 @@ note "running tests";
 
 sub test_access
 {
-	my ($node, $role, $expected_res, $test_name) = @_;
+	local $Test::Builder::Level = $Test::Builder::Level + 1;
 
+<<<<<<< HEAD
 	my $res =
 	  $node->psql('postgres', undef,
 				  extra_params => [ '-U', $role, '-c', 'SELECT 1' ]);
 	is($res, $expected_res, $test_name);
 	return;
+=======
+	my ($node, $role, $expected_res, $test_name, %params) = @_;
+	my $connstr = "user=$role";
+
+	if ($expected_res eq 0)
+	{
+		$node->connect_ok($connstr, $test_name, %params);
+	}
+	else
+	{
+		# No checks of the error message, only the status code.
+		$node->connect_fails($connstr, $test_name, %params);
+	}
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 }
 
 note "simple bind";
@@ -173,18 +201,55 @@ $node->append_conf('pg_hba.conf',
 $node->restart;
 
 $ENV{"PGPASSWORD"} = 'wrong';
-test_access($node, 'test0', 2,
-	'simple bind authentication fails if user not found in LDAP');
-test_access($node, 'test1', 2,
-	'simple bind authentication fails with wrong password');
+test_access(
+	$node, 'test0', 2,
+	'simple bind authentication fails if user not found in LDAP',
+	log_unlike => [qr/connection authenticated:/]);
+test_access(
+	$node, 'test1', 2,
+	'simple bind authentication fails with wrong password',
+	log_unlike => [qr/connection authenticated:/]);
+
 $ENV{"PGPASSWORD"} = 'secret1';
-test_access($node, 'test1', 0, 'simple bind authentication succeeds');
+test_access(
+	$node, 'test1', 0,
+	'simple bind authentication succeeds',
+	log_like => [
+		qr/connection authenticated: identity="uid=test1,dc=example,dc=net" method=ldap/
+	],);
+
+# require_auth=password should complete successfully; other methods should fail.
+$node->connect_ok("user=test1 require_auth=password",
+	"password authentication required, works with ldap auth");
+$node->connect_fails("user=test1 require_auth=scram-sha-256",
+	"SCRAM authentication required, fails with ldap auth");
 
 note "search+bind";
 
 unlink($node->data_dir . '/pg_hba.conf');
 $node->append_conf('pg_hba.conf',
 	qq{local all all ldap ldapserver=$ldap_server ldapport=$ldap_port ldapbasedn="$ldap_basedn"}
+);
+$node->restart;
+
+$ENV{"PGPASSWORD"} = 'wrong';
+test_access($node, 'test0', 2,
+	'search+bind authentication fails if user not found in LDAP');
+test_access($node, 'test1', 2,
+	'search+bind authentication fails with wrong password');
+$ENV{"PGPASSWORD"} = 'secret1';
+test_access(
+	$node, 'test1', 0,
+	'search+bind authentication succeeds',
+	log_like => [
+		qr/connection authenticated: identity="uid=test1,dc=example,dc=net" method=ldap/
+	],);
+
+note "multiple servers";
+
+unlink($node->data_dir . '/pg_hba.conf');
+$node->append_conf('pg_hba.conf',
+	qq{local all all ldap ldapserver="$ldap_server $ldap_server" ldapport=$ldap_port ldapbasedn="$ldap_basedn"}
 );
 $node->restart;
 
@@ -216,6 +281,22 @@ note "LDAP URLs";
 
 unlink($node->data_dir . '/pg_hba.conf');
 $node->append_conf('pg_hba.conf',
+	qq{local all all ldap ldapurl="$ldap_url" ldapprefix="uid=" ldapsuffix=",dc=example,dc=net"}
+);
+$node->restart;
+
+$ENV{"PGPASSWORD"} = 'wrong';
+test_access($node, 'test0', 2,
+	'simple bind with LDAP URL authentication fails if user not found in LDAP'
+);
+test_access($node, 'test1', 2,
+	'simple bind with LDAP URL authentication fails with wrong password');
+$ENV{"PGPASSWORD"} = 'secret1';
+test_access($node, 'test1', 0,
+	'simple bind with LDAP URL authentication succeeds');
+
+unlink($node->data_dir . '/pg_hba.conf');
+$node->append_conf('pg_hba.conf',
 	qq{local all all ldap ldapurl="$ldap_url/$ldap_basedn?uid?sub"});
 $node->restart;
 
@@ -238,9 +319,21 @@ $node->append_conf('pg_hba.conf',
 $node->restart;
 
 $ENV{"PGPASSWORD"} = 'secret1';
-test_access($node, 'test1', 0, 'search filter finds by uid');
+test_access(
+	$node, 'test1', 0,
+	'search filter finds by uid',
+	log_like => [
+		qr/connection authenticated: identity="uid=test1,dc=example,dc=net" method=ldap/
+	],);
 $ENV{"PGPASSWORD"} = 'secret2';
-test_access($node, 'test2@example.net', 0, 'search filter finds by mail');
+test_access(
+	$node,
+	'test2@example.net',
+	0,
+	'search filter finds by mail',
+	log_like => [
+		qr/connection authenticated: identity="uid=test2,dc=example,dc=net" method=ldap/
+	],);
 
 note "search filters in LDAP URLs";
 
@@ -320,3 +413,5 @@ $node->restart;
 
 $ENV{"PGPASSWORD"} = 'secret1';
 test_access($node, 'test1', 2, 'bad combination of LDAPS and StartTLS');
+
+done_testing();

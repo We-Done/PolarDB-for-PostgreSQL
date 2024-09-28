@@ -4,7 +4,7 @@
  *	  fetch tuples from a GiST scan.
  *
  *
- * Portions Copyright (c) 1996-2018, PostgreSQL Global Development Group
+ * Portions Copyright (c) 1996-2024, PostgreSQL Global Development Group
  * Portions Copyright (c) 1994, Regents of the University of California
  *
  * IDENTIFICATION
@@ -14,15 +14,14 @@
  */
 #include "postgres.h"
 
+#include "access/genam.h"
 #include "access/gist_private.h"
 #include "access/relscan.h"
-#include "catalog/pg_type.h"
-#include "miscadmin.h"
-#include "storage/lmgr.h"
-#include "storage/predicate.h"
-#include "pgstat.h"
 #include "lib/pairingheap.h"
-#include "utils/builtins.h"
+#include "miscadmin.h"
+#include "pgstat.h"
+#include "storage/predicate.h"
+#include "utils/float.h"
 #include "utils/memutils.h"
 #include "utils/rel.h"
 
@@ -75,7 +74,7 @@ gistkillitems(IndexScanDesc scan)
 
 	/*
 	 * Mark all killedItems as dead. We need no additional recheck, because,
-	 * if page was modified, pageLSN must have changed.
+	 * if page was modified, curPageLSN must have changed.
 	 */
 	for (i = 0; i < so->numKilled; i++)
 	{
@@ -168,7 +167,7 @@ gistindex_keytest(IndexScanDesc scan,
 
 		datum = index_getattr(tuple,
 							  key->sk_attno,
-							  giststate->tupdesc,
+							  giststate->leafTupdesc,
 							  &isNull);
 
 		if (key->sk_flags & SK_ISNULL)
@@ -249,7 +248,7 @@ gistindex_keytest(IndexScanDesc scan,
 
 		datum = index_getattr(tuple,
 							  key->sk_attno,
-							  giststate->tupdesc,
+							  giststate->leafTupdesc,
 							  &isNull);
 
 		if ((key->sk_flags & SK_ISNULL) || isNull)
@@ -348,7 +347,6 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 	PredicateLockPage(r, BufferGetBlockNumber(buffer), scan->xs_snapshot);
 	gistcheckpage(scan->indexRelation, buffer);
 	page = BufferGetPage(buffer);
-	TestForOldSnapshot(scan->xs_snapshot, r, page);
 	opaque = GistPageGetOpaque(page);
 
 	/*
@@ -382,6 +380,20 @@ gistScanPage(IndexScanDesc scan, GISTSearchItem *pageItem,
 		pairingheap_add(so->queue, &item->phNode);
 
 		MemoryContextSwitchTo(oldcxt);
+	}
+
+	/*
+	 * Check if the page was deleted after we saw the downlink. There's
+	 * nothing of interest on a deleted page. Note that we must do this after
+	 * checking the NSN for concurrent splits! It's possible that the page
+	 * originally contained some tuples that are visible to us, but was split
+	 * so that all the visible tuples were moved to another page, and then
+	 * this page was deleted.
+	 */
+	if (GistPageIsDeleted(page))
+	{
+		UnlockReleaseBuffer(buffer);
+		return;
 	}
 
 	so->nPageData = so->curPageData = 0;
@@ -552,7 +564,6 @@ getNextNearest(IndexScanDesc scan)
 {
 	GISTScanOpaque so = (GISTScanOpaque) scan->opaque;
 	bool		res = false;
-	int			i;
 
 	if (scan->xs_hitup)
 	{
@@ -571,8 +582,9 @@ getNextNearest(IndexScanDesc scan)
 		if (GISTSearchItemIsHeap(*item))
 		{
 			/* found a heap item at currently minimal distance */
-			scan->xs_ctup.t_self = item->data.heap.heapPtr;
+			scan->xs_heaptid = item->data.heap.heapPtr;
 			scan->xs_recheck = item->data.heap.recheck;
+<<<<<<< HEAD
 			scan->xs_recheckorderby = item->data.heap.recheckDistances;
 			for (i = 0; i < scan->numberOfOrderBys; i++)
 			{
@@ -612,6 +624,12 @@ getNextNearest(IndexScanDesc scan)
 					scan->xs_orderbynulls[i] = true;
 				}
 			}
+=======
+
+			index_store_float8_orderby_distances(scan, so->orderByTypes,
+												 item->distances,
+												 item->data.heap.recheckDistances);
+>>>>>>> c1ff2d8bc5be55e302731a16aaff563b7f03ed7c
 
 			/* in an index-only scan, also return the reconstructed tuple. */
 			if (scan->xs_want_itup)
@@ -683,7 +701,7 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 					if (so->killedItems == NULL)
 					{
 						MemoryContext oldCxt =
-						MemoryContextSwitchTo(so->giststate->scanCxt);
+							MemoryContextSwitchTo(so->giststate->scanCxt);
 
 						so->killedItems =
 							(OffsetNumber *) palloc(MaxIndexTuplesPerPage
@@ -696,7 +714,7 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 							so->pageData[so->curPageData - 1].offnum;
 				}
 				/* continuing to return tuples from a leaf page */
-				scan->xs_ctup.t_self = so->pageData[so->curPageData].heapPtr;
+				scan->xs_heaptid = so->pageData[so->curPageData].heapPtr;
 				scan->xs_recheck = so->pageData[so->curPageData].recheck;
 
 				/* in an index-only scan, also return the reconstructed tuple */
@@ -709,7 +727,7 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 			}
 
 			/*
-			 * Check the last returned tuple and add it to killitems if
+			 * Check the last returned tuple and add it to killedItems if
 			 * necessary
 			 */
 			if (scan->kill_prior_tuple
@@ -720,7 +738,7 @@ gistgettuple(IndexScanDesc scan, ScanDirection dir)
 				if (so->killedItems == NULL)
 				{
 					MemoryContext oldCxt =
-					MemoryContextSwitchTo(so->giststate->scanCxt);
+						MemoryContextSwitchTo(so->giststate->scanCxt);
 
 					so->killedItems =
 						(OffsetNumber *) palloc(MaxIndexTuplesPerPage
@@ -819,11 +837,13 @@ gistgetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
  *
  * Opclasses that implement a fetch function support index-only scans.
  * Opclasses without compression functions also support index-only scans.
+ * Included attributes always can be fetched for index-only scans.
  */
 bool
 gistcanreturn(Relation index, int attno)
 {
-	if (OidIsValid(index_getprocid(index, attno, GIST_FETCH_PROC)) ||
+	if (attno > IndexRelationGetNumberOfKeyAttributes(index) ||
+		OidIsValid(index_getprocid(index, attno, GIST_FETCH_PROC)) ||
 		!OidIsValid(index_getprocid(index, attno, GIST_COMPRESS_PROC)))
 		return true;
 	else
